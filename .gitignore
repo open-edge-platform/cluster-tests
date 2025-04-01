@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Workspace artifacts
+.idea
+_workspace
+
+# Golang vendor folder
+vendor
+
+# Ginkgo test artifact
+tests/**/*.test
+
+# charts
+*.tgz
+
+# CI folder cloned by CI runner
+ci

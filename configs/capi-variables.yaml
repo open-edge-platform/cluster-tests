@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: capi-variables
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: capi-variables
+  namespace: capi-variables
+type: Opaque
+stringData:
+  CLUSTER_TOPOLOGY: "true"

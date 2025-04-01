@@ -1,0 +1,13 @@
+{
+  "name": "{{.ClusterName}}",
+  "template": "{{.TemplateName}}",
+  "nodes": [
+    {
+      "id": "{{.NodeGUID}}",
+      "role": "all"
+    }
+  ],
+  "labels": {
+    "users-label": "user-value"
+  }
+}

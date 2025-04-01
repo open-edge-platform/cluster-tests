@@ -1,0 +1,182 @@
+# SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# .test-dependencies.yaml
+# This YAML file defines the dependencies for the test bootstrap step. It specifies build steps for various dependencies
+# required for the test environment. The file contains the following fields:
+#
+# Fields:
+# - kind-cluster-config: Specifies the configuration file for the kind cluster.
+#
+# - components: A list of components, each with its own configuration:
+#   - name: The name of the component.
+#   - skip-component: A flag to skip the component during the build process (true/false).
+#   - skip-local-build: A flag to skip the local build of the component (true/false).
+#   - pre-install-commands: Commands to run before installing the component.
+#   - helm-repo: Details for the Helm repositories, including:
+#       - url: The URL of the Helm repository.
+#         release-name: The release name for the Helm chart.
+#         package: The Helm chart package name.
+#         namespace: The Kubernetes namespace for the Helm release.
+#         version: The version of the Helm chart.
+#         overrides: The Helm chart overrides.
+#   - git-repo:
+#       url: The Git URL of the component's repository.
+#       version: The Git branch/tag/commit of the component to use.
+#   - make-directory: The directory containing the Makefile.
+#   - make-variables: Variables to pass to the `make` command.
+#   - make-targets: `make` targets to build the component.
+#   - post-install-commands: Commands to run after installing the component.
+---
+kind-cluster-config: configs/kind-cluster-with-extramounts.yaml
+
+components:
+  # Cluster API Provider Intel
+  - name: cluster-api-provider-intel
+    skip-component: false
+    skip-local-build: true
+    pre-install-commands: []
+    helm-repo:
+      - url: "oci://registry-rs.edgeorchestration.intel.com"
+        release-name: "intel-infra-provider"
+        package: "edge-orch/cluster/charts/intel-infra-provider"
+        namespace: "default"
+        version: ""  # Use the latest version when nil
+        overrides: "--set metrics.serviceMonitor.enabled=false --set manager.extraArgs.use-inv-stub=true
+        --set southboundApi.extraArgs.useGrpcStubMiddleware=true
+        --set manager.image.repository=registry-rs.edgeorchestration.intel.com/edge-orch/cluster/capi-provider-intel-manager
+        --set southboundApi.image.repository=registry-rs.edgeorchestration.intel.com/edge-orch/cluster/capi-provider-intel-southbound"
+      - url: "oci://registry-rs.edgeorchestration.intel.com"
+        release-name: "intel-infra-provider-crds"
+        package: "edge-orch/cluster/charts/intel-infra-provider-crds"
+        namespace: "default"
+        version: ""  # Use the latest version when nil
+        overrides: ""
+    git-repo:
+      url: https://github.com/open-edge-platform/cluster-api-provider-intel.git
+      version: main
+    make-directory: ""
+    make-variables:
+      - USE_GRPC_MIDDLEWARE_STUB=true  # Enable this flag to use the gRPC middleware stub. Skips jwt auth on SB-API
+      - USE_INV_STUB=true  # Enable this flag to use the Inventory stub. Inventory stub is used when we are not installing Inventory
+    make-targets:
+      - kind-load
+      - helm-install
+    post-install-commands:
+      ##################################################################################
+      # Install the CAPI operator and default control plane and infra providers -- start
+      ##################################################################################
+      # Install cert-manager
+      - kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.16.0/cert-manager.yaml
+      # Wait for cert-manager to be ready
+      - kubectl wait --for=condition=Available --timeout=300s deployment.apps/cert-manager-webhook -n cert-manager
+      - kubectl wait --for=condition=Available --timeout=300s deployment.apps/cert-manager-cainjector -n cert-manager
+      - kubectl wait --for=condition=Available --timeout=300s deployment.apps/cert-manager -n cert-manager
+      # Install the CAPI operator and default control plane and infra providers
+      - helm repo add capi-operator https://kubernetes-sigs.github.io/cluster-api-operator
+      - helm repo add jetstack https://charts.jetstack.io
+      - helm repo update
+      - kubectl apply -f ../../configs/capi-variables.yaml --force
+      # Use envsubst to substitute the environment variables in the YAML file
+      - envsubst < ../../configs/capi-operator.yaml > /tmp/capi-operator.yaml
+      - helm install capi-operator capi-operator/cluster-api-operator --create-namespace -n capi-operator-system -f /tmp/capi-operator.yaml --wait --timeout 5m --version 0.15.1
+      # Wait for the CAPI operator to be ready
+      - until kubectl get -n capi-operator-system deployment/capi-operator-cluster-api-operator >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace capi-operator-system deployment/capi-operator-cluster-api-operator --for=condition=available --timeout=5m
+      - until kubectl get -n capi-system deployment/capi-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace capi-system deployment/capi-controller-manager --for=condition=available --timeout=5m
+      # Install the default control plane and infra providers
+      - until kubectl get -n docker-infrastructure-system deployment/capd-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace docker-infrastructure-system deployment/capd-controller-manager --for=condition=available --timeout=5m
+      - until kubectl get -n kubeadm-bootstrap-system deployment/capi-kubeadm-bootstrap-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace kubeadm-bootstrap-system deployment/capi-kubeadm-bootstrap-controller-manager --for=condition=available --timeout=5m
+      - until kubectl get -n kubeadm-control-plane-system deployment/capi-kubeadm-control-plane-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace kubeadm-control-plane-system deployment/capi-kubeadm-control-plane-controller-manager --for=condition=available --timeout=5m
+      - until kubectl get -n rke2-bootstrap-system deployment/rke2-bootstrap-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace rke2-bootstrap-system deployment/rke2-bootstrap-controller-manager --for=condition=available --timeout=5m
+      - until kubectl get -n rke2-control-plane-system deployment/rke2-control-plane-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace rke2-control-plane-system deployment/rke2-control-plane-controller-manager --for=condition=available --timeout=5m
+      ##################################################################################
+      # Install the CAPI operator and default control plane and infra providers -- end
+      ##################################################################################
+      - kubectl delete -f config/crd/deps/cluster.edge-orchestrator.intel.com_clusterconnects.yaml || true
+
+  # Cluster Connect Gateway
+  - name: cluster-connect-gateway
+    skip-component: false
+    skip-local-build: true
+    pre-install-commands: []
+    helm-repo:
+      - url: "oci://registry-rs.edgeorchestration.intel.com"
+        release-name: "cluster-connect-gateway"
+        package: "edge-orch/cluster/charts/cluster-connect-gateway"
+        namespace: "default"
+        version: ""  # Use the latest version when nil
+        overrides: "--set controller.privateCA.enabled=false"
+      - url: "oci://registry-rs.edgeorchestration.intel.com"
+        release-name: "cluster-connect-gateway-crd"
+        package: "edge-orch/cluster/charts/cluster-connect-gateway-crd"
+        namespace: "default"
+        version: ""  # Use the latest version when nil
+        overrides: ""
+    git-repo:
+      url: https://github.com/open-edge-platform/cluster-connect-gateway.git
+      version: main
+    make-directory: ""
+    make-variables:
+      - KIND_CLUSTER=kind
+      - NAMESPACE=default
+      - HELM_VARS="--set controller.privateCA.enabled=false --set agent.image.tag=latest"
+    make-targets:
+      - docker-build
+      - docker-load
+      - helm-install
+    post-install-commands:
+      - CONNECT_GATEWAY_IP=$(kubectl get svc cluster-connect-gateway -o go-template="{{ .spec.clusterIP }}") envsubst < ../../configs/conredns-config.yaml | kubectl apply -f -
+
+  # Cluster Manager
+  - name: cluster-manager
+    skip-component: false
+    skip-local-build: true
+    pre-install-commands: []
+    helm-repo:
+      - url: "oci://registry-rs.edgeorchestration.intel.com"
+        release-name: "cluster-manager"
+        package: "edge-orch/cluster/charts/cluster-manager"
+        namespace: "default"
+        version: ""  # Use the latest version when nil
+        overrides: "--set clusterManager.extraArgs.disable-mt=true --set clusterManager.extraArgs.disable-auth=true --set clusterManager.extraArgs.disable-inventory=true"
+      - url: "oci://registry-rs.edgeorchestration.intel.com"
+        release-name: "cluster-template-crd"
+        package: "edge-orch/cluster/charts/cluster-template-crd"
+        namespace: "default"
+        version: ""  # Use the latest version when nil
+        overrides: ""
+    git-repo:
+      url: https://github.com/open-edge-platform/cluster-manager.git
+      version: main
+    make-variables:
+      - KIND_CLUSTER=kind
+      - DISABLE_MT=true  # Enable this flag to disable the multi-tenancy feature. This is required for the test environment where no MT controllers are installed
+      - DISABLE_AUTH=true  # Should be true for CO subsystem integration tests if keycloak is not deployed
+      - DISABLE_INV=true  # Should be true for CO subsystem integration tests if inventory is not deployed
+    make-targets:
+      - helm-install
+    make-directory: ""
+    post-install-commands: []
+
+  # Cluster Agent on LW-ENiC
+  - name: cluster-agent
+    skip-component: false
+    skip-local-build: false
+    pre-install-commands: []
+    helm-repo:
+      - url: ""
+        release-name: ""
+        package: ""
+        namespace: ""
+        version: ""
+        overrides: ""
+    git-repo:
+      url: https://github.com/open-edge-platform/edge-node-agents.git
+      version: lw-enic
+    make-directory: "cluster-agent/enic/"
+    make-variables: []
+    make-targets:
+      - build-enic-docker      # Enable this if you want to build the enic docker image. This usually is a time-consuming process
+      - load-enic-docker       # Enable this if you want to load the enic docker image that you build to the kind cluster
+      - run-enic-pod
+    post-install-commands: []

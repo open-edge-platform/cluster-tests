@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+---
+
+name: Pre-Merge CI Pipeline
+
+on:
+  pull_request:
+    branches:
+      - main
+      - release-*
+  workflow_dispatch: 
+
+jobs:
+  pre-merge:
+    uses: open-edge-platform/orch-ci/.github/workflows/pre-merge.yml@main
+    with:
+      run_security_scans: true
+      run_version_check: true
+      run_dep_version_check: false
+      run_build: false
+      run_lint: true
+      run_test: false ## Requires large runners. Tests are being run as part of another job with large runner
+      run_validate_clean_folder: false
+      run_docker_build: false
+      run_scan_containers: false
+      run_artifact: false
+      run_reuse_check: true
+    secrets: inherit
