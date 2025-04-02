@@ -20,21 +20,24 @@ import (
 )
 
 const (
-	defaultNamespace            = "53cd37b9-66b2-4cc8-b080-3722ed7af64a"
-	defaultNodeGUID             = "12345678-1234-1234-1234-123456789012"
-	namespaceEnvVar             = "NAMESPACE"
-	nodeGUIDEnvVar              = "NODEGUID"
-	clusterName                 = "demo-cluster"
-	clusterTemplateName         = "baseline-v0.0.1"
-	clusterOrchFunctionalTest   = "cluster-orch-functional-test"
-	portForwardAddress          = "0.0.0.0"
-	portForwardService          = "svc/cluster-manager"
-	portForwardLocalPort        = "8080"
-	portForwardRemotePort       = "8080"
-	clusterTemplateURL          = "http://127.0.0.1:8080/v2/templates"
-	clusterCreateURL            = "http://127.0.0.1:8080/v2/clusters"
-	clusterConfigTemplatePath   = "../../configs/cluster-config.json"
-	baselineClusterTemplatePath = "../../configs/baseline-cluster-template.json"
+	defaultNamespace             = "53cd37b9-66b2-4cc8-b080-3722ed7af64a"
+	defaultNodeGUID              = "12345678-1234-1234-1234-123456789012"
+	namespaceEnvVar              = "NAMESPACE"
+	nodeGUIDEnvVar               = "NODEGUID"
+	clusterName                  = "demo-cluster"
+	clusterTemplateName          = "baseline-v0.0.1"
+	clusterOrchFunctionalTest    = "cluster-orch-functional-test"
+	portForwardAddress           = "0.0.0.0"
+	portForwardService           = "svc/cluster-manager"
+	portForwardGatewayService    = "svc/cluster-connect-gateway"
+	portForwardLocalPort         = "8080"
+	portForwardRemotePort        = "8080"
+	portForwardGatewayLocalPort  = "8081"
+	portForwardGatewayRemotePort = "8080"
+	clusterTemplateURL           = "http://127.0.0.1:8080/v2/templates"
+	clusterCreateURL             = "http://127.0.0.1:8080/v2/clusters"
+	clusterConfigTemplatePath    = "../../configs/cluster-config.json"
+	baselineClusterTemplatePath  = "../../configs/baseline-cluster-template.json"
 )
 
 var (
@@ -52,6 +55,7 @@ var _ = Describe("Cluster Orch Functional tests", Ordered, Label(clusterOrchFunc
 		namespace              string
 		nodeGUID               string
 		portForwardCmd         *exec.Cmd
+		gatewayPortForward     *exec.Cmd
 		clusterCreateStartTime time.Time
 		clusterCreateEndTime   time.Time
 	)
@@ -68,6 +72,12 @@ var _ = Describe("Cluster Orch Functional tests", Ordered, Label(clusterOrchFunc
 		By("Port forwarding to the cluster manager service")
 		portForwardCmd = exec.Command("kubectl", "port-forward", portForwardService, fmt.Sprintf("%s:%s", portForwardLocalPort, portForwardRemotePort), "--address", portForwardAddress)
 		err = portForwardCmd.Start()
+		Expect(err).NotTo(HaveOccurred())
+		time.Sleep(5 * time.Second) // Give some time for port-forwarding to establish
+
+		By("Port forwarding to the cluster gateway service")
+		gatewayPortForward = exec.Command("kubectl", "port-forward", portForwardGatewayService, fmt.Sprintf("%s:%s", portForwardGatewayLocalPort, portForwardGatewayRemotePort), "--address", portForwardAddress)
+		err = gatewayPortForward.Start()
 		Expect(err).NotTo(HaveOccurred())
 		time.Sleep(5 * time.Second) // Give some time for port-forwarding to establish
 
@@ -161,6 +171,25 @@ var _ = Describe("Cluster Orch Functional tests", Ordered, Label(clusterOrchFunc
 		fmt.Printf("TODO: Implement this test\n")
 	})
 
+	It("TC-CO-INT-008: Should verify that the connect gateway allow access to k8s api", func() {
+		// cmd := exec.Command("curl", "-X", "GET", fmt.Sprintf("127.0.0.1:%v/kubernetes/%v-%v/api/v1/namespaces/default/pods", portForwardGatewayLocalPort, namespace, clusterName))
+		By("Getting kubeconfig")
+		fmt.Println(clusterName)
+		cmd := exec.Command("clusterctl", "get", "kubeconfig", clusterName, "--namespace", defaultNamespace) // ">", "kubeconfig.yaml")
+		output, err := cmd.Output()
+		Expect(err).NotTo(HaveOccurred())
+		kubeConfigName := "kubeconfig.yaml"
+		err = os.WriteFile(kubeConfigName, output, 0644)
+		Expect(err).NotTo(HaveOccurred())
+		By("Setting in kubeconfig server to cluster connect gateway")
+		cmd = exec.Command("sed", "-i", "s|http://[[:alnum:].-]*:8080/|http://127.0.0.1:8081/|", "kubeconfig.yaml")
+		_, err = cmd.Output()
+		Expect(err).NotTo(HaveOccurred())
+		By("Getting list of pods")
+		cmd = exec.Command("kubectl", "--kubeconfig", "kubeconfig.yaml", "get", "pods")
+		_, err = cmd.Output()
+		Expect(err).NotTo(HaveOccurred())
+	})
 	// TODO: Add more functional tests
 })
 

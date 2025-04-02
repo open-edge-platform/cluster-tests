@@ -4,6 +4,7 @@
 package smoke_test
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"io"
@@ -20,21 +21,24 @@ import (
 )
 
 const (
-	defaultNamespace            = "53cd37b9-66b2-4cc8-b080-3722ed7af64a"
-	defaultNodeGUID             = "12345678-1234-1234-1234-123456789012"
-	namespaceEnvVar             = "NAMESPACE"
-	nodeGUIDEnvVar              = "NODEGUID"
-	clusterName                 = "demo-cluster"
-	clusterTemplateName         = "baseline-v0.0.1"
-	clusterOrchSmoke            = "cluster-orch-smoke-test"
-	portForwardAddress          = "0.0.0.0"
-	portForwardService          = "svc/cluster-manager"
-	portForwardLocalPort        = "8080"
-	portForwardRemotePort       = "8080"
-	clusterTemplateURL          = "http://127.0.0.1:8080/v2/templates"
-	clusterCreateURL            = "http://127.0.0.1:8080/v2/clusters"
-	clusterConfigTemplatePath   = "../../configs/cluster-config.json"
-	baselineClusterTemplatePath = "../../configs/baseline-cluster-template.json"
+	defaultNamespace             = "53cd37b9-66b2-4cc8-b080-3722ed7af64a"
+	defaultNodeGUID              = "12345678-1234-1234-1234-123456789012"
+	namespaceEnvVar              = "NAMESPACE"
+	nodeGUIDEnvVar               = "NODEGUID"
+	clusterName                  = "demo-cluster"
+	clusterTemplateName          = "baseline-v0.0.1"
+	clusterOrchSmoke             = "cluster-orch-smoke-test"
+	portForwardAddress           = "0.0.0.0"
+	portForwardService           = "svc/cluster-manager"
+	portForwardGatewayService    = "svc/cluster-connect-gateway"
+	portForwardGatewayLocalPort  = "8081"
+	portForwardGatewayRemotePort = "8080"
+	portForwardLocalPort         = "8080"
+	portForwardRemotePort        = "8080"
+	clusterTemplateURL           = "http://127.0.0.1:8080/v2/templates"
+	clusterCreateURL             = "http://127.0.0.1:8080/v2/clusters"
+	clusterConfigTemplatePath    = "../../configs/cluster-config.json"
+	baselineClusterTemplatePath  = "../../configs/baseline-cluster-template.json"
 )
 
 var (
@@ -49,6 +53,7 @@ func TestClusterOrchSmokeTest(t *testing.T) {
 
 var _ = Describe("TC-CO-INT-001: Single Node RKE2 Cluster Create and Delete using Cluster Manager APIs", Ordered, Label(clusterOrchSmoke), func() {
 	var (
+		gatewayPortForward     *exec.Cmd
 		namespace              string
 		nodeGUID               string
 		portForwardCmd         *exec.Cmd
@@ -86,12 +91,22 @@ var _ = Describe("TC-CO-INT-001: Single Node RKE2 Cluster Create and Delete usin
 		By("Creating the cluster")
 		err = createCluster(namespace, nodeGUID)
 		Expect(err).NotTo(HaveOccurred())
+
+		By("Port forwarding to the cluster gateway service")
+		gatewayPortForward = exec.Command("kubectl", "port-forward", portForwardGatewayService, fmt.Sprintf("%s:%s", portForwardGatewayLocalPort, portForwardGatewayRemotePort), "--address", portForwardAddress)
+		err = gatewayPortForward.Start()
+		Expect(err).NotTo(HaveOccurred())
+		time.Sleep(5 * time.Second) // Give some time for port-forwarding to establish
+
 	})
 
 	AfterEach(func() {
 		defer func() {
 			if portForwardCmd != nil && portForwardCmd.Process != nil {
 				portForwardCmd.Process.Kill()
+			}
+			if gatewayPortForward != nil && gatewayPortForward.Process != nil {
+				gatewayPortForward.Process.Kill()
 			}
 		}()
 
@@ -131,6 +146,16 @@ var _ = Describe("TC-CO-INT-001: Single Node RKE2 Cluster Create and Delete usin
 			fmt.Printf("Cluster components status:\n%s\n", string(output))
 			return checkAllComponentsReady(string(output))
 		}, 10*time.Minute, 10*time.Second).Should(BeTrue())
+
+		By("checking if connect agent of created cluster connected successfully")
+		// Fetch metrics
+		metrics, err := fetchMetrics()
+		Expect(err).NotTo(HaveOccurred())
+		defer metrics.Close()
+		connectionSucceded, err := parseMetrics(metrics)
+		Expect(err).NotTo(HaveOccurred())
+		Eventually(connectionSucceded).Should(BeTrue())
+
 		// Record the end time after the cluster is fully active
 		clusterCreateEndTime = time.Now()
 
@@ -146,6 +171,37 @@ var _ = Describe("TC-CO-INT-001: Single Node RKE2 Cluster Create and Delete usin
 		}
 	})
 })
+
+// fetchMetrics fetches the metrics from the /metrics endpoint.
+func fetchMetrics() (io.ReadCloser, error) {
+	resp, err := http.Get("http://127.0.0.1:8081/metrics")
+	if err != nil {
+		return nil, fmt.Errorf("error fetching metrics: %v", err)
+	}
+	return resp.Body, nil
+}
+
+// parseMetrics checks if the metric websocket_connections_total with status="succeeded" is 1.
+func parseMetrics(metrics io.Reader) (bool, error) {
+	scanner := bufio.NewScanner(metrics)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, `websocket_connections_total{status="succeeded"}`) {
+			fmt.Println("found metric")
+			fmt.Printf("LINE: %s", line)
+			parts := strings.Fields(line)
+			if len(parts) == 2 && parts[1] == "1" {
+				return true, nil
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return false, fmt.Errorf("error reading metrics: %v", err)
+	}
+
+	return false, nil
+}
 
 func logCommandOutput(command string, args []string) {
 	cmd := exec.Command(command, args...)
