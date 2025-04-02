@@ -43,9 +43,7 @@ components:
         namespace: "default"
         version: ""  # Use the latest version when nil
         overrides: "--set metrics.serviceMonitor.enabled=false --set manager.extraArgs.use-inv-stub=true
-        --set southboundApi.extraArgs.useGrpcStubMiddleware=true
-        --set manager.image.repository=registry-rs.edgeorchestration.intel.com/edge-orch/cluster/capi-provider-intel-manager
-        --set southboundApi.image.repository=registry-rs.edgeorchestration.intel.com/edge-orch/cluster/capi-provider-intel-southbound"
+        --set southboundApi.extraArgs.useGrpcStubMiddleware=true"
       - url: "oci://registry-rs.edgeorchestration.intel.com"
         release-name: "intel-infra-provider-crds"
         package: "edge-orch/cluster/charts/intel-infra-provider-crds"
