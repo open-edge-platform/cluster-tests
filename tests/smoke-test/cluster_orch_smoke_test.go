@@ -147,7 +147,7 @@ var _ = Describe("TC-CO-INT-001: Single Node RKE2 Cluster Create and Delete usin
 			return checkAllComponentsReady(string(output))
 		}, 10*time.Minute, 10*time.Second).Should(BeTrue())
 
-		By("checking if connect agent of created cluster connected successfully")
+		By("Checking that connect agent metric shows a successful connection")
 		// Fetch metrics
 		metrics, err := fetchMetrics()
 		Expect(err).NotTo(HaveOccurred())
@@ -187,10 +187,9 @@ func parseMetrics(metrics io.Reader) (bool, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.Contains(line, `websocket_connections_total{status="succeeded"}`) {
-			fmt.Println("found metric")
-			fmt.Printf("LINE: %s", line)
+			fmt.Printf("\tfound metric: %s\n", line)
 			parts := strings.Fields(line)
-			if len(parts) == 2 && parts[1] == "1" {
+			if len(parts) == 2 && parts[1] != "0" {
 				return true, nil
 			}
 		}
