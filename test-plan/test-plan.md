@@ -185,3 +185,15 @@ Test Case format shall look like below:
   1. Send a PUT request to update the cluster label.
 - **Expected Results:**
   - The cluster label is updated successfully.
+
+### Test Case ID: TC-CO-INT-008
+
+- **Test Description:** Should verify that the connect gateway allow access to k8s api
+- **Preconditions:**
+  - Port forward to the cluster gateway service.
+- **Test Steps:**
+  1. Get kubeconfig using clusterctl
+  1. Set server in kubeconfig to cluster connect gateway
+  1. Use kubeconfig to fetch list of pods
+- **Expected Results:**
+  - The pod list information is retrieved successfully.
