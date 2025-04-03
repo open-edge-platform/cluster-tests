@@ -54,6 +54,9 @@
             "disableComponents": {
               "kubernetesComponents": [
                 "cloudController"
+              ],
+              "pluginComponents": [
+                "rke2-ingress-nginx"
               ]
             },
             "kubeApiServer": {
