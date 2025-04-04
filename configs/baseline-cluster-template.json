@@ -1,7 +1,7 @@
 {
   "name": "baseline",
-  "version": "v0.0.1",
-  "kubernetesVersion": "v1.30.6+rke2r1",
+  "version": "v2.0.1",
+  "kubernetesVersion": "v1.30.10+rke2r1",
   "description": "Baseline Cluster Template",
   "controlplaneprovidertype": "rke2",
   "infraprovidertype": "intel",
@@ -29,10 +29,14 @@
                 "--cpu-manager-policy=static",
                 "--reserved-cpus=1",
                 "--max-pods=250",
-                "--tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+                "--tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
               ]
             }
           },
+          "preRKE2Commands": [
+            "mkdir -p /etc/systemd/system/rke2-server.service.d",
+            "echo '[Service]\nEnvironmentFile=/etc/environment' > /etc/systemd/system/rke2-server.service.d/override.conf"
+          ],
           "manifestsConfigMapReference": {
             "apiVersion": "v1",
             "kind": "ConfigMap",
@@ -54,12 +58,15 @@
             "disableComponents": {
               "kubernetesComponents": [
                 "cloudController"
+              ],
+              "pluginComponents": [
+                "rke2-ingress-nginx"
               ]
             },
             "kubeApiServer": {
               "extraArgs": [
                 "--feature-gates=PortForwardWebsockets=true",
-                "--tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+                "--tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
               ]
             },
             "kubeControllerManager": {
@@ -76,7 +83,7 @@
               },
               "customConfig": {
                 "extraArgs": [
-                  "cipher-suites=[TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256,TLS_CHACHA20_POLY1305_SHA256]"
+                  "cipher-suites=[TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384]"
                 ]
               }
             }

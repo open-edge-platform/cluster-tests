@@ -26,7 +26,7 @@ const (
 	namespaceEnvVar              = "NAMESPACE"
 	nodeGUIDEnvVar               = "NODEGUID"
 	clusterName                  = "demo-cluster"
-	clusterTemplateName          = "baseline-v0.0.1"
+	clusterTemplateName          = "baseline-v2.0.1"
 	clusterOrchSmoke             = "cluster-orch-smoke-test"
 	portForwardAddress           = "0.0.0.0"
 	portForwardService           = "svc/cluster-manager"
