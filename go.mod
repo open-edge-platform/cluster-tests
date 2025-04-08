@@ -6,7 +6,7 @@ require (
 	github.com/bitfield/script v0.24.0
 	github.com/magefile/mage v1.15.0
 	github.com/onsi/ginkgo/v2 v2.23.4
-	github.com/onsi/gomega v1.36.3
+	github.com/onsi/gomega v1.37.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
