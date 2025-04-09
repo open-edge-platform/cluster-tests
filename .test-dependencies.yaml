@@ -35,7 +35,9 @@ components:
   - name: cluster-api-provider-intel
     skip-component: false
     skip-local-build: true
-    pre-install-commands: []
+    pre-install-commands:
+      - echo "Installing Prometheus Operator CRDs to get Service Monitor CRD"
+      - kubectl apply -f https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.81.0/stripped-down-crds.yaml
     helm-repo:
       - url: "oci://registry-rs.edgeorchestration.intel.com"
         release-name: "intel-infra-provider"
