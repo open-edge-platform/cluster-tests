@@ -57,6 +57,8 @@ components:
       version: main
     make-directory: ""
     make-variables:
+      - VERSION=v0.0.0
+      - HELM_VERSION=v0.0.0
       - USE_GRPC_MIDDLEWARE_STUB=true  # Enable this flag to use the gRPC middleware stub. Skips jwt auth on SB-API
       - USE_INV_STUB=true  # Enable this flag to use the Inventory stub. Inventory stub is used when we are not installing Inventory
     make-targets:
@@ -117,6 +119,8 @@ components:
       version: main
     make-directory: ""
     make-variables:
+      - VERSION=v0.0.0
+      - HELM_VERSION=v0.0.0
       - KIND_CLUSTER=kind
       - NAMESPACE=default
       - HELM_VARS="--set controller.privateCA.enabled=false --set agent.image.tag=latest"
@@ -149,6 +153,8 @@ components:
       url: https://github.com/open-edge-platform/cluster-manager.git
       version: main
     make-variables:
+      - VERSION=v0.0.0
+      - HELM_VERSION=v0.0.0
       - KIND_CLUSTER=kind
       - DISABLE_MT=true  # Enable this flag to disable the multi-tenancy feature. This is required for the test environment where no MT controllers are installed
       - DISABLE_AUTH=true  # Should be true for CO subsystem integration tests if keycloak is not deployed
