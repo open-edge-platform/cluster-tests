@@ -1,1 +1,4 @@
-# Remove this content and update with actual CODE Owners while setting up the repository
+# SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+* @gcgirish @pbartosik @hyunsun @jdanieck
