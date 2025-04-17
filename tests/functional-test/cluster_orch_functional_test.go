@@ -20,12 +20,14 @@ import (
 )
 
 const (
-	defaultNamespace             = "53cd37b9-66b2-4cc8-b080-3722ed7af64a"
-	defaultNodeGUID              = "12345678-1234-1234-1234-123456789012"
-	namespaceEnvVar              = "NAMESPACE"
-	nodeGUIDEnvVar               = "NODEGUID"
-	clusterName                  = "demo-cluster"
-	clusterTemplateName          = "baseline-v2.0.1"
+	defaultNamespace = "53cd37b9-66b2-4cc8-b080-3722ed7af64a"
+	defaultNodeGUID  = "12345678-1234-1234-1234-123456789012"
+	namespaceEnvVar  = "NAMESPACE"
+	nodeGUIDEnvVar   = "NODEGUID"
+	clusterName      = "demo-cluster"
+
+	clusterTemplateOnlyName      = "baseline"
+	clusterTemplateOnlyVersion   = "v2.0.1"
 	clusterOrchFunctionalTest    = "cluster-orch-functional-test"
 	portForwardAddress           = "0.0.0.0"
 	portForwardService           = "svc/cluster-manager"
@@ -41,7 +43,8 @@ const (
 )
 
 var (
-	skipDeleteCluster = os.Getenv("SKIP_DELETE_CLUSTER") == "true"
+	clusterTemplateName = fmt.Sprintf("%s-%s", clusterTemplateOnlyName, clusterTemplateOnlyVersion)
+	skipDeleteCluster   = os.Getenv("SKIP_DELETE_CLUSTER") == "true"
 )
 
 func TestClusterOrchFunctionalTest(t *testing.T) {
@@ -189,6 +192,12 @@ var _ = Describe("Cluster Orch Functional tests", Ordered, Label(clusterOrchFunc
 		cmd = exec.Command("kubectl", "--kubeconfig", "kubeconfig.yaml", "get", "pods")
 		_, err = cmd.Output()
 		Expect(err).NotTo(HaveOccurred())
+	})
+	It("TC-CO-INT-009: Should verify that a cluster template cannot be deleted if there is a cluster using it", func() {
+		By("Trying to delete the cluster template")
+		err := deleteTemplate(namespace)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("denied the request: clusterTemplate is in use"))
 	})
 	// TODO: Add more functional tests
 })
@@ -350,6 +359,33 @@ func deleteCluster(namespace string) error {
 	if resp.StatusCode != http.StatusNoContent {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("failed to delete cluster: %s", string(body))
+	}
+
+	return nil
+}
+
+func deleteTemplate(namespace string) error {
+	url := fmt.Sprintf("%s/%s/%s", clusterTemplateURL, clusterTemplateOnlyName, clusterTemplateOnlyVersion)
+
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to delete template: %s", string(body))
 	}
 
 	return nil
