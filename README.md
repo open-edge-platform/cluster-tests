@@ -92,14 +92,15 @@ This example command will override the version of the `cluster-api-provider-inte
 
 ## Contribute
 
-To learn how to contribute to the project, see the [contributor's guide](https://literate-adventure-7vjeyem.pages.github.io/edge_orchestrator/user_guide_main/content/user_guide/index.html).
+We welcome contributions from the community! To contribute, please open a pull request to have your changes reviewed and merged. See the [contributor's guide](https://docs.openedgeplatform.intel.com/edge-manage-docs/main/developer_guide/contributor_guide/index.html) to learn more.
+
 The project will accept contributions through Pull-Requests (PRs). PRs must be built successfully by the CI pipeline,
 pass linters verifications and the unit tests.
 
 ## Community and Support
 
-To learn more about the project, its community, and governance, visit the [Edge Orchestrator Community](TBD).
-For support, start with [Troubleshooting](TBD) or [contact us](TBD).
+To learn more about the project, its community, and governance, visit the [Edge Orchestrator Community](https://github.com/open-edge-platform).
+For support, start with [Troubleshooting](https://docs.openedgeplatform.intel.com/edge-manage-docs/main/developer_guide/troubleshooting/index.html) or [contact us](https://github.com/open-edge-platform/).
 
 There are several convenience make targets to support developer activities, you can run `mage -l` to see the list of available targets.
 
