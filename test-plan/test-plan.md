@@ -197,3 +197,16 @@ Test Case format shall look like below:
   1. Use kubeconfig to fetch list of pods
 - **Expected Results:**
   - The pod list information is retrieved successfully.
+
+### Test Case ID: TC-CO-INT-009
+
+- **Test Description:** Should verify that a cluster template cannot be deleted if there is a cluster using it.
+- **Preconditions:**
+  - Ensure the namespace exists or create it if it does not.
+  - Port forward to the cluster manager service.
+  - Import the cluster template and ensure it is ready.
+  - Create a cluster using the imported cluster template.
+- **Test Steps:**
+  1. Attempt to delete the cluster template using the DELETE API.
+- **Expected Results:**
+  - The DELETE request fails with an error message indicating that the cluster template is in use.
