@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: (C) 2025 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 ---
-core: cluster-api:v1.9.0
-bootstrap: kubeadm:v1.9.0;rke2:v0.12.0
-controlPlane: kubeadm:v1.9.0;rke2:v0.12.0
-infrastructure: docker:v1.8.5
+core: cluster-api:v1.9.7
+bootstrap: kubeadm:v1.9.0;rke2:v0.14.0
+controlPlane: kubeadm:v1.9.0;rke2:v0.14.0
+infrastructure: docker:v1.9.7
 manager:
   featureGates:
     core:
