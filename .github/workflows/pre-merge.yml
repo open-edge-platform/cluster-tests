@@ -24,7 +24,6 @@ jobs:
       run_test: false ## Requires large runners. Tests are being run as part of another job with large runner
       run_validate_clean_folder: false
       run_docker_build: false
-      run_scan_containers: false
       run_artifact: false
       run_reuse_check: true
     secrets: inherit
