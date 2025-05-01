@@ -91,6 +91,9 @@ components:
       - until kubectl get -n kubeadm-control-plane-system deployment/capi-kubeadm-control-plane-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace kubeadm-control-plane-system deployment/capi-kubeadm-control-plane-controller-manager --for=condition=available --timeout=5m
       - until kubectl get -n rke2-bootstrap-system deployment/rke2-bootstrap-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace rke2-bootstrap-system deployment/rke2-bootstrap-controller-manager --for=condition=available --timeout=5m
       - until kubectl get -n rke2-control-plane-system deployment/rke2-control-plane-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace rke2-control-plane-system deployment/rke2-control-plane-controller-manager --for=condition=available --timeout=5m
+      # Patch the K3S Providers so that they can be initialized
+      - until kubectl get controlplaneprovider/k3s-control-plane-system >/dev/null 2>&1; do sleep 1; done && kubectl patch controlplaneprovider k3s-control-plane-system --type=marge -p '{"spec":{"fetchConfig":{"url":"https://github.com/k3s-io/cluster-api-k3s/releases/v0.2.1/control-plane-components.yaml"}}}'
+      - until kubectl get bootstrapprovider/k3s-bootstrap-system >/dev/null 2>&1; do sleep 1; done && kubectl patch bootstrapprovider k3s-bootstrap-system --type=marge -p '{"spec":{"fetchConfig":{"url":"https://github.com/k3s-io/cluster-api-k3s/releases/v0.2.1/bootstrap-components.yaml"}}}'
       ##################################################################################
       # Install the CAPI operator and default control plane and infra providers -- end
       ##################################################################################
