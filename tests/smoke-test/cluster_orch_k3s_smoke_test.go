@@ -141,16 +141,16 @@ var _ = Describe("TC-CO-INT-001: Single Node K3S Cluster Create and Delete using
 		fmt.Printf("\033[32mTotal time from cluster creation to fully active: %v 🚀 ✅\033[0m\n", totalTime)
 	})
 
-	JustAfterEach(func() {
-		if CurrentSpecReport().Failed() {
-			logCommandOutput("kubectl", []string{"exec", "cluster-agent-0", "--", "/var/lib/rancher/rke2/bin/kubectl", "--kubeconfig", "/etc/rancher/rke2/rke2.yaml", "get", "pods", "-A"})
-			logCommandOutput("kubectl", []string{"exec", "cluster-agent-0", "--", "/var/lib/rancher/rke2/bin/kubectl", "--kubeconfig", "/etc/rancher/rke2/rke2.yaml", "describe", "pod", "-n", "kube-system", "connect-agent-cluster-agent-0"})
-		}
-	})
+	// JustAfterEach(func() {
+	// 	if CurrentSpecReport().Failed() {
+	// 		logCommandOutput("kubectl", []string{"exec", "cluster-agent-0", "--", "/var/lib/rancher/rke2/bin/kubectl", "--kubeconfig", "/etc/rancher/rke2/rke2.yaml", "get", "pods", "-A"})
+	// 		logCommandOutput("kubectl", []string{"exec", "cluster-agent-0", "--", "/var/lib/rancher/rke2/bin/kubectl", "--kubeconfig", "/etc/rancher/rke2/rke2.yaml", "describe", "pod", "-n", "kube-system", "connect-agent-cluster-agent-0"})
+	// 	}
+	// })
 })
 
 func createK3SCluster(namespace, nodeGUID string) error {
-	templateData, err := os.ReadFile(clusterConfigTemplatePath)
+	templateData, err := os.ReadFile(clusterclassConfigTemplatePath)
 	if err != nil {
 		return err
 	}
@@ -165,10 +165,12 @@ func createK3SCluster(namespace, nodeGUID string) error {
 		ClusterName  string
 		TemplateName string
 		NodeGUID     string
+		Namespace    string
 	}{
 		NodeGUID:     nodeGUID,
 		TemplateName: clusterTemplateName,
 		ClusterName:  clusterName,
+		Namespace:    namespace,
 	})
 	if err != nil {
 		return err
