@@ -92,7 +92,7 @@ create-k3s: ## Create K3S cluster using Custom Resources
 	kubectl apply -f configs/k3s/all.yaml
 
 .PHONY: delete-k3s
-delete-k3s: ## Delete K3S cluster using Custom Resources
+delete-k3s: ## Delete K3S cluster
 	kubectl -n 53cd37b9-66b2-4cc8-b080-3722ed7af64a delete cl demo-cluster
 
 .PHONY: cluster-status
