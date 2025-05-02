@@ -2,13 +2,13 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: 53cd37b9-1111-4cc8-b080-3722ed7af64a
+  name: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: IntelClusterTemplate
 metadata:
   name: baseline-v2.0.1
-  namespace: 53cd37b9-1111-4cc8-b080-3722ed7af64a
+  namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
 spec:
   template:
     metadata: {}
@@ -18,7 +18,7 @@ apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: IntelMachineBinding
 metadata:
   name: demo-cluster-12345678-1234-1234-1234-123456789012
-  namespace: 53cd37b9-1111-4cc8-b080-3722ed7af64a
+  namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
 spec:
   clusterName: demo-cluster
   intelMachineTemplateName: baseline-v2.0.1-controlplane
@@ -28,7 +28,7 @@ apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: IntelMachineTemplate
 metadata:
   name: baseline-v2.0.1-controlplane
-  namespace: 53cd37b9-1111-4cc8-b080-3722ed7af64a
+  namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
 spec:
   template:
     spec: {}
@@ -37,7 +37,7 @@ apiVersion: controlplane.cluster.x-k8s.io/v1beta2
 kind: KThreesControlPlaneTemplate
 metadata:
   name: baseline-v2.0.1
-  namespace: 53cd37b9-1111-4cc8-b080-3722ed7af64a
+  namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
 spec:
   template:
     spec:
@@ -104,7 +104,7 @@ apiVersion: cluster.x-k8s.io/v1beta1
 kind: ClusterClass
 metadata:
   name: baseline-v2.0.1
-  namespace: 53cd37b9-1111-4cc8-b080-3722ed7af64a
+  namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
 spec:
   controlPlane:
     machineHealthCheck:
@@ -120,19 +120,19 @@ spec:
         apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
         kind: IntelMachineTemplate
         name: baseline-v2.0.1-controlplane
-        namespace: 53cd37b9-1111-4cc8-b080-3722ed7af64a
+        namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
     metadata: {}
     ref:
       apiVersion: controlplane.cluster.x-k8s.io/v1beta2
       kind: KThreesControlPlaneTemplate
       name: baseline-v2.0.1
-      namespace: 53cd37b9-1111-4cc8-b080-3722ed7af64a
+      namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
   infrastructure:
     ref:
       apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
       kind: IntelClusterTemplate
       name: baseline-v2.0.1
-      namespace: 53cd37b9-1111-4cc8-b080-3722ed7af64a
+      namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
   patches:
   - definitions:
     - jsonPatches:
@@ -174,13 +174,13 @@ metadata:
     cluster.x-k8s.io/cluster-name: demo-cluster
     default-extension: baseline
     edge-orchestrator.intel.com/clustername: demo-cluster
-    edge-orchestrator.intel.com/project-id: 53cd37b9-1111-4cc8-b080-3722ed7af64a
+    edge-orchestrator.intel.com/project-id: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
     prometheusMetricsURL: metrics-node.kind.internal
     topology.cluster.x-k8s.io/owned: ""
     trusted-compute-compatible: "false"
     users-label: user-value
   name: demo-cluster
-  namespace: 53cd37b9-1111-4cc8-b080-3722ed7af64a
+  namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
 spec:
   clusterNetwork:
     pods:
@@ -210,7 +210,7 @@ spec:
               command: [ "/connect-agent" ]
               args:
               - "--gateway-url=ws://cluster-connect-gateway.default.svc:8080/connect"
-              - "--tunnel-id=53cd37b9-1111-4cc8-b080-3722ed7af64a-demo-cluster-p4bpn"
+              - "--tunnel-id=53cd37b9-66b2-4cc8-b080-3722ed7af64a-demo-cluster-p4bpn"
               - "--auth-token=ca998e7e07d1fb3cd8052188bbfc9d745c7b7453d63cf6f5a56efb52620b1848902d15c2ea64c41dbe5ab5cd4b3b7ea316bdcdd127c8"
               - "--insecure-skip-verify=true"
               - "--log-level=info"
