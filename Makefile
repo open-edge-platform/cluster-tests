@@ -87,6 +87,10 @@ functional-test: bootstrap ## Runs cluster orch functional tests
 create-rke2: ## Create RKE2 cluster using Custom Resources
 	kubectl apply -f configs/rke2/all.yaml
 
+.PHONY: create-k3s
+create-k3s: ## Create K3S cluster using Custom Resources
+	kubectl apply -f configs/k3s/all.yaml
+
 .PHONY: help
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
