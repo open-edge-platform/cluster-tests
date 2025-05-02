@@ -1,0 +1,64 @@
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: ClusterClass
+metadata:
+  name: baseline-v2.0.1
+  namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
+spec:
+  controlPlane:
+    machineHealthCheck:
+      unhealthyConditions:
+      - status: Unknown
+        timeout: 5m0s
+        type: Ready
+      - status: "False"
+        timeout: 5m0s
+        type: Ready
+    machineInfrastructure:
+      ref:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: IntelMachineTemplate
+        name: baseline-v2.0.1-controlplane
+        namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
+    metadata: {}
+    ref:
+      apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+      kind: RKE2ControlPlaneTemplate
+      name: baseline-v2.0.1
+      namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
+  infrastructure:
+    ref:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+      kind: IntelClusterTemplate
+      name: baseline-v2.0.1
+      namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
+  patches:
+  - definitions:
+    - jsonPatches:
+      - op: add
+        path: /spec/template/spec/files/-
+        valueFrom:
+          variable: connectAgentManifest
+      selector:
+        apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+        kind: RKE2ControlPlaneTemplate
+        matchResources:
+          controlPlane: true
+    description: This patch will add connect-agent manifest injected by Cluster Connect
+      Gateway.
+    enabledIf: '{{ if .connectAgentManifest.path }}true{{ end }}'
+    name: connect-agent-manifest
+  variables:
+  - metadata: {}
+    name: connectAgentManifest
+    required: false
+    schema:
+      openAPIV3Schema:
+        properties:
+          content:
+            type: string
+          owner:
+            type: string
+          path:
+            type: string
+        type: object
+  workers: {}

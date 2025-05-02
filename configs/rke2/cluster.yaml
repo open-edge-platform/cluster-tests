@@ -1,0 +1,69 @@
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  annotations:
+    edge-orchestrator.intel.com/template: baseline-v2.0.1
+  labels:
+    cluster.x-k8s.io/cluster-name: demo-cluster
+    default-extension: baseline
+    edge-orchestrator.intel.com/clustername: demo-cluster
+    edge-orchestrator.intel.com/project-id: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
+    prometheusMetricsURL: metrics-node.kind.internal
+    topology.cluster.x-k8s.io/owned: ""
+    trusted-compute-compatible: "false"
+    users-label: user-value
+  name: demo-cluster
+  namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+      - 10.42.0.0/16
+    services:
+      cidrBlocks:
+      - 10.43.0.0/16
+  topology:
+    class: baseline-v2.0.1
+    controlPlane:
+      metadata: {}
+      replicas: 1
+    variables:
+    - name: connectAgentManifest
+      value:
+        content: |-
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: connect-agent
+            namespace: kube-system
+          spec:
+            containers:
+            - name: connect-agent
+              image: "registry-rs.edgeorchestration.intel.com/edge-orch/cluster/connect-agent:1.1.0-dev-b2000342"
+              command: [ "/connect-agent" ]
+              args:
+              - "--gateway-url=ws://cluster-connect-gateway.default.svc:8080/connect"
+              - "--tunnel-id=53cd37b9-66b2-4cc8-b080-3722ed7af64a-demo-cluster-p4bpn"
+              - "--auth-token=ca998e7e07d1fb3cd8052188bbfc9d745c7b7453d63cf6f5a56efb52620b1848902d15c2ea64c41dbe5ab5cd4b3b7ea316bdcdd127c8"
+              - "--insecure-skip-verify=true"
+              - "--log-level=info"
+              - "--token-path=/etc/intel_edge_node/tokens/connect-agent/access_token"
+              - "--tunnel-auth-mode=token"
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                  - ALL
+                readOnlyRootFilesystem: true
+                seccompProfile:
+                  type: RuntimeDefault
+              resources:
+                limits: {}
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+              volumeMounts:
+            volumes:
+        owner: root:root
+        path: /var/lib/rancher/rke2/agent/pod-manifests/connect-agent.yaml
+    version: v1.30.10+rke2r1

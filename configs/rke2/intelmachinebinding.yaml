@@ -1,0 +1,9 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: IntelMachineBinding
+metadata:
+  name: demo-cluster-12345678-1234-1234-1234-123456789012
+  namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
+spec:
+  clusterName: demo-cluster
+  intelMachineTemplateName: baseline-v2.0.1-controlplane
+  nodeGUID: 12345678-1234-1234-1234-123456789012
