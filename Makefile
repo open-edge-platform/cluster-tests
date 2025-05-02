@@ -91,6 +91,14 @@ create-rke2: ## Create RKE2 cluster using Custom Resources
 create-k3s: ## Create K3S cluster using Custom Resources
 	kubectl apply -f configs/k3s/all.yaml
 
+.PHONY: delete-k3s
+delete-k3s: ## Delete K3S cluster using Custom Resources
+	kubectl -n 53cd37b9-66b2-4cc8-b080-3722ed7af64a delete cl demo-cluster
+
+.PHONY: cluster-status
+cluster-status: ## Get the status of the cluster
+	clusterctl -n 53cd37b9-66b2-4cc8-b080-3722ed7af64a describe cluster demo-cluster --show-conditions all
+
 .PHONY: help
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
