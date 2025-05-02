@@ -85,13 +85,7 @@ functional-test: bootstrap ## Runs cluster orch functional tests
 
 .PHONY: create-rke2
 create-rke2: ## Create RKE2 cluster using Custom Resources
-	kubectl create ns 53cd37b9-66b2-4cc8-b080-3722ed7af64a || true
-	kubectl apply -f configs/rke2/intelclustertemplate.yaml
-	kubectl apply -f configs/rke2/intelmachinetemplate.yaml
-	kubectl apply -f configs/rke2/intelmachinebinding.yaml
-	kubectl apply -f configs/rke2/rke2controlplanetemplate.yaml
-	kubectl apply -f configs/rke2/clusterclass.yaml
-	kubectl apply -f configs/rke2/cluster.yaml
+	kubectl apply -f configs/rke2/all.yaml
 
 .PHONY: help
 help: ## Display this help.

@@ -1,0 +1,276 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: IntelClusterTemplate
+metadata:
+  name: baseline-v2.0.1
+  namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
+spec:
+  template:
+    metadata: {}
+    spec: {}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: IntelMachineBinding
+metadata:
+  name: demo-cluster-12345678-1234-1234-1234-123456789012
+  namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
+spec:
+  clusterName: demo-cluster
+  intelMachineTemplateName: baseline-v2.0.1-controlplane
+  nodeGUID: 12345678-1234-1234-1234-123456789012
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: IntelMachineTemplate
+metadata:
+  name: baseline-v2.0.1-controlplane
+  namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
+spec:
+  template:
+    spec: {}
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+kind: RKE2ControlPlaneTemplate
+metadata:
+  name: baseline-v2.0.1
+  namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
+spec:
+  template:
+    spec:
+      agentConfig:
+        additionalUserData: {}
+        format: cloud-config
+        kubelet:
+          extraArgs:
+          - --topology-manager-policy=best-effort
+          - --cpu-manager-policy=static
+          - --reserved-cpus=1
+          - --max-pods=250
+          - --tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+      files:
+      - content: |-
+          version = 2
+
+          [plugins.\"io.containerd.internal.v1.opt\"]
+            path = \"/var/lib/rancher/rke2/agent/containerd\"
+
+          [plugins.\"io.containerd.grpc.v1.cri\"]
+            stream_server_address = \"127.0.0.1\"
+            stream_server_port = \"10010\"
+            enable_selinux = false
+            enable_unprivileged_ports = true
+            enable_unprivileged_icmp = true
+            sandbox_image = \"index.docker.io/rancher/mirrored-pause:3.6\"
+            disable_apparmor = true
+
+          [plugins.\"io.containerd.grpc.v1.cri\".containerd]
+            snapshotter = \"overlayfs\"
+            disable_snapshot_annotations = true
+
+          [plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.runc]
+            runtime_type = \"io.containerd.runc.v2\"
+
+          [plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.runc.options]
+            SystemdCgroup = true
+
+          [plugins.\"io.containerd.grpc.v1.cri\".registry]
+            config_path = \"/var/lib/rancher/rke2/agent/etc/containerd/certs.d\"
+
+          [plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.kata-qemu]
+            runtime_type = \"io.containerd.kata-qemu.v2\"
+            runtime_path = \"/opt/kata/bin/containerd-shim-kata-v2\"
+            privileged_without_host_devices = true
+            pod_annotations = [\"io.katacontainers.*\"]
+
+          [plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.kata-qemu.options]
+            ConfigPath = \"/opt/kata/share/defaults/kata-containers/configuration-qemu.toml\"
+        path: /var/lib/rancher/rke2/agent/etc/containerd/config.toml.tmpl
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: IntelMachineTemplate
+        name: baseline-v2.0.1-controlplane
+      machineTemplate:
+        infrastructureRef: {}
+        metadata: {}
+      manifestsConfigMapReference:
+        apiVersion: v1
+        kind: ConfigMap
+        name: coredns-config
+        namespace: default
+      nodeDrainTimeout: 2m0s
+      preRKE2Commands:
+      - mkdir -p /etc/systemd/system/rke2-server.service.d
+      - |-
+        echo '[Service]
+        EnvironmentFile=/etc/environment' > /etc/systemd/system/rke2-server.service.d/override.conf
+      privateRegistriesConfig:
+        mirrors:
+          rs-proxy.rs-proxy.svc.cluster.local:8443:
+            endpoint:
+            - https://localhost.internal:9443
+      rolloutStrategy:
+        rollingUpdate:
+          maxSurge: 1
+        type: RollingUpdate
+      serverConfig:
+        cni: calico
+        cniMultusEnable: true
+        disableComponents:
+          kubernetesComponents:
+          - cloudController
+          pluginComponents:
+          - rke2-ingress-nginx
+        etcd:
+          backupConfig:
+            retention: "5"
+            scheduleCron: 0 */5 * * *
+          customConfig:
+            extraArgs:
+            - cipher-suites=[TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384]
+        kubeAPIServer:
+          extraArgs:
+          - --feature-gates=PortForwardWebsockets=true
+          - --tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        kubeControllerManager: {}
+        kubeScheduler: {}
+      version: ""
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: ClusterClass
+metadata:
+  name: baseline-v2.0.1
+  namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
+spec:
+  controlPlane:
+    machineHealthCheck:
+      unhealthyConditions:
+      - status: Unknown
+        timeout: 5m0s
+        type: Ready
+      - status: "False"
+        timeout: 5m0s
+        type: Ready
+    machineInfrastructure:
+      ref:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: IntelMachineTemplate
+        name: baseline-v2.0.1-controlplane
+        namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
+    metadata: {}
+    ref:
+      apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+      kind: RKE2ControlPlaneTemplate
+      name: baseline-v2.0.1
+      namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
+  infrastructure:
+    ref:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+      kind: IntelClusterTemplate
+      name: baseline-v2.0.1
+      namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
+  patches:
+  - definitions:
+    - jsonPatches:
+      - op: add
+        path: /spec/template/spec/files/-
+        valueFrom:
+          variable: connectAgentManifest
+      selector:
+        apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+        kind: RKE2ControlPlaneTemplate
+        matchResources:
+          controlPlane: true
+    description: This patch will add connect-agent manifest injected by Cluster Connect
+      Gateway.
+    enabledIf: '{{ if .connectAgentManifest.path }}true{{ end }}'
+    name: connect-agent-manifest
+  variables:
+  - metadata: {}
+    name: connectAgentManifest
+    required: false
+    schema:
+      openAPIV3Schema:
+        properties:
+          content:
+            type: string
+          owner:
+            type: string
+          path:
+            type: string
+        type: object
+  workers: {}
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  annotations:
+    edge-orchestrator.intel.com/template: baseline-v2.0.1
+  labels:
+    cluster.x-k8s.io/cluster-name: demo-cluster
+    default-extension: baseline
+    edge-orchestrator.intel.com/clustername: demo-cluster
+    edge-orchestrator.intel.com/project-id: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
+    prometheusMetricsURL: metrics-node.kind.internal
+    topology.cluster.x-k8s.io/owned: ""
+    trusted-compute-compatible: "false"
+    users-label: user-value
+  name: demo-cluster
+  namespace: 53cd37b9-66b2-4cc8-b080-3722ed7af64a
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+      - 10.42.0.0/16
+    services:
+      cidrBlocks:
+      - 10.43.0.0/16
+  topology:
+    class: baseline-v2.0.1
+    controlPlane:
+      metadata: {}
+      replicas: 1
+    variables:
+    - name: connectAgentManifest
+      value:
+        content: |-
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: connect-agent
+            namespace: kube-system
+          spec:
+            containers:
+            - name: connect-agent
+              image: "registry-rs.edgeorchestration.intel.com/edge-orch/cluster/connect-agent:1.1.0-dev-b2000342"
+              command: [ "/connect-agent" ]
+              args:
+              - "--gateway-url=ws://cluster-connect-gateway.default.svc:8080/connect"
+              - "--tunnel-id=53cd37b9-66b2-4cc8-b080-3722ed7af64a-demo-cluster-p4bpn"
+              - "--auth-token=ca998e7e07d1fb3cd8052188bbfc9d745c7b7453d63cf6f5a56efb52620b1848902d15c2ea64c41dbe5ab5cd4b3b7ea316bdcdd127c8"
+              - "--insecure-skip-verify=true"
+              - "--log-level=info"
+              - "--token-path=/etc/intel_edge_node/tokens/connect-agent/access_token"
+              - "--tunnel-auth-mode=token"
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                  - ALL
+                readOnlyRootFilesystem: true
+                seccompProfile:
+                  type: RuntimeDefault
+              resources:
+                limits: {}
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+              volumeMounts:
+            volumes:
+        owner: root:root
+        path: /var/lib/rancher/rke2/agent/pod-manifests/connect-agent.yaml
+    version: v1.30.10+rke2r1
+---
