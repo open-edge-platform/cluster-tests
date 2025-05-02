@@ -33,7 +33,7 @@ spec:
   template:
     spec: {}
 ---
-apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+apiVersion: controlplane.cluster.x-k8s.io/v1beta2
 kind: KThreesControlPlaneTemplate
 metadata:
   name: baseline-v2.0.1
@@ -42,106 +42,63 @@ spec:
   template:
     spec:
       kthreesConfigSpec:
-        serverConfig:
-          tlsSan:
-          - 0.0.0.0
-      agentConfig:
-        additionalUserData: {}
-        format: cloud-config
-        kubelet:
-          extraArgs:
+        agentConfig:
+          kubeletArgs:
           - --topology-manager-policy=best-effort
           - --cpu-manager-policy=static
           - --reserved-cpus=1
           - --max-pods=250
           - --tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
-      files:
-      - content: |-
-          version = 2
+        files:
+        - content: |-
+            version = 2
 
-          [plugins.\"io.containerd.internal.v1.opt\"]
-            path = \"/var/lib/rancher/rke2/agent/containerd\"
+            [plugins.\"io.containerd.internal.v1.opt\"]
+              path = \"/var/lib/rancher/rke2/agent/containerd\"
 
-          [plugins.\"io.containerd.grpc.v1.cri\"]
-            stream_server_address = \"127.0.0.1\"
-            stream_server_port = \"10010\"
-            enable_selinux = false
-            enable_unprivileged_ports = true
-            enable_unprivileged_icmp = true
-            sandbox_image = \"index.docker.io/rancher/mirrored-pause:3.6\"
-            disable_apparmor = true
+            [plugins.\"io.containerd.grpc.v1.cri\"]
+              stream_server_address = \"127.0.0.1\"
+              stream_server_port = \"10010\"
+              enable_selinux = false
+              enable_unprivileged_ports = true
+              enable_unprivileged_icmp = true
+              sandbox_image = \"index.docker.io/rancher/mirrored-pause:3.6\"
+              disable_apparmor = true
 
-          [plugins.\"io.containerd.grpc.v1.cri\".containerd]
-            snapshotter = \"overlayfs\"
-            disable_snapshot_annotations = true
+            [plugins.\"io.containerd.grpc.v1.cri\".containerd]
+              snapshotter = \"overlayfs\"
+              disable_snapshot_annotations = true
 
-          [plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.runc]
-            runtime_type = \"io.containerd.runc.v2\"
+            [plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.runc]
+              runtime_type = \"io.containerd.runc.v2\"
 
-          [plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.runc.options]
-            SystemdCgroup = true
+            [plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.runc.options]
+              SystemdCgroup = true
 
-          [plugins.\"io.containerd.grpc.v1.cri\".registry]
-            config_path = \"/var/lib/rancher/rke2/agent/etc/containerd/certs.d\"
+            [plugins.\"io.containerd.grpc.v1.cri\".registry]
+              config_path = \"/var/lib/rancher/rke2/agent/etc/containerd/certs.d\"
 
-          [plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.kata-qemu]
-            runtime_type = \"io.containerd.kata-qemu.v2\"
-            runtime_path = \"/opt/kata/bin/containerd-shim-kata-v2\"
-            privileged_without_host_devices = true
-            pod_annotations = [\"io.katacontainers.*\"]
+            [plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.kata-qemu]
+              runtime_type = \"io.containerd.kata-qemu.v2\"
+              runtime_path = \"/opt/kata/bin/containerd-shim-kata-v2\"
+              privileged_without_host_devices = true
+              pod_annotations = [\"io.katacontainers.*\"]
 
-          [plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.kata-qemu.options]
-            ConfigPath = \"/opt/kata/share/defaults/kata-containers/configuration-qemu.toml\"
-        path: /var/lib/rancher/rke2/agent/etc/containerd/config.toml.tmpl
-      infrastructureRef:
-        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
-        kind: IntelMachineTemplate
-        name: baseline-v2.0.1-controlplane
-      machineTemplate:
-        infrastructureRef: {}
-        metadata: {}
-      manifestsConfigMapReference:
-        apiVersion: v1
-        kind: ConfigMap
-        name: coredns-config
-        namespace: default
-      nodeDrainTimeout: 2m0s
-      preRKE2Commands:
-      - mkdir -p /etc/systemd/system/rke2-server.service.d
-      - |-
-        echo '[Service]
-        EnvironmentFile=/etc/environment' > /etc/systemd/system/rke2-server.service.d/override.conf
-      privateRegistriesConfig:
-        mirrors:
-          rs-proxy.rs-proxy.svc.cluster.local:8443:
-            endpoint:
-            - https://localhost.internal:9443
-      rolloutStrategy:
-        rollingUpdate:
-          maxSurge: 1
-        type: RollingUpdate
-      serverConfig:
-        cni: calico
-        cniMultusEnable: true
-        disableComponents:
-          kubernetesComponents:
-          - cloudController
-          pluginComponents:
-          - rke2-ingress-nginx
-        etcd:
-          backupConfig:
-            retention: "5"
-            scheduleCron: 0 */5 * * *
-          customConfig:
-            extraArgs:
-            - cipher-suites=[TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384]
-        kubeAPIServer:
-          extraArgs:
+            [plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.kata-qemu.options]
+              ConfigPath = \"/opt/kata/share/defaults/kata-containers/configuration-qemu.toml\"
+          path: /var/lib/rancher/rke2/agent/etc/containerd/config.toml.tmpl
+        preK3sCommands:
+        - mkdir -p /etc/systemd/system/rke2-server.service.d
+        - |-
+          echo '[Service]
+          EnvironmentFile=/etc/environment' > /etc/systemd/system/rke2-server.service.d/override.conf
+        serverConfig:
+          kubeAPIServerArg:
           - --feature-gates=PortForwardWebsockets=true
           - --tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
-        kubeControllerManager: {}
-        kubeScheduler: {}
-      version: v1.30.2+k3s2
+          tlsSan:
+          - 0.0.0.0
+        version: v1.30.2+k3s2
 ---
 apiVersion: cluster.x-k8s.io/v1beta1
 kind: ClusterClass
@@ -180,11 +137,11 @@ spec:
   - definitions:
     - jsonPatches:
       - op: add
-        path: /spec/template/spec/files/-
+        path: /spec/template/spec/kthreesConfigSpec/files/-
         valueFrom:
           variable: connectAgentManifest
       selector:
-        apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+        apiVersion: controlplane.cluster.x-k8s.io/v1beta2
         kind: KThreesControlPlaneTemplate
         matchResources:
           controlPlane: true
