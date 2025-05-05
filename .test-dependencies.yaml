@@ -34,7 +34,7 @@ components:
   # Cluster API Provider Intel
   - name: cluster-api-provider-intel
     skip-component: false
-    skip-local-build: true
+    skip-local-build: false
     pre-install-commands:
       - echo "Installing Prometheus Operator CRDs to get Service Monitor CRD"
       - kubectl apply -f https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.81.0/stripped-down-crds.yaml
@@ -54,7 +54,7 @@ components:
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/cluster-api-provider-intel.git
-      version: main
+      version: k3s-provider
     make-directory: ""
     make-variables:
       - VERSION=v0.0.0
