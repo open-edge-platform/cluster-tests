@@ -92,11 +92,18 @@ create-k3s: ## Create K3S cluster using Custom Resources
 	kubectl apply -f configs/k3s/all.yaml
 
 .PHONY: connect-agent
-connect-agent: ## Copy the connect agent manifest to the EN
+connect-agent: ## Copy the connect-agent manifest to the EN
 	kubectl -n 53cd37b9-66b2-4cc8-b080-3722ed7af64a get cl demo-cluster -o yaml | yq '.spec.topology.variables[0].value.content' > /tmp/connect-agent.yaml
 	CCGIP=$(shell kubectl get svc cluster-connect-gateway -o yaml|yq '.spec.clusterIP') yq -i '.spec.hostAliases[0].ip = strenv(CCGIP)' /tmp/connect-agent.yaml
 	yq -i '.spec.hostAliases[0].hostnames[0] = "cluster-connect-gateway.default.svc"' /tmp/connect-agent.yaml
 	kubectl cp /tmp/connect-agent.yaml cluster-agent-0:/var/lib/rancher/k3s/server/manifests/connect-agent.yaml
+
+.PHONY: etcd-proxy
+etcd-proxy: ## Fix issues with etcd-proxy manifest
+	kubectl cp configs/k3s/etcd-proxy.yaml cluster-agent-0:/var/lib/rancher/k3s/server/manifests/etcd-proxy.yaml
+
+.PHONY: workarounds
+workarounds: connect-agent etcd-proxy ## Apply workarounds for K3S
 
 .PHONY: delete-k3s
 delete-k3s: ## Delete K3S cluster
