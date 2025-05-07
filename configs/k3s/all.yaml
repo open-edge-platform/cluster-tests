@@ -42,9 +42,6 @@ spec:
   template:
     spec:
       kthreesConfigSpec:
-        agentConfig:
-          kubeletArgs:
-          - --provider-id=inst-12345678
         files: []
         serverConfig:
           disableCloudController: false
