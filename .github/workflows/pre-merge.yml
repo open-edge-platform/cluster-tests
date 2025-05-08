@@ -12,6 +12,8 @@ on:
       - release-*
   workflow_dispatch: 
 
+permissions: {}
+
 jobs:
   pre-merge:
     uses: open-edge-platform/orch-ci/.github/workflows/pre-merge.yml@main
@@ -26,4 +28,4 @@ jobs:
       run_docker_build: false
       run_artifact: false
       run_reuse_check: true
-    secrets: inherit
+    secrets: inherit # zizmor: ignore[secrets-inherit]
