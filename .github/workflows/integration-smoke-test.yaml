@@ -12,8 +12,12 @@ on:
       - release-*
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   integration-smoke-test:
+    permissions:
+      contents: read
     runs-on: ubuntu-24.04-16core-64GB
     steps:
       - name: Checkout orch-ci repository
