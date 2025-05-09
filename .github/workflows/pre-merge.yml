@@ -12,8 +12,12 @@ on:
       - release-*
   workflow_dispatch: 
 
+permissions: {}
+
 jobs:
   pre-merge:
+    permissions:
+      contents: read
     uses: open-edge-platform/orch-ci/.github/workflows/pre-merge.yml@main
     with:
       run_security_scans: true
@@ -26,4 +30,3 @@ jobs:
       run_docker_build: false
       run_artifact: false
       run_reuse_check: true
-    secrets: inherit
