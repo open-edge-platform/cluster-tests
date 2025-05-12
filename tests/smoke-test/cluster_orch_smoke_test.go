@@ -162,6 +162,43 @@ var _ = Describe("TC-CO-INT-001: Single Node RKE2 Cluster Create and Delete usin
 		// Calculate and print the total time taken
 		totalTime := clusterCreateEndTime.Sub(clusterCreateStartTime)
 		fmt.Printf("\033[32mTotal time from cluster creation to fully active: %v 🚀 ✅\033[0m\n", totalTime)
+
+		// cmd := exec.Command("curl", "-X", "GET", fmt.Sprintf("127.0.0.1:%v/kubernetes/%v-%v/api/v1/namespaces/default/pods", portForwardGatewayLocalPort, namespace, clusterName))
+		By("Getting kubeconfig")
+		fmt.Println(clusterName)
+		cmd := exec.Command("clusterctl", "get", "kubeconfig", clusterName, "--namespace", defaultNamespace) // ">", "kubeconfig.yaml")
+		output, err := cmd.Output()
+		Expect(err).NotTo(HaveOccurred())
+
+		kubeConfigName := "kubeconfig.yaml"
+		err = os.WriteFile(kubeConfigName, output, 0644)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Setting in kubeconfig server to cluster connect gateway")
+		cmd = exec.Command("sed", "-i", "s|http://[[:alnum:].-]*:8080/|http://127.0.0.1:8081/|", "kubeconfig.yaml")
+		_, err = cmd.Output()
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Getting list of pods")
+		cmd = exec.Command("kubectl", "--kubeconfig", "kubeconfig.yaml", "get", "pods")
+		_, err = cmd.Output()
+		Expect(err).NotTo(HaveOccurred())
+
+		// Dump kubectl client and server version
+		By("Dumping kubectl client and server version")
+		cmd = exec.Command("kubectl", "version", "--kubeconfig", "kubeconfig.yaml")
+		output, err = cmd.Output()
+		Expect(err).NotTo(HaveOccurred())
+		By("Printing the output of the command")
+		fmt.Printf("kubectl client and server version:\n%s\n", string(output))
+
+		// Exec into one of the pods in the kube-system namespace on the edge node cluster
+		By("Executing command in kube-scheduler-cluster-agent-0 pod")
+		cmd = exec.Command("kubectl", "exec", "--kubeconfig", "kubeconfig.yaml", "-it", "-n", "kube-system", "kube-scheduler-cluster-agent-0", "--", "ls")
+		output, err = cmd.Output()
+		Expect(err).NotTo(HaveOccurred())
+		By("Printing the output of the command")
+		fmt.Printf("Output of `ls` command:\n%s\n", string(output))
 	})
 
 	JustAfterEach(func() {
