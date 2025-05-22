@@ -99,11 +99,11 @@ connect-agent: ## Copy the connect-agent manifest to the EN
 	kubectl cp /tmp/connect-agent.yaml cluster-agent-0:/var/lib/rancher/k3s/server/manifests/connect-agent.yaml
 
 .PHONY: etcd-proxy
-etcd-proxy: ## Fix issues with etcd-proxy manifest
+etcd-proxy: ## (OBSOLETE) Fix issues with etcd-proxy manifest
 	kubectl cp configs/k3s/etcd-proxy.yaml cluster-agent-0:/var/lib/rancher/k3s/server/manifests/etcd-proxy.yaml
 
 .PHONY: workarounds
-workarounds: connect-agent etcd-proxy ## Apply workarounds for K3S
+workarounds: connect-agent ## Apply workarounds for K3S
 
 .PHONY: delete-k3s
 delete-k3s: ## Delete K3S cluster
