@@ -1,0 +1,51 @@
+{
+  "name": "baseline-k3s",
+  "version": "v0.0.1",
+  "kubernetesVersion": "v1.32.4+k3s1",
+  "description": "Baseline Cluster Template for k3s",
+  "controlplaneprovidertype": "k3s",
+  "infraprovidertype": "intel",
+  "clusterconfiguration": {
+    "apiVersion": "controlplane.cluster.x-k8s.io/v1beta2",
+    "kind": "KThreesControlPlaneTemplate",
+    "metadata": {
+      "name": "baseline-v2.0.1",
+      "namespace": "53cd37b9-66b2-4cc8-b080-3722ed7af64a"
+    },
+    "spec": {
+      "template": {
+        "spec": {
+          "kthreesConfigSpec": {
+            "files": [
+              {
+                "path": "/var/lib/rancher/k3s/agent/etc/containerd/config.toml.tmpl",
+                "content": "version = 2\n\n[plugins.\\\"io.containerd.internal.v1.opt\\\"]\n  path = \\\"/var/lib/rancher/k3s/agent/containerd\\\"\n\n[plugins.\\\"io.containerd.grpc.v1.cri\\\"]\n  stream_server_address = \\\"127.0.0.1\\\"\n  stream_server_port = \\\"10010\\\"\n  enable_selinux = false\n  enable_unprivileged_ports = true\n  enable_unprivileged_icmp = true\n  sandbox_image = \\\"index.docker.io/rancher/mirrored-pause:3.6\\\"\n  disable_apparmor = true\n\n[plugins.\\\"io.containerd.grpc.v1.cri\\\".containerd]\n  snapshotter = \\\"overlayfs\\\"\n  disable_snapshot_annotations = true\n\n[plugins.\\\"io.containerd.grpc.v1.cri\\\".containerd.runtimes.runc]\n  runtime_type = \\\"io.containerd.runc.v2\\\"\n\n[plugins.\\\"io.containerd.grpc.v1.cri\\\".containerd.runtimes.runc.options]\n  SystemdCgroup = true\n\n[plugins.\\\"io.containerd.grpc.v1.cri\\\".registry]\n  config_path = \\\"/var/lib/rancher/k3s/agent/etc/containerd/certs.d\\\"\n\n[plugins.\\\"io.containerd.grpc.v1.cri\\\".containerd.runtimes.kata-qemu]\n  runtime_type = \\\"io.containerd.kata-qemu.v2\\\"\n  runtime_path = \\\"/opt/kata/bin/containerd-shim-kata-v2\\\"\n  privileged_without_host_devices = true\n  pod_annotations = [\\\"io.katacontainers.*\\\"]\n\n[plugins.\\\"io.containerd.grpc.v1.cri\\\".containerd.runtimes.kata-qemu.options]\n  ConfigPath = \\\"/opt/kata/share/defaults/kata-containers/configuration-qemu.toml\\\""
+              }
+            ],
+            "serverConfig": {
+              "disableCloudController": false,
+              "clusterDomain": "cluster.edge"
+            },
+            "version": "v1.30.2+k3s2"
+          }
+        }
+      }
+    }
+  },
+  "clusterNetwork": {
+    "pods": {
+      "cidrBlocks": [
+        "10.45.0.0/16"
+      ]
+    },
+    "services": {
+      "cidrBlocks": [
+        "10.46.0.0/16"
+      ]
+    }
+  },
+  "cluster-labels": {
+    "default-extension": "baseline"
+  }
+}
+ 
