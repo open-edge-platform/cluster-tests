@@ -34,7 +34,7 @@ components:
   # Cluster API Provider Intel
   - name: cluster-api-provider-intel
     skip-component: false
-    skip-local-build: false
+    skip-local-build: true
     pre-install-commands:
       - echo "Installing Prometheus Operator CRDs to get Service Monitor CRD"
       - kubectl apply -f https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.81.0/stripped-down-crds.yaml
@@ -54,7 +54,7 @@ components:
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/cluster-api-provider-intel.git
-      version: i65666
+      version: main
     make-directory: ""
     make-variables:
       - VERSION=v0.0.0
@@ -102,7 +102,7 @@ components:
   # Cluster Connect Gateway
   - name: cluster-connect-gateway
     skip-component: false
-    skip-local-build: false
+    skip-local-build: true
     pre-install-commands: []
     helm-repo:
       - url: "oci://registry-rs.edgeorchestration.intel.com"
@@ -119,7 +119,7 @@ components:
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/cluster-connect-gateway.git
-      version: i65654
+      version: main
     make-directory: ""
     make-variables:
       - VERSION=v0.0.0
@@ -137,7 +137,7 @@ components:
   # Cluster Manager
   - name: cluster-manager
     skip-component: false
-    skip-local-build: true
+    skip-local-build: false
     pre-install-commands: []
     helm-repo:
       - url: "oci://registry-rs.edgeorchestration.intel.com"
@@ -154,7 +154,7 @@ components:
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/cluster-manager.git
-      version: main
+      version: k3s-intel-provider
     make-variables:
       - VERSION=v0.0.0
       - HELM_VERSION=v0.0.0
