@@ -165,7 +165,10 @@ components:
     make-targets:
       - helm-install
     make-directory: ""
-    post-install-commands: []
+    post-install-commands:
+      - cd /root/cluster-tests/_workspace/cluster-manager/
+      - git log -1 --pretty=format:"%H %s %ad"
+      - kubectl port-forward svc/cluster-manager 8080:8080 --address 0.0.0.0 > /dev/null 2>&1 &
 
   # Cluster Agent on LW-ENiC
   - name: cluster-agent

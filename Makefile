@@ -89,7 +89,25 @@ create-rke2: ## Create RKE2 cluster using Custom Resources
 
 .PHONY: create-k3s
 create-k3s: ## Create K3S cluster using Custom Resources
-	kubectl apply -f configs/k3s/all.yaml
+	curl --location '127.0.0.1:8080/v2/clusters' --header 'Activeprojectid: 53cd37b9-66b2-4cc8-b080-3722ed7af64a' --header 'Content-Type: application/json' --header 'Accept: application/json' --data '{"name":"demo-cluster","template":"baseline-k3s-v0.0.1","nodes":[{"id":"12345678-1234-1234-1234-123456789012","role":"all"}],"labels":{"default-extension":"baseline"}}'
+	kubectl -n 53cd37b9-66b2-4cc8-b080-3722ed7af64a wait cl demo-cluster --for=condition=Ready --timeout=5m
+	sleep 10 # improve later by replacing for wait, if needed
+	kubectl exec -it cluster-agent-0 -- kubectl get po -A
+	kubectl get po -A
+
+.PHONY: load-k3s-template
+load-k3s-template: ## Create K3S cluster template
+	curl --location '127.0.0.1:8080/v2/templates' \
+		--header 'Activeprojectid: 53cd37b9-66b2-4cc8-b080-3722ed7af64a' \
+		--header 'Content-Type: application/json' \
+		--header 'Accept: application/json' \
+		--data @configs/baseline-cluster-template-k3s.json
+	kubectl -n 53cd37b9-66b2-4cc8-b080-3722ed7af64a wait clustertemplate  baseline-k3s-v0.0.1 --for=condition=Ready --timeout=5m
+	sleep 1
+
+.PHONY: create-projectid
+create-projectid: ## Create projectid
+	kubectl create ns 53cd37b9-66b2-4cc8-b080-3722ed7af64a
 
 .PHONY: connect-agent
 connect-agent: ## (OBSOLETE) Copy the connect-agent manifest to the EN
@@ -105,6 +123,18 @@ etcd-proxy: ## (OBSOLETE) Fix issues with etcd-proxy manifest
 .PHONY: delete-k3s
 delete-k3s: ## Delete K3S cluster
 	kubectl -n 53cd37b9-66b2-4cc8-b080-3722ed7af64a delete cl demo-cluster
+
+.PHONY: k3s-deploy-verify
+k3s-deploy-verify: 
+	@start=$$(date +%s); \
+	$(MAKE) bootstrap; \
+	$(MAKE) create-projectid; \
+	$(MAKE) load-k3s-template; \
+	$(MAKE) create-k3s; \
+	$(MAKE) cluster-status; \
+	end=$$(date +%s); \
+	elapsed=$$((end - start)); \
+	echo "Total time elapsed: $${elapsed} seconds"
 
 .PHONY: cluster-status
 cluster-status: ## Get the status of the cluster
