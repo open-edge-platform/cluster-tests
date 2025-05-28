@@ -21,10 +21,6 @@ func TestClusterOrchSmokeTest(t *testing.T) {
 	RunSpecs(t, "cluster orch smoke test suite")
 }
 
-var _ = Describe("Cluster Template Smoke Tests", Ordered, Label(utils.ClusterOrchSmokeTest), func() {
-
-})
-
 var _ = Describe("TC-CO-INT-001: Single Node RKE2 Cluster Create and Delete using Cluster Manager APIs", Ordered, Label(utils.ClusterOrchSmokeTest), func() {
 	var (
 		gatewayPortForward     *exec.Cmd

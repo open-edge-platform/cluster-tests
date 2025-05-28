@@ -6,6 +6,7 @@ package utils
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 	"os/exec"
 	"strings"
 	"text/template"
+
+	"github.com/open-edge-platform/cluster-manager/v2/pkg/api"
 )
 
 const (
@@ -22,8 +25,9 @@ const (
 	NodeGUIDEnvVar   = "NODEGUID"
 	ClusterName      = "demo-cluster"
 
-	ClusterOrchFunctionalTest = "cluster-orch-functional-test"
-	ClusterOrchSmokeTest      = "cluster-orch-smoke-test"
+	ClusterOrchFunctionalTest       = "cluster-orch-functional-test"
+	ClusterOrchSmokeTest            = "cluster-orch-smoke-test"
+	ClusterOrchTemplateApiSmokeTest = "cluster-orch-template-api-smoke-test"
 
 	PortForwardAddress           = "0.0.0.0"
 	PortForwardService           = "svc/cluster-manager"
@@ -253,6 +257,71 @@ func DeleteTemplate(namespace string) error {
 	if resp.StatusCode != http.StatusNoContent {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("failed to delete template: %s", string(body))
+	}
+
+	return nil
+}
+
+func DeleteTemplateByNameVersion(namespace, name, version string) error {
+	url := fmt.Sprintf("%s/%s/%s", ClusterTemplateURL, name, version)
+
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to delete template: %s", string(body))
+	}
+
+	return nil
+}
+
+func DeleteAllTemplate(namespace string) error {
+	req, err := http.NewRequest("GET", ClusterTemplateURL, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to get templates: %s", string(body))
+	}
+	var templateInfoList api.TemplateInfoList
+	if err := json.NewDecoder(resp.Body).Decode(&templateInfoList); err != nil {
+		return fmt.Errorf("failed to decode template info list: %v", err)
+	}
+	if templateInfoList.TemplateInfoList != nil && len(*templateInfoList.TemplateInfoList) != 0 {
+		for _, templateInfo := range *templateInfoList.TemplateInfoList {
+			fmt.Printf("Deleting template: %s \n", templateInfo.Name+"-"+templateInfo.Version)
+			err := DeleteTemplateByNameVersion(namespace, templateInfo.Name, templateInfo.Version)
+			if err != nil {
+				return fmt.Errorf("failed to delete template %s: %v", templateInfo.Name+"-"+templateInfo.Version, err)
+			}
+		}
 	}
 
 	return nil

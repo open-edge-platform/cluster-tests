@@ -106,6 +106,19 @@ func (Test) clusterOrchSmoke() error {
 	)
 }
 
+// Test Runs cluster orch template api test
+func (Test) clusterOrchTemplateApiSmoke() error {
+	return sh.RunV(
+		"ginkgo",
+		"-v",
+		"-r",
+		"--fail-fast",
+		"--race",
+		"--label-filter=cluster-orch-template-api-smoke-test",
+		"./tests/smoke-test",
+	)
+}
+
 // Test Runs cluster orch functional test
 func (Test) clusterOrchFunctional() error {
 	return sh.RunV(
