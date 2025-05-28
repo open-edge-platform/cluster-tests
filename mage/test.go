@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/magefile/mage/sh"
-
 	"gopkg.in/yaml.v3"
 )
 
