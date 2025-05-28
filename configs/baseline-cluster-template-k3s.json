@@ -36,9 +36,16 @@
               "sed -i '/kubelet-arg:/a\\- pod-manifest-path=/var/lib/kubelet/static-pods' /etc/rancher/k3s/config.yaml",
               "sudo cp /var/lib/rancher/k3s/agent/pod-manifests/connect-agent.yaml /var/lib/kubelet/static-pods/connect-agent.yaml"
             ],
-            "postK3sCommands": [],
+            "postK3sCommands": [
+              "kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.30.0/manifests/operator-crds.yaml",
+              "kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.30.0/manifests/tigera-operator.yaml",
+              "kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.30.0/manifests/custom-resources.yaml"
+            ],
             "serverConfig": {
-              "kubeApiServerArgs": [],
+              "kubeApiServerArg": [
+                "--feature-gates=PortForwardWebsockets=true",
+                "--tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+              ],
               "kubeControllerManagerArgs": [],
               "kubeSchedulerArgs": [],
               "clusterDomain": "cluster.edge",
