@@ -1,0 +1,295 @@
+// SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
+
+package utils
+
+import (
+	"bufio"
+	"bytes"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"strings"
+	"text/template"
+)
+
+const (
+	DefaultNamespace = "53cd37b9-66b2-4cc8-b080-3722ed7af64a"
+	DefaultNodeGUID  = "12345678-1234-1234-1234-123456789012"
+	NamespaceEnvVar  = "NAMESPACE"
+	NodeGUIDEnvVar   = "NODEGUID"
+	ClusterName      = "demo-cluster"
+
+	ClusterOrchFunctionalTest = "cluster-orch-functional-test"
+	ClusterOrchSmokeTest      = "cluster-orch-smoke-test"
+
+	PortForwardAddress           = "0.0.0.0"
+	PortForwardService           = "svc/cluster-manager"
+	PortForwardGatewayService    = "svc/cluster-connect-gateway"
+	PortForwardLocalPort         = "8080"
+	PortForwardRemotePort        = "8080"
+	PortForwardGatewayLocalPort  = "8081"
+	PortForwardGatewayRemotePort = "8080"
+
+	ClusterTemplateOnlyName    = "baseline"
+	ClusterTemplateOnlyVersion = "v2.0.1"
+	ClusterTemplateURL         = "http://127.0.0.1:8080/v2/templates"
+	ClusterCreateURL           = "http://127.0.0.1:8080/v2/clusters"
+
+	ClusterConfigTemplatePath   = "../../configs/cluster-config.json"
+	BaselineClusterTemplatePath = "../../configs/baseline-cluster-template.json"
+)
+
+var (
+	ClusterTemplateName = fmt.Sprintf("%s-%s", ClusterTemplateOnlyName, ClusterTemplateOnlyVersion)
+	SkipDeleteCluster   = os.Getenv("SKIP_DELETE_CLUSTER") == "true"
+)
+
+// GetEnv retrieves the value of the environment variable or returns the default value if not set.
+func GetEnv(key, defaultValue string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	return defaultValue
+}
+
+// EnsureNamespaceExists ensures that the specified namespace exists in the cluster.
+func EnsureNamespaceExists(namespace string) error {
+	cmd := exec.Command("kubectl", "get", "namespace", namespace)
+	err := cmd.Run()
+	if err != nil {
+		// Namespace does not exist, create it
+		cmd = exec.Command("kubectl", "create", "namespace", namespace)
+		return cmd.Run()
+	}
+	return nil
+}
+
+// ImportClusterTemplate imports a cluster template into the specified namespace.
+func ImportClusterTemplate(namespace string) error {
+	data, err := os.ReadFile(BaselineClusterTemplatePath)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("POST", ClusterTemplateURL, bytes.NewBuffer(data))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to import cluster template: %s", string(body))
+	}
+
+	return nil
+}
+
+// IsClusterTemplateReady checks if the cluster template is ready.
+func IsClusterTemplateReady(namespace, templateName string) bool {
+	cmd := exec.Command("kubectl", "get", "clustertemplates.edge-orchestrator.intel.com", templateName, "-n", namespace, "-o", "yaml")
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+
+	// Use yq to parse the YAML and check the .status.ready field
+	cmd = exec.Command("yq", "eval", ".status.ready", "-")
+	cmd.Stdin = bytes.NewReader(output)
+	readyOutput, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+
+	// Check if the ready status is true
+	return strings.TrimSpace(string(readyOutput)) == "true"
+}
+
+// CreateCluster creates a cluster using the provided configuration.
+func CreateCluster(namespace, nodeGUID string) error {
+	templateData, err := os.ReadFile(ClusterConfigTemplatePath)
+	if err != nil {
+		return err
+	}
+
+	tmpl, err := template.New("clusterConfig").Parse(string(templateData))
+	if err != nil {
+		return err
+	}
+
+	var configBuffer bytes.Buffer
+	err = tmpl.Execute(&configBuffer, struct {
+		ClusterName  string
+		TemplateName string
+		NodeGUID     string
+	}{
+		NodeGUID:     nodeGUID,
+		TemplateName: ClusterTemplateName,
+		ClusterName:  ClusterName,
+	})
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("POST", ClusterCreateURL, &configBuffer)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to create cluster: %s", string(body))
+	}
+
+	return nil
+}
+
+// DeleteCluster deletes a cluster by name.
+func DeleteCluster(namespace string) error {
+	url := fmt.Sprintf("%s/%s", ClusterCreateURL, ClusterName)
+
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to delete cluster: %s", string(body))
+	}
+
+	return nil
+}
+
+// CheckAllComponentsReady verifies if all components in the cluster are ready.
+func CheckAllComponentsReady(output string) bool {
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		// Skip the header line
+		if strings.Contains(line, "NAME") && strings.Contains(line, "READY") {
+			continue
+		}
+		// Check if the line contains a "False" status in the "READY" column
+		fields := strings.Fields(line)
+		if (len(fields) > 1 && fields[1] == "False") || len(fields) == 1 {
+			return false
+		}
+	}
+	return true
+}
+
+func DeleteTemplate(namespace string) error {
+	url := fmt.Sprintf("%s/%s/%s", ClusterTemplateURL, ClusterTemplateOnlyName, ClusterTemplateOnlyVersion)
+
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to delete template: %s", string(body))
+	}
+
+	return nil
+}
+
+func GetClusterInfo(namespace, clusterName string) (*http.Response, error) {
+	url := fmt.Sprintf("%s/%s", ClusterCreateURL, clusterName)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+	return client.Do(req)
+}
+
+// FetchMetrics fetches the metrics from the /metrics endpoint.
+func FetchMetrics() (io.ReadCloser, error) {
+	resp, err := http.Get("http://127.0.0.1:8081/metrics")
+	if err != nil {
+		return nil, fmt.Errorf("error fetching metrics: %v", err)
+	}
+	return resp.Body, nil
+}
+
+// ParseMetrics checks if the metric websocket_connections_total with status="succeeded" is 1.
+func ParseMetrics(metrics io.Reader) (bool, error) {
+	scanner := bufio.NewScanner(metrics)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, `websocket_connections_total{status="succeeded"}`) {
+			fmt.Printf("\tfound metric: %s\n", line)
+			parts := strings.Fields(line)
+			if len(parts) == 2 && parts[1] != "0" {
+				return true, nil
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return false, fmt.Errorf("error reading metrics: %v", err)
+	}
+
+	return false, nil
+}
+
+func LogCommandOutput(command string, args []string) {
+	cmd := exec.Command(command, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		fmt.Printf("Error executing command: %v\n", err)
+	}
+	fmt.Printf("Command output:\n%s\n", string(output))
+}

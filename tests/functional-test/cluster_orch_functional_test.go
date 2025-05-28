@@ -4,47 +4,16 @@
 package functional_test
 
 import (
-	"bytes"
 	"fmt"
-	"io"
+	"github.com/open-edge-platform/cluster-tests/tests/utils"
 	"net/http"
 	"os"
 	"os/exec"
-	"strings"
 	"testing"
-	"text/template"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-)
-
-const (
-	defaultNamespace = "53cd37b9-66b2-4cc8-b080-3722ed7af64a"
-	defaultNodeGUID  = "12345678-1234-1234-1234-123456789012"
-	namespaceEnvVar  = "NAMESPACE"
-	nodeGUIDEnvVar   = "NODEGUID"
-	clusterName      = "demo-cluster"
-
-	clusterTemplateOnlyName      = "baseline"
-	clusterTemplateOnlyVersion   = "v2.0.1"
-	clusterOrchFunctionalTest    = "cluster-orch-functional-test"
-	portForwardAddress           = "0.0.0.0"
-	portForwardService           = "svc/cluster-manager"
-	portForwardGatewayService    = "svc/cluster-connect-gateway"
-	portForwardLocalPort         = "8080"
-	portForwardRemotePort        = "8080"
-	portForwardGatewayLocalPort  = "8081"
-	portForwardGatewayRemotePort = "8080"
-	clusterTemplateURL           = "http://127.0.0.1:8080/v2/templates"
-	clusterCreateURL             = "http://127.0.0.1:8080/v2/clusters"
-	clusterConfigTemplatePath    = "../../configs/cluster-config.json"
-	baselineClusterTemplatePath  = "../../configs/baseline-cluster-template.json"
-)
-
-var (
-	clusterTemplateName = fmt.Sprintf("%s-%s", clusterTemplateOnlyName, clusterTemplateOnlyVersion)
-	skipDeleteCluster   = os.Getenv("SKIP_DELETE_CLUSTER") == "true"
 )
 
 func TestClusterOrchFunctionalTest(t *testing.T) {
@@ -53,7 +22,7 @@ func TestClusterOrchFunctionalTest(t *testing.T) {
 	RunSpecs(t, "cluster orch functional test suite")
 }
 
-var _ = Describe("Cluster Orch Functional tests", Ordered, Label(clusterOrchFunctionalTest), func() {
+var _ = Describe("Cluster Orch Functional tests", Ordered, Label(utils.ClusterOrchFunctionalTest), func() {
 	var (
 		namespace              string
 		nodeGUID               string
@@ -64,22 +33,22 @@ var _ = Describe("Cluster Orch Functional tests", Ordered, Label(clusterOrchFunc
 	)
 
 	BeforeAll(func() {
-		namespace = getEnv(namespaceEnvVar, defaultNamespace)
-		nodeGUID = getEnv(nodeGUIDEnvVar, defaultNodeGUID)
+		namespace = utils.GetEnv(utils.NamespaceEnvVar, utils.DefaultNamespace)
+		nodeGUID = utils.GetEnv(utils.NodeGUIDEnvVar, utils.DefaultNodeGUID)
 
 		// create namespace for the project
 		By("Ensuring the namespace exists")
-		err := ensureNamespaceExists(namespace)
+		err := utils.EnsureNamespaceExists(namespace)
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Port forwarding to the cluster manager service")
-		portForwardCmd = exec.Command("kubectl", "port-forward", portForwardService, fmt.Sprintf("%s:%s", portForwardLocalPort, portForwardRemotePort), "--address", portForwardAddress)
+		portForwardCmd = exec.Command("kubectl", "port-forward", utils.PortForwardService, fmt.Sprintf("%s:%s", utils.PortForwardLocalPort, utils.PortForwardRemotePort), "--address", utils.PortForwardAddress)
 		err = portForwardCmd.Start()
 		Expect(err).NotTo(HaveOccurred())
 		time.Sleep(5 * time.Second) // Give some time for port-forwarding to establish
 
 		By("Port forwarding to the cluster gateway service")
-		gatewayPortForward = exec.Command("kubectl", "port-forward", portForwardGatewayService, fmt.Sprintf("%s:%s", portForwardGatewayLocalPort, portForwardGatewayRemotePort), "--address", portForwardAddress)
+		gatewayPortForward = exec.Command("kubectl", "port-forward", utils.PortForwardGatewayService, fmt.Sprintf("%s:%s", utils.PortForwardGatewayLocalPort, utils.PortForwardGatewayRemotePort), "--address", utils.PortForwardAddress)
 		err = gatewayPortForward.Start()
 		Expect(err).NotTo(HaveOccurred())
 		time.Sleep(5 * time.Second) // Give some time for port-forwarding to establish
@@ -93,14 +62,14 @@ var _ = Describe("Cluster Orch Functional tests", Ordered, Label(clusterOrchFunc
 			}
 		}()
 
-		if !skipDeleteCluster {
+		if !utils.SkipDeleteCluster {
 			By("Deleting the cluster")
-			err := deleteCluster(namespace)
+			err := utils.DeleteCluster(namespace)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying that the cluster is deleted")
 			Eventually(func() bool {
-				cmd := exec.Command("kubectl", "-n", namespace, "get", "cluster", clusterName)
+				cmd := exec.Command("kubectl", "-n", namespace, "get", "cluster", utils.ClusterName)
 				err := cmd.Run()
 				return err != nil
 			}, 1*time.Minute, 5*time.Second).Should(BeTrue())
@@ -109,12 +78,12 @@ var _ = Describe("Cluster Orch Functional tests", Ordered, Label(clusterOrchFunc
 
 	It("TC-CO-INT-002: Should successfully import RKE2 Single Node cluster template", func() {
 		By("Importing the cluster template")
-		err := importClusterTemplate(namespace)
+		err := utils.ImportClusterTemplate(namespace)
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Waiting for the cluster template to be ready")
 		Eventually(func() bool {
-			return isClusterTemplateReady(namespace, clusterTemplateName)
+			return utils.IsClusterTemplateReady(namespace, utils.ClusterTemplateName)
 		}, 1*time.Minute, 2*time.Second).Should(BeTrue())
 	})
 
@@ -123,7 +92,7 @@ var _ = Describe("Cluster Orch Functional tests", Ordered, Label(clusterOrchFunc
 		clusterCreateStartTime = time.Now()
 
 		By("Creating the cluster")
-		err := createCluster(namespace, nodeGUID)
+		err := utils.CreateCluster(namespace, nodeGUID)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -140,13 +109,13 @@ var _ = Describe("Cluster Orch Functional tests", Ordered, Label(clusterOrchFunc
 
 		By("Waiting for all components to be ready")
 		Eventually(func() bool {
-			cmd := exec.Command("clusterctl", "describe", "cluster", clusterName, "-n", namespace)
+			cmd := exec.Command("clusterctl", "describe", "cluster", utils.ClusterName, "-n", namespace)
 			output, err := cmd.Output()
 			if err != nil {
 				return false
 			}
 			fmt.Printf("Cluster components status:\n%s\n", string(output))
-			return checkAllComponentsReady(string(output))
+			return utils.CheckAllComponentsReady(string(output))
 		}, 10*time.Minute, 10*time.Second).Should(BeTrue())
 		// Record the end time after the cluster is fully active
 		clusterCreateEndTime = time.Now()
@@ -158,7 +127,7 @@ var _ = Describe("Cluster Orch Functional tests", Ordered, Label(clusterOrchFunc
 
 	It("TC-CO-INT-005: Should verify that the cluster information can be queried	", func() {
 		By("Getting the cluster information")
-		resp, err := getClusterInfo(namespace, clusterName)
+		resp, err := utils.GetClusterInfo(namespace, utils.ClusterName)
 		Expect(err).NotTo(HaveOccurred())
 		defer resp.Body.Close()
 
@@ -177,8 +146,8 @@ var _ = Describe("Cluster Orch Functional tests", Ordered, Label(clusterOrchFunc
 	It("TC-CO-INT-008: Should verify that the connect gateway allow access to k8s api", func() {
 		// cmd := exec.Command("curl", "-X", "GET", fmt.Sprintf("127.0.0.1:%v/kubernetes/%v-%v/api/v1/namespaces/default/pods", portForwardGatewayLocalPort, namespace, clusterName))
 		By("Getting kubeconfig")
-		fmt.Println(clusterName)
-		cmd := exec.Command("clusterctl", "get", "kubeconfig", clusterName, "--namespace", defaultNamespace) // ">", "kubeconfig.yaml")
+		fmt.Println(utils.ClusterName)
+		cmd := exec.Command("clusterctl", "get", "kubeconfig", utils.ClusterName, "--namespace", utils.DefaultNamespace) // ">", "kubeconfig.yaml")
 		output, err := cmd.Output()
 		Expect(err).NotTo(HaveOccurred())
 
@@ -206,213 +175,9 @@ var _ = Describe("Cluster Orch Functional tests", Ordered, Label(clusterOrchFunc
 	})
 	It("TC-CO-INT-009: Should verify that a cluster template cannot be deleted if there is a cluster using it", func() {
 		By("Trying to delete the cluster template")
-		err := deleteTemplate(namespace)
+		err := utils.DeleteTemplate(namespace)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("denied the request: clusterTemplate is in use"))
 	})
 	// TODO: Add more functional tests
 })
-
-func getEnv(key, defaultValue string) string {
-	if value, exists := os.LookupEnv(key); exists {
-		return value
-	}
-	return defaultValue
-}
-
-func checkAllComponentsReady(output string) bool {
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
-		// Skip the header line
-		if strings.Contains(line, "NAME") && strings.Contains(line, "READY") {
-			continue
-		}
-		// Check if the line contains a "False" status in the "READY" column
-		fields := strings.Fields(line)
-		// Account for below conditions in below check
-		// 1. The second field, which is Ready status, is "False"
-		// 2. The second field is not present, which means the component ready status is not available yet
-		if (len(fields) > 1 && fields[1] == "False") || len(fields) == 1 {
-			return false
-		}
-	}
-	return true
-}
-
-func ensureNamespaceExists(namespace string) error {
-	cmd := exec.Command("kubectl", "get", "namespace", namespace)
-	err := cmd.Run()
-	if err != nil {
-		// Namespace does not exist, create it
-		cmd = exec.Command("kubectl", "create", "namespace", namespace)
-		return cmd.Run()
-	}
-	return nil
-}
-
-func importClusterTemplate(namespace string) error {
-	data, err := os.ReadFile(baselineClusterTemplatePath)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequest("POST", clusterTemplateURL, bytes.NewBuffer(data))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Activeprojectid", namespace)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to import cluster template: %s", string(body))
-	}
-
-	return nil
-}
-
-func isClusterTemplateReady(namespace, templateName string) bool {
-	cmd := exec.Command("kubectl", "get", "clustertemplates.edge-orchestrator.intel.com", templateName, "-n", namespace, "-o", "yaml")
-	output, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-
-	// Use yq to parse the YAML and check the .status.ready field
-	cmd = exec.Command("yq", "eval", ".status.ready", "-")
-	cmd.Stdin = bytes.NewReader(output)
-	readyOutput, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-
-	// Check if the ready status is true
-	return strings.TrimSpace(string(readyOutput)) == "true"
-}
-
-func createCluster(namespace, nodeGUID string) error {
-	templateData, err := os.ReadFile(clusterConfigTemplatePath)
-	if err != nil {
-		return err
-	}
-
-	tmpl, err := template.New("clusterConfig").Parse(string(templateData))
-	if err != nil {
-		return err
-	}
-
-	var configBuffer bytes.Buffer
-	err = tmpl.Execute(&configBuffer, struct {
-		ClusterName  string
-		TemplateName string
-		NodeGUID     string
-	}{
-		NodeGUID:     nodeGUID,
-		TemplateName: clusterTemplateName,
-		ClusterName:  clusterName,
-	})
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequest("POST", clusterCreateURL, &configBuffer)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Activeprojectid", namespace)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to create cluster: %s", string(body))
-	}
-
-	return nil
-}
-
-func deleteCluster(namespace string) error {
-	url := fmt.Sprintf("%s/%s", clusterCreateURL, clusterName)
-
-	req, err := http.NewRequest("DELETE", url, nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Activeprojectid", namespace)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to delete cluster: %s", string(body))
-	}
-
-	return nil
-}
-
-func deleteTemplate(namespace string) error {
-	url := fmt.Sprintf("%s/%s/%s", clusterTemplateURL, clusterTemplateOnlyName, clusterTemplateOnlyVersion)
-
-	req, err := http.NewRequest("DELETE", url, nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Activeprojectid", namespace)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to delete template: %s", string(body))
-	}
-
-	return nil
-}
-
-func getClusterInfo(namespace, clusterName string) (*http.Response, error) {
-	url := fmt.Sprintf("%s/%s", clusterCreateURL, clusterName)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Activeprojectid", namespace)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	client := &http.Client{}
-	return client.Do(req)
-}
