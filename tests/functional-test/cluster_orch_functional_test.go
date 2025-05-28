@@ -78,7 +78,7 @@ var _ = Describe("Cluster Orch Functional tests", Ordered, Label(utils.ClusterOr
 
 	It("TC-CO-INT-002: Should successfully import RKE2 Single Node cluster template", func() {
 		By("Importing the cluster template")
-		err := utils.ImportClusterTemplate(namespace)
+		err := utils.ImportClusterTemplate(namespace, utils.TemplateTypeRke2Baseline)
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Waiting for the cluster template to be ready")

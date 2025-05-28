@@ -38,8 +38,16 @@ const (
 	ClusterTemplateURL         = "http://127.0.0.1:8080/v2/templates"
 	ClusterCreateURL           = "http://127.0.0.1:8080/v2/clusters"
 
-	ClusterConfigTemplatePath   = "../../configs/cluster-config.json"
-	BaselineClusterTemplatePath = "../../configs/baseline-cluster-template.json"
+	ClusterConfigTemplatePath = "../../configs/cluster-config.json"
+
+	BaselineClusterTemplatePathRke2 = "../../configs/baseline-cluster-template-rke2.json"
+	BaselineClusterTemplatePathK3s  = "../../configs/baseline-cluster-template-k3s.yaml"
+)
+
+const (
+	TemplateTypeK3sBaseline  = "k3s-baseline"
+	TemplateTypeRke2Baseline = "rke2-baseline"
+	// Add more template types as needed
 )
 
 var (
@@ -68,8 +76,18 @@ func EnsureNamespaceExists(namespace string) error {
 }
 
 // ImportClusterTemplate imports a cluster template into the specified namespace.
-func ImportClusterTemplate(namespace string) error {
-	data, err := os.ReadFile(BaselineClusterTemplatePath)
+func ImportClusterTemplate(namespace string, templateType string) error {
+	var data []byte
+	var err error
+	switch templateType {
+	case TemplateTypeK3sBaseline:
+		data, err = os.ReadFile(BaselineClusterTemplatePathK3s)
+	case TemplateTypeRke2Baseline:
+		data, err = os.ReadFile(BaselineClusterTemplatePathRke2)
+	default:
+		return fmt.Errorf("unsupported template type: %s", templateType)
+	}
+
 	if err != nil {
 		return err
 	}
