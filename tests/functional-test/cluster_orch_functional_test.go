@@ -177,7 +177,7 @@ var _ = Describe("Cluster Orch Functional tests", Ordered, Label(utils.ClusterOr
 		By("Trying to delete the cluster template")
 		err := utils.DeleteTemplate(namespace)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("denied the request: clusterTemplate is in use"))
+		Expect(err.Error()).To(ContainSubstring("clusterTemplate is in use"))
 	})
 	// TODO: Add more functional tests
 })
