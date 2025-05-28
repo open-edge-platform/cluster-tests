@@ -167,7 +167,7 @@ var _ = Describe("Cluster Orch Functional tests", Ordered, Label(utils.ClusterOr
 
 		// Exec into one of the pods in the kube-system namespace on the edge node cluster
 		By("Executing command in kube-scheduler-cluster-agent-0 pod")
-		cmd = exec.Command("kubectl", "exec", "-it", "-n", "kube-system", "kube-scheduler-cluster-agent-0", "--", "ls")
+		cmd = exec.Command("kubectl", "exec", "--kubeconfig", "kubeconfig.yaml", "-it", "-n", "kube-system", "kube-scheduler-cluster-agent-0", "--", "ls")
 		output, err = cmd.Output()
 		Expect(err).NotTo(HaveOccurred())
 		By("Printing the output of the command")

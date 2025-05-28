@@ -16,3 +16,7 @@ tests/**/*.test
 
 # CI folder cloned by CI runner
 ci
+
+# Test artifact
+tests/smoke-test/kubeconfig.yaml
+tests/functional-test/kubeconfig.yaml
