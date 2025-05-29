@@ -51,7 +51,7 @@ var _ = Describe("Template API Tests", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 
-	It("should validate the template import success", Label("cluster-orch-template-api-smoke-test"), func() {
+	It("should validate the template import success", Label(utils.ClusterOrchTemplateApiSmokeTest), func() {
 		By("Importing the cluster template rke2 baseline")
 		err := utils.ImportClusterTemplate(namespace, utils.TemplateTypeRke2Baseline)
 		Expect(err).NotTo(HaveOccurred())
