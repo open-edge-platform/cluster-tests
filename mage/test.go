@@ -115,7 +115,7 @@ func (Test) clusterOrchTemplateApiSmoke() error {
 		"--fail-fast",
 		"--race",
 		"--label-filter=cluster-orch-template-api-smoke-test",
-		"./tests/smoke-test",
+		"./tests/template-api-test",
 	)
 }
 

@@ -45,7 +45,7 @@ const (
 	ClusterConfigTemplatePath = "../../configs/cluster-config.json"
 
 	BaselineClusterTemplatePathRke2 = "../../configs/baseline-cluster-template-rke2.json"
-	BaselineClusterTemplatePathK3s  = "../../configs/baseline-cluster-template-k3s.yaml"
+	BaselineClusterTemplatePathK3s  = "../../configs/baseline-cluster-template-k3s.json"
 )
 
 const (
