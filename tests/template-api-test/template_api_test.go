@@ -73,4 +73,56 @@ var _ = Describe("Template API Tests", Ordered, func() {
 			return utils.IsClusterTemplateReady(namespace, utils.K3sTemplateName)
 		}, 1*time.Minute, 2*time.Second).Should(BeTrue())
 	})
+
+	It("Should be able to retrieve a template", Label(utils.ClusterOrchTemplateApiSmokeTest), func() {
+		By("Retrieving the K3s template")
+		template, err := utils.GetClusterTemplate(namespace, utils.K3sTemplateOnlyName, utils.K3sTemplateOnlyVersion)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(template.Name + "-" + template.Version).To(Equal(utils.K3sTemplateName))
+
+		By("Retrieving the Rke2 template")
+		template, err = utils.GetClusterTemplate(namespace, utils.Rke2TemplateOnlyName, utils.Rke2TemplateOnlyVersion)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(template.Name + "-" + template.Version).To(Equal(utils.Rke2TemplateName))
+	})
+
+	It("Should be able to set a default template", Label(utils.ClusterOrchTemplateApiSmokeTest), func() {
+		By("Getting Default template when none has been set")
+		defaultTemplateInfo, err := utils.GetDefaultTemplate(namespace)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(defaultTemplateInfo).To(BeNil(), "Default template should be nil when none has been set")
+
+		By("Set the default template by providing only template name without version")
+		err = utils.SetDefaultTemplate(namespace, utils.K3sTemplateOnlyName, "")
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Getting Default template after setting it")
+		defaultTemplateInfo, err = utils.GetDefaultTemplate(namespace)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(defaultTemplateInfo.Name).To(Equal(utils.K3sTemplateOnlyName), "Default template name should match the set template name")
+		Expect(defaultTemplateInfo.Version).To(Equal(utils.K3sTemplateOnlyVersion), "Default template version should match the set template version")
+
+		By("Set the default template by providing both template name and version")
+		err = utils.SetDefaultTemplate(namespace, utils.Rke2TemplateOnlyName, utils.Rke2TemplateOnlyVersion)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Getting Default template after setting it")
+		defaultTemplateInfo, err = utils.GetDefaultTemplate(namespace)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(defaultTemplateInfo.Name).To(Equal(utils.Rke2TemplateOnlyName), "Default template name should match the set template name")
+		Expect(defaultTemplateInfo.Version).To(Equal(utils.Rke2TemplateOnlyVersion), "Default template version should match the set template version")
+
+		By("Setting default template again after it has been set, should not error")
+		err = utils.SetDefaultTemplate(namespace, utils.Rke2TemplateOnlyName, utils.Rke2TemplateOnlyVersion)
+		Expect(err).NotTo(HaveOccurred())
+		By("Getting Default template after setting it again")
+		defaultTemplateInfo, err = utils.GetDefaultTemplate(namespace)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(defaultTemplateInfo.Name).To(Equal(utils.Rke2TemplateOnlyName), "Default template name should match the set template name")
+		Expect(defaultTemplateInfo.Version).To(Equal(utils.Rke2TemplateOnlyVersion), "Default template version should match the set template version")
+
+		By("Setting default template to a non-existing template should error")
+		err = utils.SetDefaultTemplate(namespace, "non-existing-template", "v1.0.0")
+		Expect(err).To(HaveOccurred(), "Setting default template to a non-existing template should return an error")
+	})
 })

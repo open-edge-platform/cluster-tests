@@ -126,6 +126,176 @@ func ImportClusterTemplate(namespace string, templateType string) error {
 	return nil
 }
 
+func GetClusterTemplate(namespace, templateName, templateVersion string) (*api.TemplateInfo, error) {
+
+	url := fmt.Sprintf("%s/%s/%s", ClusterTemplateURL, templateName, templateVersion)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to get template: %s", string(body))
+	}
+
+	var templateInfo api.TemplateInfo
+	if err = json.NewDecoder(resp.Body).Decode(&templateInfo); err != nil {
+		return nil, fmt.Errorf("failed to decode template info: %v", err)
+	}
+
+	return &templateInfo, nil
+}
+
+func DeleteTemplate(namespace, templateName, templateVersion string) error {
+	url := fmt.Sprintf("%s/%s/%s", ClusterTemplateURL, templateName, templateVersion)
+
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to delete template: %s", string(body))
+	}
+
+	return nil
+}
+
+func DeleteAllTemplate(namespace string) error {
+	req, err := http.NewRequest("GET", ClusterTemplateURL, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to get templates: %s", string(body))
+	}
+	var templateInfoList api.TemplateInfoList
+	if err := json.NewDecoder(resp.Body).Decode(&templateInfoList); err != nil {
+		return fmt.Errorf("failed to decode template info list: %v", err)
+	}
+	if templateInfoList.TemplateInfoList != nil && len(*templateInfoList.TemplateInfoList) != 0 {
+		for _, templateInfo := range *templateInfoList.TemplateInfoList {
+			fmt.Printf("Deleting template: %s \n", templateInfo.Name+"-"+templateInfo.Version)
+			err := DeleteTemplate(namespace, templateInfo.Name, templateInfo.Version)
+			if err != nil {
+				return fmt.Errorf("failed to delete template %s: %v", templateInfo.Name+"-"+templateInfo.Version, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func GetDefaultTemplate(namespace string) (*api.DefaultTemplateInfo, error) {
+	req, err := http.NewRequest("GET", ClusterTemplateURL+"?default=true", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to get templates: %s", string(body))
+	}
+	var templateInfoList api.TemplateInfoList
+	if err := json.NewDecoder(resp.Body).Decode(&templateInfoList); err != nil {
+		return nil, fmt.Errorf("failed to decode template info list: %v", err)
+	}
+	return templateInfoList.DefaultTemplateInfo, nil
+}
+
+func SetDefaultTemplate(namespace, name, version string) error {
+	url := fmt.Sprintf("%s/%s/default", ClusterTemplateURL, name)
+	var err error
+	var req *http.Request
+	var data []byte
+
+	if version != "" {
+		var defaultTemplateInfo api.DefaultTemplateInfo
+		defaultTemplateInfo.Version = version
+		data, err = json.Marshal(defaultTemplateInfo)
+		if err != nil {
+			return fmt.Errorf("failed to marshal default template info: %v", err)
+		}
+		req, err = http.NewRequest("PUT", url, bytes.NewBuffer(data))
+		if err != nil {
+			return err
+		}
+	} else {
+		req, err = http.NewRequest("PUT", url, nil)
+		if err != nil {
+			return err
+		}
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to set default template: %s", string(body))
+	}
+
+	return nil
+
+}
+
 // IsClusterTemplateReady checks if the cluster template is ready.
 func IsClusterTemplateReady(namespace, templateName string) bool {
 	cmd := exec.Command("kubectl", "get", "clustertemplates.edge-orchestrator.intel.com", templateName, "-n", namespace, "-o", "yaml")
@@ -224,6 +394,21 @@ func DeleteCluster(namespace string) error {
 	return nil
 }
 
+func GetClusterInfo(namespace, clusterName string) (*http.Response, error) {
+	url := fmt.Sprintf("%s/%s", ClusterCreateURL, clusterName)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+	return client.Do(req)
+}
+
 // CheckAllComponentsReady verifies if all components in the cluster are ready.
 func CheckAllComponentsReady(output string) bool {
 	lines := strings.Split(output, "\n")
@@ -239,86 +424,6 @@ func CheckAllComponentsReady(output string) bool {
 		}
 	}
 	return true
-}
-
-func DeleteTemplate(namespace, templateName, templateVersion string) error {
-	url := fmt.Sprintf("%s/%s/%s", ClusterTemplateURL, templateName, templateVersion)
-
-	req, err := http.NewRequest("DELETE", url, nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Activeprojectid", namespace)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to delete template: %s", string(body))
-	}
-
-	return nil
-}
-
-func DeleteAllTemplate(namespace string) error {
-	req, err := http.NewRequest("GET", ClusterTemplateURL, nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Activeprojectid", namespace)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to get templates: %s", string(body))
-	}
-	var templateInfoList api.TemplateInfoList
-	if err := json.NewDecoder(resp.Body).Decode(&templateInfoList); err != nil {
-		return fmt.Errorf("failed to decode template info list: %v", err)
-	}
-	if templateInfoList.TemplateInfoList != nil && len(*templateInfoList.TemplateInfoList) != 0 {
-		for _, templateInfo := range *templateInfoList.TemplateInfoList {
-			fmt.Printf("Deleting template: %s \n", templateInfo.Name+"-"+templateInfo.Version)
-			err := DeleteTemplate(namespace, templateInfo.Name, templateInfo.Version)
-			if err != nil {
-				return fmt.Errorf("failed to delete template %s: %v", templateInfo.Name+"-"+templateInfo.Version, err)
-			}
-		}
-	}
-
-	return nil
-}
-
-func GetClusterInfo(namespace, clusterName string) (*http.Response, error) {
-	url := fmt.Sprintf("%s/%s", ClusterCreateURL, clusterName)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Activeprojectid", namespace)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	client := &http.Client{}
-	return client.Do(req)
 }
 
 // FetchMetrics fetches the metrics from the /metrics endpoint.
