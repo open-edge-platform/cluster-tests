@@ -6,12 +6,13 @@ package mage
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/open-edge-platform/cluster-tests/tests/utils"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/open-edge-platform/cluster-tests/tests/utils"
 
 	"github.com/magefile/mage/sh"
 	"gopkg.in/yaml.v3"
@@ -115,7 +116,7 @@ func (Test) clusterOrchTemplateApiSmoke() error {
 		"-r",
 		"--fail-fast",
 		"--race",
-		fmt.Sprintf("--label-filter=%s", utils.ClusterOrchFunctionalTest),
+		fmt.Sprintf("--label-filter=%s", utils.ClusterOrchTemplateApiSmokeTest),
 		"./tests/template-api-test",
 	)
 }
@@ -128,7 +129,7 @@ func (Test) clusterOrchFunctional() error {
 		"-r",
 		"--fail-fast",
 		"--race",
-		fmt.Sprintf("--label-filter=%s", utils.ClusterOrchTemplateApiSmokeTest),
+		fmt.Sprintf("--label-filter=%s", utils.ClusterOrchFunctionalTest),
 		"./tests/functional-test",
 	)
 }

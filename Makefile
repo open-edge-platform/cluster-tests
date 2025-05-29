@@ -84,7 +84,7 @@ functional-test: bootstrap ## Runs cluster orch functional tests
 	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchFunctional
 
 .PHONE: template-api-test
-template-api-test-smoke: bootstrap ## Runs cluster orch template API tests
+template-api-test-smoke: ## Runs cluster orch template API tests
 	PATH=${ENV_PATH} mage test:ClusterOrchTemplateApiSmoke
 
 .PHONY: help
