@@ -86,18 +86,21 @@ var _ = Describe("Template API Tests", Ordered, func() {
 		Expect(template.Name + "-" + template.Version).To(Equal(utils.Rke2TemplateName))
 	})
 
-	It("Should be able to set a default template", Label(utils.ClusterOrchTemplateApiSmokeTest), func() {
+	It("Should not find a default template when non has been set", Label(utils.ClusterOrchTemplateApiTestNightly), func() {
 		By("Getting Default template when none has been set")
 		defaultTemplateInfo, err := utils.GetDefaultTemplate(namespace)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(defaultTemplateInfo).To(BeNil(), "Default template should be nil when none has been set")
+	})
+
+	It("Should be able to set a default template", Label(utils.ClusterOrchTemplateApiSmokeTest), func() {
 
 		By("Set the default template by providing only template name without version")
-		err = utils.SetDefaultTemplate(namespace, utils.K3sTemplateOnlyName, "")
+		err := utils.SetDefaultTemplate(namespace, utils.K3sTemplateOnlyName, "")
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Getting Default template after setting it")
-		defaultTemplateInfo, err = utils.GetDefaultTemplate(namespace)
+		defaultTemplateInfo, err := utils.GetDefaultTemplate(namespace)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(*defaultTemplateInfo.Name).To(Equal(utils.K3sTemplateOnlyName), "Default template name should match the set template name")
 		Expect(defaultTemplateInfo.Version).To(Equal(utils.K3sTemplateOnlyVersion), "Default template version should match the set template version")
@@ -115,14 +118,28 @@ var _ = Describe("Template API Tests", Ordered, func() {
 		By("Setting default template again after it has been set, should not error")
 		err = utils.SetDefaultTemplate(namespace, utils.Rke2TemplateOnlyName, utils.Rke2TemplateOnlyVersion)
 		Expect(err).NotTo(HaveOccurred())
+
 		By("Getting Default template after setting it again")
 		defaultTemplateInfo, err = utils.GetDefaultTemplate(namespace)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(*defaultTemplateInfo.Name).To(Equal(utils.Rke2TemplateOnlyName), "Default template name should match the set template name")
 		Expect(defaultTemplateInfo.Version).To(Equal(utils.Rke2TemplateOnlyVersion), "Default template version should match the set template version")
 
+	})
+
+	It("Should error out when setting a default template with an invalid name", Label(utils.ClusterOrchTemplateApiTestNightly), func() {
 		By("Setting default template to a non-existing template should error")
-		err = utils.SetDefaultTemplate(namespace, "non-existing-template", "v1.0.0")
+		err := utils.SetDefaultTemplate(namespace, "non-existing-template", "v1.0.0")
 		Expect(err).To(HaveOccurred(), "Setting default template to a non-existing template should return an error")
+
+	})
+
+	It("Should return templates matching a filter", Label(utils.ClusterOrchTemplateApiTestNightly), func() {
+		By("Retrieving templates with a filter")
+		templates, err := utils.GetClusterTemplatesWithFilter(namespace, "version=v0.0.1")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(templates).ToNot(BeNil(), "Templates should not be nil")
+		Expect(templates.TemplateInfoList).ToNot(BeNil())
+		Expect(*templates.TemplateInfoList).To(HaveLen(2), "There should be two templates matching the filter - one rke2 and another k3s")
 	})
 })

@@ -64,6 +64,11 @@ func (t Test) ClusterOrchTemplateApiSmoke() error {
 	return t.clusterOrchTemplateApiSmoke()
 }
 
+// ClusterOrchTemplateApiNightly Runs template api test
+func (t Test) ClusterOrchTemplateApiNightly() error {
+	return t.clusterOrchTemplateApiNightly()
+}
+
 ////// Lint specific targets
 
 type Lint mg.Namespace

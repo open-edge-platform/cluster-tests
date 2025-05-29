@@ -121,6 +121,19 @@ func (Test) clusterOrchTemplateApiSmoke() error {
 	)
 }
 
+// Test Runs cluster orch template api nightly test
+func (Test) clusterOrchTemplateApiNightly() error {
+	return sh.RunV(
+		"ginkgo",
+		"-v",
+		"-r",
+		"--fail-fast",
+		"--race",
+		fmt.Sprintf("--label-filter=%s && %s", utils.ClusterOrchTemplateApiSmokeTest, utils.ClusterOrchTemplateApiTestNightly),
+		"./tests/template-api-test",
+	)
+}
+
 // Test Runs cluster orch functional test
 func (Test) clusterOrchFunctional() error {
 	return sh.RunV(

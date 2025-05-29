@@ -25,9 +25,10 @@ const (
 	NodeGUIDEnvVar   = "NODEGUID"
 	ClusterName      = "demo-cluster"
 
-	ClusterOrchFunctionalTest       = "cluster-orch-functional-test"
-	ClusterOrchSmokeTest            = "cluster-orch-smoke-test"
-	ClusterOrchTemplateApiSmokeTest = "cluster-orch-template-api-smoke-test"
+	ClusterOrchFunctionalTest         = "cluster-orch-functional-test"
+	ClusterOrchSmokeTest              = "cluster-orch-smoke-test"
+	ClusterOrchTemplateApiSmokeTest   = "cluster-orch-template-api-smoke-test"
+	ClusterOrchTemplateApiTestNightly = "cluster-orch-template-api-test-nightly"
 
 	PortForwardAddress           = "0.0.0.0"
 	PortForwardService           = "svc/cluster-manager"
@@ -159,6 +160,35 @@ func GetClusterTemplate(namespace, templateName, templateVersion string) (*api.T
 	return &templateInfo, nil
 }
 
+func GetClusterTemplatesWithFilter(namespace, filter string) (*api.TemplateInfoList, error) {
+	ClusterTemplateURLWithFilter := fmt.Sprintf("%s?filter=%s", ClusterTemplateURL, filter)
+	req, err := http.NewRequest("GET", ClusterTemplateURLWithFilter, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to get templates: %s", string(body))
+	}
+	var templateInfoList api.TemplateInfoList
+	if err := json.NewDecoder(resp.Body).Decode(&templateInfoList); err != nil {
+		return nil, fmt.Errorf("failed to decode template info list: %v", err)
+	}
+	return &templateInfoList, nil
+}
+
 func DeleteTemplate(namespace, templateName, templateVersion string) error {
 	url := fmt.Sprintf("%s/%s/%s", ClusterTemplateURL, templateName, templateVersion)
 
@@ -257,28 +287,20 @@ func SetDefaultTemplate(namespace, name, version string) error {
 	var err error
 	var req *http.Request
 	var data []byte
+	var defaultTemplateInfo api.DefaultTemplateInfo
 
 	if version != "" {
-		var defaultTemplateInfo api.DefaultTemplateInfo
 		defaultTemplateInfo.Version = version
-		data, err = json.Marshal(defaultTemplateInfo)
-		if err != nil {
-			return fmt.Errorf("failed to marshal default template info: %v", err)
-		}
-		req, err = http.NewRequest("PUT", url, bytes.NewBuffer(data))
-		if err != nil {
-			return err
-		}
-	} else {
-		var defaultTemplateInfo api.DefaultTemplateInfo
-		data, err = json.Marshal(defaultTemplateInfo)
-		if err != nil {
-			return fmt.Errorf("failed to marshal default template info: %v", err)
-		}
-		req, err = http.NewRequest("PUT", url, bytes.NewBuffer(data))
-		if err != nil {
-			return err
-		}
+	}
+
+	data, err = json.Marshal(defaultTemplateInfo)
+	if err != nil {
+		return fmt.Errorf("failed to marshal default template info: %v", err)
+	}
+
+	req, err = http.NewRequest("PUT", url, bytes.NewBuffer(data))
+	if err != nil {
+		return err
 	}
 
 	req.Header.Set("Activeprojectid", namespace)
