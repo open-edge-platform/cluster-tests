@@ -270,7 +270,12 @@ func SetDefaultTemplate(namespace, name, version string) error {
 			return err
 		}
 	} else {
-		req, err = http.NewRequest("PUT", url, nil)
+		var defaultTemplateInfo api.DefaultTemplateInfo
+		data, err = json.Marshal(defaultTemplateInfo)
+		if err != nil {
+			return fmt.Errorf("failed to marshal default template info: %v", err)
+		}
+		req, err = http.NewRequest("PUT", url, bytes.NewBuffer(data))
 		if err != nil {
 			return err
 		}
@@ -289,7 +294,7 @@ func SetDefaultTemplate(namespace, name, version string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to set default template: %s", string(body))
+		return fmt.Errorf("failed to set default template: %s, code: %v", string(body), resp.StatusCode)
 	}
 
 	return nil

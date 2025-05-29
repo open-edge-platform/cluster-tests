@@ -99,7 +99,7 @@ var _ = Describe("Template API Tests", Ordered, func() {
 		By("Getting Default template after setting it")
 		defaultTemplateInfo, err = utils.GetDefaultTemplate(namespace)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(defaultTemplateInfo.Name).To(Equal(utils.K3sTemplateOnlyName), "Default template name should match the set template name")
+		Expect(*defaultTemplateInfo.Name).To(Equal(utils.K3sTemplateOnlyName), "Default template name should match the set template name")
 		Expect(defaultTemplateInfo.Version).To(Equal(utils.K3sTemplateOnlyVersion), "Default template version should match the set template version")
 
 		By("Set the default template by providing both template name and version")
@@ -109,7 +109,7 @@ var _ = Describe("Template API Tests", Ordered, func() {
 		By("Getting Default template after setting it")
 		defaultTemplateInfo, err = utils.GetDefaultTemplate(namespace)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(defaultTemplateInfo.Name).To(Equal(utils.Rke2TemplateOnlyName), "Default template name should match the set template name")
+		Expect(*defaultTemplateInfo.Name).To(Equal(utils.Rke2TemplateOnlyName), "Default template name should match the set template name")
 		Expect(defaultTemplateInfo.Version).To(Equal(utils.Rke2TemplateOnlyVersion), "Default template version should match the set template version")
 
 		By("Setting default template again after it has been set, should not error")
@@ -118,7 +118,7 @@ var _ = Describe("Template API Tests", Ordered, func() {
 		By("Getting Default template after setting it again")
 		defaultTemplateInfo, err = utils.GetDefaultTemplate(namespace)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(defaultTemplateInfo.Name).To(Equal(utils.Rke2TemplateOnlyName), "Default template name should match the set template name")
+		Expect(*defaultTemplateInfo.Name).To(Equal(utils.Rke2TemplateOnlyName), "Default template name should match the set template name")
 		Expect(defaultTemplateInfo.Version).To(Equal(utils.Rke2TemplateOnlyVersion), "Default template version should match the set template version")
 
 		By("Setting default template to a non-existing template should error")
