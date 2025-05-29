@@ -129,7 +129,7 @@ func (Test) clusterOrchTemplateApiNightly() error {
 		"-r",
 		"--fail-fast",
 		"--race",
-		fmt.Sprintf("--label-filter=%s && %s", utils.ClusterOrchTemplateApiSmokeTest, utils.ClusterOrchTemplateApiTestNightly),
+		fmt.Sprintf("--label-filter=%s", utils.ClusterOrchTemplateApiTestNightly),
 		"./tests/template-api-test",
 	)
 }
