@@ -83,16 +83,16 @@ var _ = Describe("Cluster Orch Functional tests", Ordered, Label(utils.ClusterOr
 
 		By("Waiting for the cluster template to be ready")
 		Eventually(func() bool {
-			return utils.IsClusterTemplateReady(namespace, utils.ClusterTemplateName)
+			return utils.IsClusterTemplateReady(namespace, utils.Rke2TemplateName)
 		}, 1*time.Minute, 2*time.Second).Should(BeTrue())
 	})
 
-	It("TC-CO-INT-003: Should verify that cluster create API should succeed", func() {
+	It("TC-CO-INT-003: Should verify that cluster create API should succeed for rke2 cluster", func() {
 		// Record the start time before creating the cluster
 		clusterCreateStartTime = time.Now()
 
 		By("Creating the cluster")
-		err := utils.CreateCluster(namespace, nodeGUID)
+		err := utils.CreateCluster(namespace, nodeGUID, utils.Rke2TemplateName)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -175,7 +175,7 @@ var _ = Describe("Cluster Orch Functional tests", Ordered, Label(utils.ClusterOr
 	})
 	It("TC-CO-INT-009: Should verify that a cluster template cannot be deleted if there is a cluster using it", func() {
 		By("Trying to delete the cluster template")
-		err := utils.DeleteTemplate(namespace)
+		err := utils.DeleteTemplate(namespace, utils.Rke2TemplateOnlyName, utils.Rke2TemplateOnlyVersion)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("clusterTemplate is in use"))
 	})

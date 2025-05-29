@@ -51,13 +51,13 @@ var _ = Describe("TC-CO-INT-001: Single Node RKE2 Cluster Create and Delete usin
 
 		By("Waiting for the cluster template to be ready")
 		Eventually(func() bool {
-			return utils.IsClusterTemplateReady(namespace, utils.ClusterTemplateName)
+			return utils.IsClusterTemplateReady(namespace, utils.Rke2TemplateName)
 		}, 1*time.Minute, 2*time.Second).Should(BeTrue())
 
 		clusterCreateStartTime = time.Now()
 
-		By("Creating the cluster")
-		err = utils.CreateCluster(namespace, nodeGUID)
+		By("Creating the rke2 cluster")
+		err = utils.CreateCluster(namespace, nodeGUID, utils.Rke2TemplateName)
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Port forwarding to the cluster gateway service")

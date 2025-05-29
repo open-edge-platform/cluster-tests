@@ -56,9 +56,18 @@ var _ = Describe("Template API Tests", Ordered, func() {
 		err := utils.ImportClusterTemplate(namespace, utils.TemplateTypeRke2Baseline)
 		Expect(err).NotTo(HaveOccurred())
 
+		By("Waiting for the cluster template to be ready")
+		Eventually(func() bool {
+			return utils.IsClusterTemplateReady(namespace, utils.Rke2TemplateName)
+		}, 1*time.Minute, 2*time.Second).Should(BeTrue())
+
 		By("Importing the cluster template k3s baseline")
 		err = utils.ImportClusterTemplate(namespace, utils.TemplateTypeK3sBaseline)
 		Expect(err).NotTo(HaveOccurred())
 
+		By("Waiting for the cluster template to be ready")
+		Eventually(func() bool {
+			return utils.IsClusterTemplateReady(namespace, utils.K3sTemplateName)
+		}, 1*time.Minute, 2*time.Second).Should(BeTrue())
 	})
 })

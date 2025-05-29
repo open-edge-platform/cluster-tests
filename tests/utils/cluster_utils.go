@@ -37,10 +37,17 @@ const (
 	PortForwardGatewayLocalPort  = "8081"
 	PortForwardGatewayRemotePort = "8080"
 
-	ClusterTemplateOnlyName    = "baseline"
-	ClusterTemplateOnlyVersion = "v2.0.1"
-	ClusterTemplateURL         = "http://127.0.0.1:8080/v2/templates"
-	ClusterCreateURL           = "http://127.0.0.1:8080/v2/clusters"
+	Rke2TemplateOnlyName    = "baseline-rke2"
+	Rke2TemplateOnlyVersion = "v0.0.1"
+
+	K3sTemplateOnlyName    = "baseline-k3s"
+	K3sTemplateOnlyVersion = "v0.0.1"
+
+	Rke2TemplateName = "baseline-rke2-v0.0.1"
+	K3sTemplateName  = "baseline-k3s-v0.0.1"
+
+	ClusterTemplateURL = "http://127.0.0.1:8080/v2/templates"
+	ClusterCreateURL   = "http://127.0.0.1:8080/v2/clusters"
 
 	ClusterConfigTemplatePath = "../../configs/cluster-config.json"
 
@@ -55,8 +62,7 @@ const (
 )
 
 var (
-	ClusterTemplateName = fmt.Sprintf("%s-%s", ClusterTemplateOnlyName, ClusterTemplateOnlyVersion)
-	SkipDeleteCluster   = os.Getenv("SKIP_DELETE_CLUSTER") == "true"
+	SkipDeleteCluster = os.Getenv("SKIP_DELETE_CLUSTER") == "true"
 )
 
 // GetEnv retrieves the value of the environment variable or returns the default value if not set.
@@ -141,7 +147,7 @@ func IsClusterTemplateReady(namespace, templateName string) bool {
 }
 
 // CreateCluster creates a cluster using the provided configuration.
-func CreateCluster(namespace, nodeGUID string) error {
+func CreateCluster(namespace, nodeGUID, templateName string) error {
 	templateData, err := os.ReadFile(ClusterConfigTemplatePath)
 	if err != nil {
 		return err
@@ -159,7 +165,7 @@ func CreateCluster(namespace, nodeGUID string) error {
 		NodeGUID     string
 	}{
 		NodeGUID:     nodeGUID,
-		TemplateName: ClusterTemplateName,
+		TemplateName: templateName,
 		ClusterName:  ClusterName,
 	})
 	if err != nil {
@@ -235,8 +241,8 @@ func CheckAllComponentsReady(output string) bool {
 	return true
 }
 
-func DeleteTemplate(namespace string) error {
-	url := fmt.Sprintf("%s/%s/%s", ClusterTemplateURL, ClusterTemplateOnlyName, ClusterTemplateOnlyVersion)
+func DeleteTemplate(namespace, templateName, templateVersion string) error {
+	url := fmt.Sprintf("%s/%s/%s", ClusterTemplateURL, templateName, templateVersion)
 
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
