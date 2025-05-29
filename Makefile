@@ -83,7 +83,7 @@ test: bootstrap ## Runs cluster orch smoke tests. This step bootstraps the env b
 functional-test: bootstrap ## Runs cluster orch functional tests
 	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchFunctional
 
-.PHONE: template-api-test
+.PHONY: template-api-test-smoke
 template-api-test-smoke: ## Runs cluster orch template API tests
 	PATH=${ENV_PATH} mage test:ClusterOrchTemplateApiSmoke
 
