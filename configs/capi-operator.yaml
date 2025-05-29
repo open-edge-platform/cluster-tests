@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 ---
 core: cluster-api:v1.9.7
-bootstrap: kubeadm:v1.9.0;rke2:v0.14.0
-controlPlane: kubeadm:v1.9.0;rke2:v0.14.0
+bootstrap: kubeadm:v1.9.0;rke2:v0.14.0;k3s:v0.2.1
+controlPlane: kubeadm:v1.9.0;rke2:v0.14.0;k3s:v0.2.1
 infrastructure: docker:v1.9.7
 manager:
   featureGates:

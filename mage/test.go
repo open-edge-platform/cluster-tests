@@ -12,8 +12,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/magefile/mage/sh"
+	"github.com/open-edge-platform/cluster-tests/tests/utils"
 
+	"github.com/magefile/mage/sh"
 	"gopkg.in/yaml.v3"
 )
 
@@ -102,8 +103,21 @@ func (Test) clusterOrchSmoke() error {
 		"-r",
 		"--fail-fast",
 		"--race",
-		"--label-filter=cluster-orch-smoke-test",
+		fmt.Sprintf("--label-filter=%s", utils.ClusterOrchSmokeTest),
 		"./tests/smoke-test",
+	)
+}
+
+// Test Runs cluster orch template api test
+func (Test) clusterOrchTemplateApiSmoke() error {
+	return sh.RunV(
+		"ginkgo",
+		"-v",
+		"-r",
+		"--fail-fast",
+		"--race",
+		fmt.Sprintf("--label-filter=%s", utils.ClusterOrchTemplateApiSmokeTest),
+		"./tests/template-api-test",
 	)
 }
 
@@ -115,7 +129,7 @@ func (Test) clusterOrchFunctional() error {
 		"-r",
 		"--fail-fast",
 		"--race",
-		"--label-filter=cluster-orch-functional-test",
+		fmt.Sprintf("--label-filter=%s", utils.ClusterOrchFunctionalTest),
 		"./tests/functional-test",
 	)
 }
