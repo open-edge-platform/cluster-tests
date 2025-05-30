@@ -54,7 +54,7 @@ var _ = Describe("Template API Tests", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 
-	It("should validate the template import success", Label(utils.ClusterOrchTemplateApiSmokeTest, utils.ClusterOrchTemplateApiTestNightly), func() {
+	It("should validate the template import success", Label(utils.ClusterOrchTemplateApiSmokeTest, utils.ClusterOrchTemplateApiAllTest), func() {
 		By("Importing the cluster template rke2 baseline")
 		err := utils.ImportClusterTemplate(namespace, utils.TemplateTypeRke2Baseline)
 		Expect(err).NotTo(HaveOccurred())
@@ -74,7 +74,7 @@ var _ = Describe("Template API Tests", Ordered, func() {
 		}, 1*time.Minute, 2*time.Second).Should(BeTrue())
 	})
 
-	It("Should be able to retrieve a template", Label(utils.ClusterOrchTemplateApiSmokeTest, utils.ClusterOrchTemplateApiTestNightly), func() {
+	It("Should be able to retrieve a template", Label(utils.ClusterOrchTemplateApiSmokeTest, utils.ClusterOrchTemplateApiAllTest), func() {
 		By("Retrieving the K3s template")
 		template, err := utils.GetClusterTemplate(namespace, utils.K3sTemplateOnlyName, utils.K3sTemplateOnlyVersion)
 		Expect(err).NotTo(HaveOccurred())
@@ -86,14 +86,14 @@ var _ = Describe("Template API Tests", Ordered, func() {
 		Expect(template.Name + "-" + template.Version).To(Equal(utils.Rke2TemplateName))
 	})
 
-	It("Should not find a default template when non has been set", Label(utils.ClusterOrchTemplateApiTestNightly), func() {
+	It("Should not find a default template when non has been set", Label(utils.ClusterOrchTemplateApiAllTest), func() {
 		By("Getting Default template when none has been set")
 		defaultTemplateInfo, err := utils.GetDefaultTemplate(namespace)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(defaultTemplateInfo).To(BeNil(), "Default template should be nil when none has been set")
 	})
 
-	It("Should be able to set a default template", Label(utils.ClusterOrchTemplateApiSmokeTest, utils.ClusterOrchTemplateApiTestNightly), func() {
+	It("Should be able to set a default template", Label(utils.ClusterOrchTemplateApiSmokeTest, utils.ClusterOrchTemplateApiAllTest), func() {
 
 		By("Set the default template by providing only template name without version")
 		err := utils.SetDefaultTemplate(namespace, utils.K3sTemplateOnlyName, "")
@@ -127,14 +127,14 @@ var _ = Describe("Template API Tests", Ordered, func() {
 
 	})
 
-	It("Should error out when setting a default template with an invalid name", Label(utils.ClusterOrchTemplateApiTestNightly), func() {
+	It("Should error out when setting a default template with an invalid name", Label(utils.ClusterOrchTemplateApiAllTest), func() {
 		By("Setting default template to a non-existing template should error")
 		err := utils.SetDefaultTemplate(namespace, "non-existing-template", "v1.0.0")
 		Expect(err).To(HaveOccurred(), "Setting default template to a non-existing template should return an error")
 
 	})
 
-	It("Should return templates matching a filter", Label(utils.ClusterOrchTemplateApiTestNightly), func() {
+	It("Should return templates matching a filter", Label(utils.ClusterOrchTemplateApiAllTest), func() {
 		By("Retrieving templates with a filter")
 		templates, err := utils.GetClusterTemplatesWithFilter(namespace, "version=v0.0.1")
 		Expect(err).NotTo(HaveOccurred())

@@ -49,24 +49,24 @@ func (t Test) Bootstrap() error {
 	return t.bootstrap()
 }
 
-// ClusterOrchSmoke Runs cluster orch smoke test
-func (t Test) ClusterOrchSmoke() error {
-	return t.clusterOrchSmoke()
+// ClusterOrchClusterApiSmokeTest Runs cluster orch cluster api smoke test
+func (t Test) ClusterOrchClusterApiSmokeTest() error {
+	return t.clusterOrchClusterApiSmokeTest()
 }
 
-// ClusterOrchFunctional Runs cluster orch functional test
-func (t Test) ClusterOrchFunctional() error {
-	return t.clusterOrchFunctional()
+// ClusterOrchClusterApiAllTest Runs cluster orch cluster api all tests
+func (t Test) ClusterOrchClusterApiAllTest() error {
+	return t.clusterOrchClusterApiAllTest()
 }
 
-// ClusterOrchTemplateApiSmoke Runs template api test
-func (t Test) ClusterOrchTemplateApiSmoke() error {
-	return t.clusterOrchTemplateApiSmoke()
+// ClusterOrchTemplateApiSmokeTest Runs template api smoke test
+func (t Test) ClusterOrchTemplateApiSmokeTest() error {
+	return t.clusterOrchTemplateApiSmokeTest()
 }
 
-// ClusterOrchTemplateApiNightly Runs template api test
-func (t Test) ClusterOrchTemplateApiNightly() error {
-	return t.clusterOrchTemplateApiNightly()
+// ClusterOrchTemplateApiAllTest Runs template api all tests
+func (t Test) ClusterOrchTemplateApiAllTest() error {
+	return t.clusterOrchTemplateApiAllTest()
 }
 
 ////// Lint specific targets

@@ -25,10 +25,10 @@ const (
 	NodeGUIDEnvVar   = "NODEGUID"
 	ClusterName      = "demo-cluster"
 
-	ClusterOrchFunctionalTest         = "cluster-orch-functional-test"
-	ClusterOrchSmokeTest              = "cluster-orch-smoke-test"
-	ClusterOrchTemplateApiSmokeTest   = "cluster-orch-template-api-smoke-test"
-	ClusterOrchTemplateApiTestNightly = "cluster-orch-template-api-test-nightly"
+	ClusterOrchClusterApiAllTest    = "cluster-orch-cluster-api-all-test"
+	ClusterOrchClusterApiSmokeTest  = "cluster-orch-cluster-api-smoke-test"
+	ClusterOrchTemplateApiSmokeTest = "cluster-orch-template-api-smoke-test"
+	ClusterOrchTemplateApiAllTest   = "cluster-orch-template-api-all-test"
 
 	PortForwardAddress           = "0.0.0.0"
 	PortForwardService           = "svc/cluster-manager"
