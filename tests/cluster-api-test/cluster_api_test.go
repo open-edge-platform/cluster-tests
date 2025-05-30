@@ -43,7 +43,8 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Port forwarding to the cluster manager service")
-			portForwardCmd = exec.Command("kubectl", "port-forward", utils.PortForwardService, fmt.Sprintf("%s:%s", utils.PortForwardLocalPort, utils.PortForwardRemotePort), "--address", utils.PortForwardAddress)
+			portForwardCmd = exec.Command("kubectl", "port-forward", utils.PortForwardService,
+				fmt.Sprintf("%s:%s", utils.PortForwardLocalPort, utils.PortForwardRemotePort), "--address", utils.PortForwardAddress)
 			err = portForwardCmd.Start()
 			Expect(err).NotTo(HaveOccurred())
 			time.Sleep(5 * time.Second)
@@ -64,7 +65,8 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Port forwarding to the cluster gateway service")
-			gatewayPortForward = exec.Command("kubectl", "port-forward", utils.PortForwardGatewayService, fmt.Sprintf("%s:%s", utils.PortForwardGatewayLocalPort, utils.PortForwardGatewayRemotePort), "--address", utils.PortForwardAddress)
+			gatewayPortForward = exec.Command("kubectl", "port-forward", utils.PortForwardGatewayService,
+				fmt.Sprintf("%s:%s", utils.PortForwardGatewayLocalPort, utils.PortForwardGatewayRemotePort), "--address", utils.PortForwardAddress)
 			err = gatewayPortForward.Start()
 			Expect(err).NotTo(HaveOccurred())
 			time.Sleep(5 * time.Second)
@@ -154,7 +156,8 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 			fmt.Printf("kubectl client and server version:\n%s\n", string(output))
 
 			By("Getting the local-path-provisioner pod name")
-			cmd = exec.Command("kubectl", "get", "pods", "-n", "kube-system", "-l", "app=local-path-provisioner", "-o", "jsonpath={.items[0].metadata.name}", "--kubeconfig", kubeConfigName)
+			cmd = exec.Command("kubectl", "get", "pods", "-n", "kube-system", "-l", "app=local-path-provisioner",
+				"-o", "jsonpath={.items[0].metadata.name}", "--kubeconfig", kubeConfigName)
 			output, err = cmd.Output()
 			Expect(err).NotTo(HaveOccurred(), "Failed to get the local-path-provisioner pod name")
 
@@ -172,8 +175,10 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 
 		JustAfterEach(func() {
 			if CurrentSpecReport().Failed() {
-				utils.LogCommandOutput("kubectl", []string{"exec", "cluster-agent-0", "--", "/usr/local/bin/kubectl", "--kubeconfig", "/etc/rancher/k3s/k3s.yaml", "get", "pods", "-A"})
-				utils.LogCommandOutput("kubectl", []string{"exec", "cluster-agent-0", "--", "/usr/local/bin/kubectl", "--kubeconfig", "/etc/rancher/k3s/k3s.yaml", "describe", "pod", "-n", "kube-system", "connect-agent-cluster-agent-0"})
+				utils.LogCommandOutput("kubectl", []string{"exec", "cluster-agent-0", "--",
+					"/usr/local/bin/kubectl", "--kubeconfig", "/etc/rancher/k3s/k3s.yaml", "get", "pods", "-A"})
+				utils.LogCommandOutput("kubectl", []string{"exec", "cluster-agent-0", "--",
+					"/usr/local/bin/kubectl", "--kubeconfig", "/etc/rancher/k3s/k3s.yaml", "describe", "pod", "-n", "kube-system", "connect-agent-cluster-agent-0"})
 			}
 		})
 	})
@@ -199,13 +204,15 @@ var _ = Describe("Single Node RKE2 Cluster Create and Delete using Cluster Manag
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Port forwarding to the cluster manager service")
-			portForwardCmd = exec.Command("kubectl", "port-forward", utils.PortForwardService, fmt.Sprintf("%s:%s", utils.PortForwardLocalPort, utils.PortForwardRemotePort), "--address", utils.PortForwardAddress)
+			portForwardCmd = exec.Command("kubectl", "port-forward", utils.PortForwardService,
+				fmt.Sprintf("%s:%s", utils.PortForwardLocalPort, utils.PortForwardRemotePort), "--address", utils.PortForwardAddress)
 			err = portForwardCmd.Start()
 			Expect(err).NotTo(HaveOccurred())
 			time.Sleep(5 * time.Second) // Give some time for port-forwarding to establish
 
 			By("Port forwarding to the cluster gateway service")
-			gatewayPortForward = exec.Command("kubectl", "port-forward", utils.PortForwardGatewayService, fmt.Sprintf("%s:%s", utils.PortForwardGatewayLocalPort, utils.PortForwardGatewayRemotePort), "--address", utils.PortForwardAddress)
+			gatewayPortForward = exec.Command("kubectl", "port-forward", utils.PortForwardGatewayService,
+				fmt.Sprintf("%s:%s", utils.PortForwardGatewayLocalPort, utils.PortForwardGatewayRemotePort), "--address", utils.PortForwardAddress)
 			err = gatewayPortForward.Start()
 			Expect(err).NotTo(HaveOccurred())
 			time.Sleep(5 * time.Second) // Give some time for port-forwarding to establish
@@ -324,7 +331,8 @@ var _ = Describe("Single Node RKE2 Cluster Create and Delete using Cluster Manag
 
 			// Exec into one of the pods in the kube-system namespace on the edge node cluster
 			By("Executing command in kube-scheduler-cluster-agent-0 pod")
-			cmd = exec.Command("kubectl", "exec", "--kubeconfig", "kubeconfig.yaml", "-it", "-n", "kube-system", "kube-scheduler-cluster-agent-0", "--", "ls")
+			cmd = exec.Command("kubectl", "exec", "--kubeconfig", "kubeconfig.yaml", "-it", "-n",
+				"kube-system", "kube-scheduler-cluster-agent-0", "--", "ls")
 			output, err = cmd.Output()
 			Expect(err).NotTo(HaveOccurred())
 			By("Printing the output of the command")
