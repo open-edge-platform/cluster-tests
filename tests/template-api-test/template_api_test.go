@@ -134,12 +134,27 @@ var _ = Describe("Template API Tests", Ordered, func() {
 
 	})
 
-	It("Should return templates matching a filter", Label(utils.ClusterOrchTemplateApiAllTest), func() {
+	It("Should return templates matching a filter for k8s version", Label(utils.ClusterOrchTemplateApiAllTest), func() {
 		By("Retrieving templates with a filter")
 		templates, err := utils.GetClusterTemplatesWithFilter(namespace, "version=v0.0.1")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(templates).ToNot(BeNil(), "Templates should not be nil")
 		Expect(templates.TemplateInfoList).ToNot(BeNil())
 		Expect(*templates.TemplateInfoList).To(HaveLen(2), "There should be two templates matching the filter - one rke2 and another k3s")
+	})
+
+	It("Should return templates matching a filter for template name", Label(utils.ClusterOrchTemplateApiAllTest), func() {
+		By("Retrieving templates with a filter")
+		templates, err := utils.GetClusterTemplatesWithFilter(namespace, "name=baseline-k3s")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(templates).ToNot(BeNil(), "Templates should not be nil")
+		Expect(templates.TemplateInfoList).ToNot(BeNil())
+		Expect(*templates.TemplateInfoList).To(HaveLen(1), "There should be one templates matching the filter - one k3s")
+	})
+
+	It("Should be error out trying to retrieve a non-existing template", Label(utils.ClusterOrchTemplateApiAllTest), func() {
+		By("Retrieving the non-existing template")
+		_, err := utils.GetClusterTemplate(namespace, "non-existing-template", utils.K3sTemplateOnlyVersion)
+		Expect(err).To(HaveOccurred())
 	})
 })

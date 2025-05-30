@@ -49,6 +49,7 @@ const (
 
 	ClusterTemplateURL = "http://127.0.0.1:8080/v2/templates"
 	ClusterCreateURL   = "http://127.0.0.1:8080/v2/clusters"
+	ClusterSummaryURL  = "http://127.0.0.1:8080/v2/clusters/summary"
 
 	ClusterConfigTemplatePath = "../../configs/cluster-config.json"
 
@@ -421,6 +422,33 @@ func DeleteCluster(namespace string) error {
 	return nil
 }
 
+func DeleteNode(namespace, nodeGUID, query string) error {
+	url := fmt.Sprintf("%s/%s/nodes/%s", ClusterCreateURL, ClusterName, nodeGUID)
+	if query != "" {
+		url += "?" + query
+	}
+
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to delete node: code: %v", resp.StatusCode)
+	}
+
+	return nil
+}
+
 func GetClusterInfo(namespace, clusterName string) (*http.Response, error) {
 	url := fmt.Sprintf("%s/%s", ClusterCreateURL, clusterName)
 	req, err := http.NewRequest("GET", url, nil)
@@ -434,6 +462,84 @@ func GetClusterInfo(namespace, clusterName string) (*http.Response, error) {
 
 	client := &http.Client{}
 	return client.Do(req)
+}
+
+func GetClusterInfoByNodeID(namespace, nodeGUID string) (*http.Response, error) {
+	url := fmt.Sprintf("%s/%s/nodes/clusterdetail", ClusterCreateURL, nodeGUID)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+	return client.Do(req)
+}
+
+func GetClusterSummary(namespace string) (*api.ClusterSummary, error) {
+
+	req, err := http.NewRequest("GET", ClusterSummaryURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to get cluster summary: %s", string(body))
+	}
+
+	var summary api.ClusterSummary
+	if err := json.NewDecoder(resp.Body).Decode(&summary); err != nil {
+		return nil, fmt.Errorf("failed to decode cluster summary: %v", err)
+	}
+
+	return &summary, nil
+}
+
+func UpdateClusterLabel(namespace, clusterName string, data map[string]string) error {
+	url := fmt.Sprintf("%s/%s/labels", ClusterCreateURL, clusterName)
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal label data: %v", err)
+	}
+
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+
+		return fmt.Errorf("failed to get update cluster label, code: %v", resp.StatusCode)
+	}
+	return nil
 }
 
 // CheckAllComponentsReady verifies if all components in the cluster are ready.
