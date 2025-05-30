@@ -252,7 +252,7 @@ func CheckLostConnection(output string) bool {
 		}
 		// Check if the line contains a "False" status in the "READY" column and "NoConnectionToCluster" in the "REASON" column
 		fields := strings.Fields(line)
-		if len(fields) > 1 && strings.Contains(fields[0], "ClusterInfrastructure") && fields[1] == "False" && fields[3] == "NoConnectionToCluster" {
+		if len(fields) > 1 && strings.Contains(fields[0], "ClusterInfrastructure") && fields[3] == "False" && fields[5] == "NoConnectionToCluster" {
 			return true
 		}
 	}

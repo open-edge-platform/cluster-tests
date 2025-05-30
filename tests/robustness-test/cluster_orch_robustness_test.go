@@ -168,6 +168,33 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 		fmt.Printf("Output of `ls` command:\n%s\n", string(output))
 	})
 
+	It("Should verify that clusterConnect gateway probes the connection to cluster", func() {
+		By("Checking the clusterConnect's LastProbeSuccessTimestamp is not zero")
+		Eventually(func() bool {
+			// get all clusterconnects - there should be only one, pick its name
+			cmd := exec.Command("kubectl", "get", "clusterconnect", "-o", "jsonpath={.items[0].metadata.name}")
+			output, err := cmd.Output()
+			if err != nil {
+				return false
+			}
+			clusterConnectName := string(output)
+			fmt.Printf("ClusterConnect Name: %s\n", clusterConnectName)
+
+			cmd = exec.Command("kubectl", "get", "clusterconnect", clusterConnectName, "-o", "jsonpath={.status.connectionProbe.lastProbeSuccessTimestamp}")
+			output, err = cmd.Output()
+			if err != nil {
+				return false
+			}
+			lastProbeSuccessTimestamp := string(output)
+			if lastProbeSuccessTimestamp == "" {
+				fmt.Println("LastProbeSuccessTimestamp is not set yet")
+				return false
+			}
+			fmt.Printf("LastProbeSuccessTimestamp: %s\n", lastProbeSuccessTimestamp)
+			return lastProbeSuccessTimestamp != ""
+		}, 5*time.Minute, 10*time.Second).Should(BeTrue())
+	})
+
 	It("Should verify that a cluster shows connection lost status when connect agent stops working", func() {
 		By("Breaking the connect agent by changing its image name in the pod manifest")
 		// kubectl exec -n default cluster-agent-0 -- sed -i 's/connect-agent/connectx-agent/g' /var/lib/rancher/rke2/agent/pod-manifests/connect-agent.yaml
@@ -198,21 +225,18 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 		Expect(err).NotTo(HaveOccurred())
 		defer resp.Body.Close()
 		decoder := json.NewDecoder(resp.Body)
-		var target map[string]interface{}
-		err = decoder.Decode(&target)
+		var clusterInfo map[string]interface{}
+		err = decoder.Decode(&clusterInfo)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-		By("Verifying the controlPlaneReady.message is 'NoConnectionToCluster'")
-		var clusterInfo map[string]interface{}
-		Expect(err).NotTo(HaveOccurred())
+		By("Verifying the providerStatus.message is 'NoConnectionToCluster'")
+		providerStatus, ok := clusterInfo["providerStatus"].(map[string]interface{})
+		Expect(ok).To(BeTrue(), "providerStatus field is missing or not a map")
 
-		controlPlaneReady, ok := clusterInfo["controlPlaneReady"].(map[string]interface{})
-		Expect(ok).To(BeTrue(), "controlPlaneReady field is missing or not a map")
-
-		message, ok := controlPlaneReady["message"].(string)
+		message, ok := providerStatus["message"].(string)
 		Expect(ok).To(BeTrue(), "message field is missing or not a string")
-		Expect(message).To(Equal("ConnectionLost"), "controlPlaneReady.message is not 'NoConnectionToCluster'")
+		Expect(message).To(ContainSubstring("NoConnectionToCluster"), "providerStatus.message does not contain 'NoConnectionToCluster'")
 
 	})
 
