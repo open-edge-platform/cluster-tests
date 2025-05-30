@@ -96,20 +96,20 @@ func (Test) createCluster() error {
 }
 
 // Test Runs cluster orch smoke test by creating locations, configuring host, creating a cluster and then finally cleanup
-func (Test) clusterOrchSmoke() error {
+func (Test) clusterOrchClusterApiSmokeTest() error {
 	return sh.RunV(
 		"ginkgo",
 		"-v",
 		"-r",
 		"--fail-fast",
 		"--race",
-		fmt.Sprintf("--label-filter=%s", utils.ClusterOrchSmokeTest),
-		"./tests/smoke-test",
+		fmt.Sprintf("--label-filter=%s", utils.ClusterOrchClusterApiSmokeTest),
+		"./tests/cluster-api-test",
 	)
 }
 
 // Test Runs cluster orch template api test
-func (Test) clusterOrchTemplateApiSmoke() error {
+func (Test) clusterOrchTemplateApiSmokeTest() error {
 	return sh.RunV(
 		"ginkgo",
 		"-v",
@@ -121,16 +121,29 @@ func (Test) clusterOrchTemplateApiSmoke() error {
 	)
 }
 
-// Test Runs cluster orch functional test
-func (Test) clusterOrchFunctional() error {
+// Test Runs cluster orch template api all tests
+func (Test) clusterOrchTemplateApiAllTest() error {
 	return sh.RunV(
 		"ginkgo",
 		"-v",
 		"-r",
 		"--fail-fast",
 		"--race",
-		fmt.Sprintf("--label-filter=%s", utils.ClusterOrchFunctionalTest),
-		"./tests/functional-test",
+		fmt.Sprintf("--label-filter=%s", utils.ClusterOrchTemplateApiAllTest),
+		"./tests/template-api-test",
+	)
+}
+
+// Test Runs cluster orch cluster api all tests
+func (Test) clusterOrchClusterApiAllTest() error {
+	return sh.RunV(
+		"ginkgo",
+		"-v",
+		"-r",
+		"--fail-fast",
+		"--race",
+		fmt.Sprintf("--label-filter=%s", utils.ClusterOrchClusterApiAllTest),
+		"./tests/cluster-api-test",
 	)
 }
 
