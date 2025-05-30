@@ -27,6 +27,7 @@ const (
 
 	ClusterOrchFunctionalTest       = "cluster-orch-functional-test"
 	ClusterOrchSmokeTest            = "cluster-orch-smoke-test"
+	ClusterOrchRobustnessTest       = "cluster-orch-robustness-test"
 	ClusterOrchTemplateApiSmokeTest = "cluster-orch-template-api-smoke-test"
 
 	PortForwardAddress           = "0.0.0.0"
@@ -239,6 +240,23 @@ func CheckAllComponentsReady(output string) bool {
 		}
 	}
 	return true
+}
+
+// CheckLostConnection verifies if ControlPlane reports connection lost.
+func CheckLostConnection(output string) bool {
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		// Skip the header line
+		if strings.Contains(line, "NAME") && strings.Contains(line, "READY") {
+			continue
+		}
+		// Check if the line contains a "False" status in the "READY" column and "NoConnectionToCluster" in the "REASON" column
+		fields := strings.Fields(line)
+		if len(fields) > 1 && strings.Contains(fields[0], "ClusterInfrastructure") && fields[1] == "False" && fields[3] == "NoConnectionToCluster" {
+			return true
+		}
+	}
+	return false
 }
 
 func DeleteTemplate(namespace, templateName, templateVersion string) error {

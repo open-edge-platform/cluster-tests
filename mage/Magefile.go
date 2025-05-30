@@ -59,6 +59,11 @@ func (t Test) ClusterOrchFunctional() error {
 	return t.clusterOrchFunctional()
 }
 
+// ClusterOrchRobustness Runs cluster orch robustness test
+func (t Test) ClusterOrchRobustness() error {
+	return t.clusterOrchRobustness()
+}
+
 // ClusterOrchTemplateApiSmoke Runs template api test
 func (t Test) ClusterOrchTemplateApiSmoke() error {
 	return t.clusterOrchTemplateApiSmoke()
