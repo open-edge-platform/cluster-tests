@@ -218,7 +218,7 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 
 		// Calculate and print the total time taken to detect connection lost
 		totalTime := connectionLostEndTime.Sub(connectionLostStartTime)
-		fmt.Printf("\033[32mTotal time from breaking connect-agent to detect connection lost: %v 🚨🛜 ✅\033[0m\n", totalTime)
+		fmt.Printf("\033[32mTotal time from breaking connect-agent to detect connection lost: %v 🚨🛜\033[0m\n", totalTime)
 
 		By("Getting the cluster information about lost connection")
 		resp, err := utils.GetClusterInfo(namespace, utils.ClusterName)
@@ -246,6 +246,7 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 		fixConnectAgentCommand := exec.Command("kubectl", "exec", "-n", "default", "cluster-agent-0", "--", "sed", "-i", "s/connectx-agent/connect-agent/g", "/var/lib/rancher/rke2/agent/pod-manifests/connect-agent.yaml")
 		err := fixConnectAgentCommand.Run()
 		Expect(err).NotTo(HaveOccurred())
+		connectionRecoveredStartTime := time.Now()
 
 		By("Waiting for all components to be ready again")
 		Eventually(func() bool {
@@ -257,5 +258,12 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 			fmt.Printf("Cluster components status:\n%s\n", string(output))
 			return utils.CheckAllComponentsReady(string(output))
 		}, 5*time.Minute, 10*time.Second).Should(BeTrue())
+
+		connectionRecoveredEndTime := time.Now()
+
+		// Calculate and print the total time taken to recover from connection lost
+		totalTime := connectionRecoveredEndTime.Sub(connectionRecoveredStartTime)
+		fmt.Printf("\033[32mTotal time from breaking connect-agent to recover from connection lost: %v 🚨🛜 ✅\033[0m\n", totalTime)
+
 	})
 })

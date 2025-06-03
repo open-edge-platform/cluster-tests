@@ -126,7 +126,7 @@ components:
       - HELM_VERSION=v0.0.0
       - KIND_CLUSTER=kind
       - NAMESPACE=default
-      - HELM_VARS="--set controller.privateCA.enabled=false --set agent.image.tag=latest --set controller.connectionProbeTimeout=1m"
+      - HELM_VARS="--set controller.privateCA.enabled=false --set agent.image.tag=latest --set controller.connectionProbeTimeout=1m --set gateway.connectionProbeInterval=20s"
     make-targets:
       - docker-build
       - docker-load
