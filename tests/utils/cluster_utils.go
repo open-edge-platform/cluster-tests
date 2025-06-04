@@ -27,7 +27,7 @@ const (
 
 	ClusterOrchFunctionalTest       = "cluster-orch-functional-test"
 	ClusterOrchSmokeTest            = "cluster-orch-smoke-test"
-  ClusterOrchRobustnessTest       = "cluster-orch-robustness-test"
+	ClusterOrchRobustnessTest       = "cluster-orch-robustness-test"
 	ClusterOrchClusterApiAllTest    = "cluster-orch-cluster-api-all-test"
 	ClusterOrchClusterApiSmokeTest  = "cluster-orch-cluster-api-smoke-test"
 	ClusterOrchTemplateApiSmokeTest = "cluster-orch-template-api-smoke-test"
@@ -370,8 +370,6 @@ func CreateCluster(namespace, nodeGUID, templateName string) error {
 		return err
 	}
 
-func DeleteTemplate(namespace, templateName, templateVersion string) error {
-	url := fmt.Sprintf("%s/%s/%s", ClusterTemplateURL, templateName, templateVersion)
 	tmpl, err := template.New("clusterConfig").Parse(string(templateData))
 	if err != nil {
 		return err
