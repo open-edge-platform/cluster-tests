@@ -76,20 +76,24 @@ bootstrap-mac: deps ## Bootstrap the test environment on MacOS before running te
 	kubectl get svc -A -o wide
 
 .PHONY: test
-test: bootstrap ## Runs cluster orch smoke tests. This step bootstraps the env before running the test
-	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=false mage test:clusterOrchSmoke
+test: bootstrap ## Runs cluster orch cluster api smoke tests. This step bootstraps the env before running the test
+	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiSmokeTest
 
-.PHONY: functional-test
-functional-test: bootstrap ## Runs cluster orch functional tests
-	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchFunctional
+.PHONY: cluster-api-all-test
+cluster-api-all-test: bootstrap ## Runs cluster orch functional tests
+	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiAllTest
 
+.PHONY: template-api-smoke-test
+template-api-smoke-test: ## Runs cluster orch template API smoke tests
+	PATH=${ENV_PATH} mage test:ClusterOrchTemplateApiSmoleTest
+
+.PHONY: template-api-all-test
+template-api-all-test: ## Runs cluster orch template API all tests
+	PATH=${ENV_PATH} mage test:ClusterOrchTemplateApiAllTest
+  
 .PHONY: robustness-test
 robustness-test: bootstrap ## Runs cluster orch robustness tests
 	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchRobustness
-
-.PHONY: template-api-test-smoke
-template-api-test-smoke: ## Runs cluster orch template API tests
-	PATH=${ENV_PATH} mage test:ClusterOrchTemplateApiSmoke
 
 .PHONY: help
 help: ## Display this help.
