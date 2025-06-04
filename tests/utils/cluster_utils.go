@@ -354,9 +354,9 @@ func CheckLostConnection(output string) bool {
 		if strings.Contains(line, "NAME") && strings.Contains(line, "READY") {
 			continue
 		}
-		// Check if the line contains a "False" status in the "READY" column and "NoConnectionToCluster" in the "REASON" column
+		// Check if the line contains a "False" status in the "READY" column and "ConnectAgentDisconnected" in the "REASON" column
 		fields := strings.Fields(line)
-		if len(fields) > 1 && strings.Contains(fields[0], "ClusterInfrastructure") && fields[3] == "False" && fields[5] == "NoConnectionToCluster" {
+		if len(fields) > 1 && strings.Contains(fields[0], "ClusterInfrastructure") && fields[3] == "False" && fields[5] == "ConnectAgentDisconnected" {
 			return true
 		}
 	}
