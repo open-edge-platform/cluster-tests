@@ -465,7 +465,7 @@ func GetClusterInfo(namespace, clusterName string) (*http.Response, error) {
 }
 
 func GetClusterInfoByNodeID(namespace, nodeGUID string) (*http.Response, error) {
-	url := fmt.Sprintf("%s/%s/nodes/clusterdetail", ClusterCreateURL, nodeGUID)
+	url := fmt.Sprintf("%s/%s/clusterdetail", ClusterCreateURL, nodeGUID)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err

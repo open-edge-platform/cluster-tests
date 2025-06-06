@@ -410,6 +410,23 @@ var _ = Describe("Single Node RKE2 Cluster Create and Delete using Cluster Manag
 			_, err = cmd.Output()
 			Expect(err).NotTo(HaveOccurred())
 
+			// Wait for all pods to be running
+			By("Waiting for all pods to be running")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "--kubeconfig", kubeConfigName, "get", "pods", "-A", "-o", "jsonpath={.items[*].status.phase}")
+				output, err := cmd.Output()
+				if err != nil {
+					return false
+				}
+				podStatuses := strings.Fields(string(output))
+				for _, status := range podStatuses {
+					if status != "Running" && status != "Completed" && status != "Succeeded" {
+						return false
+					}
+				}
+				return true
+			}, 5*time.Minute, 10*time.Second).Should(BeTrue(), "Not all pods are in Running or Completed state")
+
 			By("Getting list of pods")
 			cmd = exec.Command("kubectl", "--kubeconfig", "kubeconfig.yaml", "get", "pods")
 			_, err = cmd.Output()
