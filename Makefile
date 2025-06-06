@@ -90,6 +90,10 @@ template-api-smoke-test: ## Runs cluster orch template API smoke tests
 .PHONY: template-api-all-test
 template-api-all-test: ## Runs cluster orch template API all tests
 	PATH=${ENV_PATH} mage test:ClusterOrchTemplateApiAllTest
+  
+.PHONY: robustness-test
+robustness-test: bootstrap ## Runs cluster orch robustness tests
+	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchRobustness
 
 .PHONY: help
 help: ## Display this help.

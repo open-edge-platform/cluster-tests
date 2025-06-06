@@ -25,6 +25,9 @@ const (
 	NodeGUIDEnvVar   = "NODEGUID"
 	ClusterName      = "demo-cluster"
 
+	ClusterOrchFunctionalTest       = "cluster-orch-functional-test"
+	ClusterOrchSmokeTest            = "cluster-orch-smoke-test"
+	ClusterOrchRobustnessTest       = "cluster-orch-robustness-test"
 	ClusterOrchClusterApiAllTest    = "cluster-orch-cluster-api-all-test"
 	ClusterOrchClusterApiSmokeTest  = "cluster-orch-cluster-api-smoke-test"
 	ClusterOrchTemplateApiSmokeTest = "cluster-orch-template-api-smoke-test"
@@ -341,6 +344,23 @@ func IsClusterTemplateReady(namespace, templateName string) bool {
 
 	// Check if the ready status is true
 	return strings.TrimSpace(string(readyOutput)) == "true"
+}
+
+// CheckLostConnection verifies if ControlPlane reports connection lost.
+func CheckLostConnection(output string) bool {
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		// Skip the header line
+		if strings.Contains(line, "NAME") && strings.Contains(line, "READY") {
+			continue
+		}
+		// Check if the line contains a "False" status in the "READY" column and "ConnectAgentDisconnected" in the "REASON" column
+		fields := strings.Fields(line)
+		if len(fields) > 1 && strings.Contains(fields[0], "ClusterInfrastructure") && fields[3] == "False" && fields[5] == "ConnectAgentDisconnected" {
+			return true
+		}
+	}
+	return false
 }
 
 // CreateCluster creates a cluster using the provided configuration.
