@@ -154,7 +154,7 @@ components:
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/cluster-manager.git
-      version: k3s-intel-provider
+      version: main
     make-variables:
       - VERSION=v0.0.0
       - HELM_VERSION=v0.0.0
