@@ -157,11 +157,29 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 			Expect(err).NotTo(HaveOccurred())
 			fmt.Printf("kubectl client and server version:\n%s\n", string(output))
 
+			// Wait for all pods to be running
+			By("Waiting for all pods to be running")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "--kubeconfig", kubeConfigName, "get", "pods", "-A", "-o", "jsonpath={.items[*].status.phase}")
+				output, err := cmd.Output()
+				if err != nil {
+					return false
+				}
+				podStatuses := strings.Fields(string(output))
+				for _, status := range podStatuses {
+					if status != "Running" && status != "Completed" && status != "Succeeded" {
+						return false
+					}
+				}
+				return true
+			}, 5*time.Minute, 10*time.Second).Should(BeTrue(), "Not all pods are in Running or Completed state")
+
 			By("Getting the local-path-provisioner pod name")
 			cmd = exec.Command("kubectl", "get", "pods", "-n", "kube-system", "-l", "app=local-path-provisioner",
 				"-o", "jsonpath={.items[0].metadata.name}", "--kubeconfig", kubeConfigName)
 			output, err = cmd.Output()
 			Expect(err).NotTo(HaveOccurred(), "Failed to get the local-path-provisioner pod name")
+			fmt.Printf("Local-path-provisioner pod name: %s\n", string(output))
 
 			podName := strings.TrimSpace(string(output))
 			Expect(podName).NotTo(BeEmpty(), "Pod name should not be empty")
