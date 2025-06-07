@@ -81,7 +81,7 @@ components:
       - kubectl apply -f ../../configs/capi-variables.yaml --force
       # Use envsubst to substitute the environment variables in the YAML file
       - envsubst < ../../configs/capi-operator.yaml > /tmp/capi-operator.yaml
-      - helm install capi-operator capi-operator/cluster-api-operator --create-namespace -n capi-operator-system -f /tmp/capi-operator.yaml --wait --timeout 5m --version 0.15.1
+      - helm install capi-operator capi-operator/cluster-api-operator --create-namespace -n capi-operator-system -f /tmp/capi-operator.yaml --wait --timeout 5m --version ${CAPI_OPERATOR_HELM_VERSION:-0.20.0}
       # Wait for the CAPI operator to be ready
       - until kubectl get -n capi-operator-system deployment/capi-operator-cluster-api-operator >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace capi-operator-system deployment/capi-operator-cluster-api-operator --for=condition=available --timeout=5m
       - until kubectl get -n capi-system deployment/capi-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace capi-system deployment/capi-controller-manager --for=condition=available --timeout=5m
