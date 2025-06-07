@@ -6,24 +6,30 @@ core:
     namespace: "capi-system"
     version: "v1.9.7"
     createNamespace: true
-
 bootstrap:
   k3s:
     namespace: "capk-system"
     version: "v0.2.2-dev-196ba04"
     providerUrl: "https://github.com/jdanieck/cluster-api-k3s/releases/download/v0.2.2-dev-196ba04/bootstrap-components.yaml"
+    # Note: CAPI ProviderURL for K3s seems not been supported like for  RKE2 and Kubeadm. The field providerURL, however, still is needed.
   rke2:
     namespace: "capr-system"
     version: "v0.14.0"
-
+  kubeadm:
+    namespace: "kubeadm-bootstrap-system"
+    version: "v1.9.0"
 controlPlane:
   k3s:
     namespace: "capk-system"
     version: "v0.2.2-dev-196ba04"
     providerUrl: "https://github.com/jdanieck/cluster-api-k3s/releases/download/v0.2.2-dev-196ba04/control-plane-components.yaml"
+    # Note: CAPI ProviderURL for K3s seems not been supported like for  RKE2 and Kubeadm. The field providerURL, however, still is needed.
   rke2:
     namespace: "capr-system"
     version: "v0.14.0"
+  kubeadm:
+    namespace: "kubeadm-control-plane-system"
+    version: "v1.9.0"
 infrastructure:
   docker:
     namespace: "docker-infrastructure-system"
