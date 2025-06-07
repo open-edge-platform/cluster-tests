@@ -1,10 +1,37 @@
 # SPDX-FileCopyrightText: (C) 2025 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 ---
-core: cluster-api:v1.9.7
-bootstrap: kubeadm:v1.9.0;rke2:v0.14.0;k3s:v0.2.1
-controlPlane: kubeadm:v1.9.0;rke2:v0.14.0;k3s:v0.2.1
-infrastructure: docker:v1.9.7
+core:
+  cluster-api:
+    namespace: "capi-system"
+    version: "v1.9.7"
+    createNamespace: true
+bootstrap:
+  k3s:
+    namespace: "capk-system"
+    version: "v0.2.2-dev-196ba04"
+    providerUrl: "https://github.com/jdanieck/cluster-api-k3s/releases/download/v0.2.2-dev-196ba04/bootstrap-components.yaml"
+  rke2:
+    namespace: "capr-system"
+    version: "v0.14.0"
+  kubeadm:
+    namespace: "kubeadm-bootstrap-system"
+    version: "v1.9.0"
+controlPlane:
+  k3s:
+    namespace: "capk-system"
+    version: "v0.2.2-dev-196ba04"
+    providerUrl: "https://github.com/jdanieck/cluster-api-k3s/releases/download/v0.2.2-dev-196ba04/control-plane-components.yaml"
+  rke2:
+    namespace: "capr-system"
+    version: "v0.14.0"
+  kubeadm:
+    namespace: "kubeadm-control-plane-system"
+    version: "v1.9.0"
+infrastructure:
+  docker:
+    namespace: "docker-infrastructure-system"
+    version: "v1.9.7"
 manager:
   featureGates:
     core:
