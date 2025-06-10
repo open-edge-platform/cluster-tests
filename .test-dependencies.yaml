@@ -54,7 +54,7 @@ components:
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/cluster-api-provider-intel.git
-      version: main
+      version: 1.2.0
     make-directory: ""
     make-variables:
       - VERSION=v0.0.0
@@ -119,14 +119,14 @@ components:
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/cluster-connect-gateway.git
-      version: main
+      version: 1.2.0
     make-directory: ""
     make-variables:
       - VERSION=v0.0.0
       - HELM_VERSION=v0.0.0
       - KIND_CLUSTER=kind
       - NAMESPACE=default
-      - HELM_VARS="--set controller.privateCA.enabled=false --set agent.image.tag=latest"
+      - HELM_VARS="--set controller.privateCA.enabled=false --set agent.image.tag=latest --set controller.connectionProbeTimeout=1m --set gateway.connectionProbeInterval=20s"
     make-targets:
       - docker-build
       - docker-load

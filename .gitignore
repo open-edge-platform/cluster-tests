@@ -18,4 +18,7 @@ tests/**/*.test
 ci
 
 # Test artifact
+tests/smoke-test/kubeconfig.yaml
+tests/functional-test/kubeconfig.yaml
 tests/cluster-api-test/kubeconfig.yaml
+tests/robustness-test/kubeconfig.yaml

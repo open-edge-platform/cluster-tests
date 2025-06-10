@@ -147,6 +147,19 @@ func (Test) clusterOrchClusterApiAllTest() error {
 	)
 }
 
+// Test Runs cluster orch roubstness test
+func (Test) clusterOrchRobustness() error {
+	return sh.RunV(
+		"ginkgo",
+		"-v",
+		"-r",
+		"--fail-fast",
+		"--race",
+		fmt.Sprintf("--label-filter=%s", utils.ClusterOrchRobustnessTest),
+		"./tests/robustness-test",
+	)
+}
+
 /////// Helper functions ///////
 
 func mergeConfigs(defaultConfig, additionalConfig *Config) {
