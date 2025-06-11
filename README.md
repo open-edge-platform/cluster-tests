@@ -69,6 +69,7 @@ Below is the format the `.test-dependencies.yaml` file. You can add the dependen
 #         package: The Helm chart package name.
 #         namespace: The Kubernetes namespace for the Helm release.
 #         version: The version of the Helm chart.
+#         use-devel: A flag to enable (or not) usage of developer versions of the chart
 #         overrides: The Helm chart overrides.
 #   - git-repo:
 #       url: The Git URL of the component's repository.

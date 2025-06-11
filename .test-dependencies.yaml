@@ -19,6 +19,7 @@
 #         package: The Helm chart package name.
 #         namespace: The Kubernetes namespace for the Helm release.
 #         version: The version of the Helm chart.
+#         use-devel: A flag to enable (or not) usage of developer versions of the chart
 #         overrides: The Helm chart overrides.
 #   - git-repo:
 #       url: The Git URL of the component's repository.
@@ -44,6 +45,7 @@ components:
         package: "edge-orch/cluster/charts/intel-infra-provider"
         namespace: "default"
         version: ""  # Use the latest version when nil
+        use-devel: false # Use development version of the chart
         overrides: "--set metrics.serviceMonitor.enabled=false --set manager.extraArgs.use-inv-stub=true
         --set southboundApi.extraArgs.useGrpcStubMiddleware=true"
       - url: "oci://registry-rs.edgeorchestration.intel.com"
@@ -51,6 +53,7 @@ components:
         package: "edge-orch/cluster/charts/intel-infra-provider-crds"
         namespace: "default"
         version: ""  # Use the latest version when nil
+        use-devel: false # Use development version of the chart
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/cluster-api-provider-intel.git
@@ -110,12 +113,14 @@ components:
         package: "edge-orch/cluster/charts/cluster-connect-gateway"
         namespace: "default"
         version: ""  # Use the latest version when nil
+        use-devel: false # Use development version of the chart
         overrides: "--set controller.privateCA.enabled=false"
       - url: "oci://registry-rs.edgeorchestration.intel.com"
         release-name: "cluster-connect-gateway-crd"
         package: "edge-orch/cluster/charts/cluster-connect-gateway-crd"
         namespace: "default"
         version: ""  # Use the latest version when nil
+        use-devel: false # Use development version of the chart
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/cluster-connect-gateway.git
@@ -145,12 +150,14 @@ components:
         package: "edge-orch/cluster/charts/cluster-manager"
         namespace: "default"
         version: ""  # Use the latest version when nil
+        use-devel: false # Use development version of the chart
         overrides: "--set clusterManager.extraArgs.disable-mt=true --set clusterManager.extraArgs.disable-auth=true --set clusterManager.extraArgs.disable-inventory=true --set templateController.extraArgs[0]='--webhook-enabled=true' --set webhookService.enabled=true"
       - url: "oci://registry-rs.edgeorchestration.intel.com"
         release-name: "cluster-template-crd"
         package: "edge-orch/cluster/charts/cluster-template-crd"
         namespace: "default"
         version: ""  # Use the latest version when nil
+        use-devel: false # Use development version of the chart
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/cluster-manager.git
@@ -178,6 +185,7 @@ components:
         package: ""
         namespace: ""
         version: ""
+        use-devel: false # Use development version of the chart
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/edge-node-agents.git
