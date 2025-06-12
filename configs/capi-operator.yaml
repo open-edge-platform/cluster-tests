@@ -21,12 +21,14 @@ bootstrap:
 controlPlane:
   k3s:
     namespace: "capk-system"
+    createNamespace: false
     version: ${CAPI_K3S_VERSION}
     providerUrl: ${CAPI_K3S_CONTROLPLANE_URL}
     # Note: CAPI ProviderURL for K3s seems not been supported like for  RKE2 and Kubeadm. The field providerURL, however, still is needed.
   rke2:
     namespace: "capr-system"
     version: ${CAPI_RKE2_VERSION}
+    createNamespace: false    
   kubeadm:
     namespace: "kubeadm-control-plane-system"
     version: ${CAPI_KUBEADM_VERSION}
