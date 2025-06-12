@@ -28,6 +28,7 @@ type HelmRepo struct {
 	Package     string `yaml:"package" json:"package"`
 	Namespace   string `yaml:"namespace" json:"namespace"`
 	Version     string `yaml:"version" json:"version"`
+	UseDevel    bool   `yaml:"use-devel" json:"use-devel"`
 	Overrides   string `yaml:"overrides" json:"overrides"`
 }
 
@@ -147,6 +148,19 @@ func (Test) clusterOrchClusterApiAllTest() error {
 	)
 }
 
+// Test Runs cluster orch roubstness test
+func (Test) clusterOrchRobustness() error {
+	return sh.RunV(
+		"ginkgo",
+		"-v",
+		"-r",
+		"--fail-fast",
+		"--race",
+		fmt.Sprintf("--label-filter=%s", utils.ClusterOrchRobustnessTest),
+		"./tests/robustness-test",
+	)
+}
+
 /////// Helper functions ///////
 
 func mergeConfigs(defaultConfig, additionalConfig *Config) {
@@ -252,9 +266,12 @@ func processComponent(component Component) error {
 	if component.SkipLocalBuild {
 		for _, helm := range component.HelmRepo {
 			chart := fmt.Sprintf("%s/%s", helm.URL, helm.Package)
-			cmd := fmt.Sprintf("helm install %s %s --namespace %s --devel", helm.ReleaseName, chart, helm.Namespace)
+			cmd := fmt.Sprintf("helm install %s %s --namespace %s", helm.ReleaseName, chart, helm.Namespace)
 			if helm.Version != "" {
 				cmd = fmt.Sprintf("%s --version %s", cmd, helm.Version)
+			}
+			if helm.UseDevel {
+				cmd = fmt.Sprintf("%s --devel", cmd)
 			}
 			if helm.Overrides != "" {
 				cmd = fmt.Sprintf("%s %s", cmd, helm.Overrides)
