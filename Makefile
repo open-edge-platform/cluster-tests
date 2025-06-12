@@ -89,7 +89,7 @@ create-rke2: ## Create RKE2 cluster using Custom Resources
 
 .PHONY: create-k3s
 create-k3s: ## Create K3S cluster using Custom Resources
-	curl --location '127.0.0.1:8080/v2/clusters' --header 'Activeprojectid: 53cd37b9-66b2-4cc8-b080-3722ed7af64a' --header 'Content-Type: application/json' --header 'Accept: application/json' --data '{"name":"demo-cluster","template":"baseline-k3s-v0.0.1","nodes":[{"id":"12345678-1234-1234-1234-123456789012","role":"all"}],"labels":{"default-extension":"baseline"}}'
+	curl --location '127.0.0.1:8080/v2/clusters' --header 'Activeprojectid: 53cd37b9-66b2-4cc8-b080-3722ed7af64a' --header 'Content-Type: application/json' --header 'Accept: application/json' --data '{"name":"demo-cluster","template":"baseline-k3s-v0.0.2","nodes":[{"id":"12345678-1234-1234-1234-123456789012","role":"all"}],"labels":{"default-extension":"baseline"}}'
 	kubectl -n 53cd37b9-66b2-4cc8-b080-3722ed7af64a wait cl demo-cluster --for=condition=Ready --timeout=5m
 	sleep 10 # improve later by replacing for wait, if needed
 	kubectl exec -it cluster-agent-0 -- kubectl get po -A
@@ -102,7 +102,7 @@ load-k3s-template: ## Create K3S cluster template
 		--header 'Content-Type: application/json' \
 		--header 'Accept: application/json' \
 		--data @configs/baseline-cluster-template-k3s.json
-	kubectl -n 53cd37b9-66b2-4cc8-b080-3722ed7af64a wait clustertemplate  baseline-k3s-v0.0.1 --for=condition=Ready --timeout=5m
+	kubectl -n 53cd37b9-66b2-4cc8-b080-3722ed7af64a wait clustertemplate  baseline-k3s-v0.0.2 --for=condition=Ready --timeout=5m
 	sleep 1
 
 .PHONY: create-projectid

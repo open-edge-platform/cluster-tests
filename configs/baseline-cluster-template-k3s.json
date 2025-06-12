@@ -1,7 +1,7 @@
 {
   "name": "baseline-k3s",
-  "version": "v0.0.1",
-  "kubernetesVersion": "v1.32.4+k3s1",
+  "version": "v0.0.2",
+  "kubernetesVersion": "v1.33.0+k3s1",
   "description": "Baseline Cluster Template for k3s",
   "controlplaneprovidertype": "k3s",
   "infraprovidertype": "intel",
@@ -26,14 +26,14 @@
                 "--cpu-manager-policy=static",
                 "--reserved-cpus=1",
                 "--max-pods=250",
-                "--tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+                "--tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+                "--pod-manifest-path=/var/lib/kubelet/static-pods"
               ]
             },
             "preK3sCommands": [
               "mkdir -p /etc/systemd/system/k3s-server.service.d",
               "echo '[Service]\nEnvironmentFile=/etc/environment' > /etc/systemd/system/k3s-server.service.d/override.conf",
               "mkdir -p /var/lib/kubelet/static-pods",
-              "sed -i '/kubelet-arg:/a\\- pod-manifest-path=/var/lib/kubelet/static-pods' /etc/rancher/k3s/config.yaml",
               "sudo cp /var/lib/rancher/k3s/agent/pod-manifests/connect-agent.yaml /var/lib/kubelet/static-pods/connect-agent.yaml"
             ],
             "postK3sCommands": [
@@ -51,7 +51,7 @@
               "clusterDomain": "cluster.edge",
               "disableCloudController": false
             },
-            "version": "v1.32.4+k3s1"
+            "version": "v1.33.0+k3s1"
           }
         }
       }
