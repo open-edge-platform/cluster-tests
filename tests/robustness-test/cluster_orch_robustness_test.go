@@ -230,13 +230,13 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-		By("Verifying the providerStatus.message is 'ConnectAgentDisconnected'")
+		By("Verifying the providerStatus.message is 'connect agent is disconnected'")
 		providerStatus, ok := clusterInfo["providerStatus"].(map[string]interface{})
 		Expect(ok).To(BeTrue(), "providerStatus field is missing or not a map")
 
 		message, ok := providerStatus["message"].(string)
 		Expect(ok).To(BeTrue(), "message field is missing or not a string")
-		Expect(message).To(ContainSubstring("ConnectAgentDisconnected"), "providerStatus.message does not contain 'ConnectAgentDisconnected'")
+		Expect(message).To(ContainSubstring("connect agent is disconnected"), "providerStatus.message does not contain 'connect agent is disconnected'")
 
 	})
 
