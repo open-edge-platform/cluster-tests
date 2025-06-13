@@ -99,6 +99,7 @@ bootstrap: deps ## Bootstrap the test environment before running tests
 	kubectl get bootstrapproviders -A
 	kubectl get controlplaneproviders -A
 	kubectl get coreproviders -A
+	kubectl get node -o wide
 
 .PHONY: bootstrap-mac
 bootstrap-mac: deps ## Bootstrap the test environment on MacOS before running tests

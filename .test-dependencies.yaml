@@ -57,7 +57,7 @@ components:
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/cluster-api-provider-intel.git
-      version: 1.2.0
+      version: main
     make-directory: ""
     make-variables:
       - VERSION=v0.0.0
@@ -127,7 +127,7 @@ components:
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/cluster-connect-gateway.git
-      version: 1.2.0
+      version: main
     make-directory: ""
     make-variables:
       - VERSION=v0.0.0
