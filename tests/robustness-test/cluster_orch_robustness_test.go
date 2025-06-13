@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,12 +102,16 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 	It("Test prerequisite: Should verify that the cluster is fully active", func() {
 		By("Waiting for IntelMachine to exist")
 		Eventually(func() bool {
-			cmd := exec.Command("sh", "-c", fmt.Sprintf("kubectl -n %s get intelmachine -o yaml | yq '.items | length'", namespace))
+			cmd := exec.Command("kubectl", "-n", namespace, "get", "intelmachine", "-o", "jsonpath={.items[*].metadata.name}")
 			output, err := cmd.Output()
 			if err != nil {
 				return false
 			}
-			return string(output) > "0"
+			count := 0
+			if len(output) > 0 {
+				count = len(strings.Fields(string(output)))
+			}
+			return count > 0
 		}, 1*time.Minute, 5*time.Second).Should(BeTrue())
 
 		By("Waiting for all components to be ready")
@@ -230,13 +235,13 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-		By("Verifying the providerStatus.message is 'ConnectAgentDisconnected'")
+		By("Verifying the providerStatus.message is 'connect agent is disconnected'")
 		providerStatus, ok := clusterInfo["providerStatus"].(map[string]interface{})
 		Expect(ok).To(BeTrue(), "providerStatus field is missing or not a map")
 
 		message, ok := providerStatus["message"].(string)
 		Expect(ok).To(BeTrue(), "message field is missing or not a string")
-		Expect(message).To(ContainSubstring("ConnectAgentDisconnected"), "providerStatus.message does not contain 'ConnectAgentDisconnected'")
+		Expect(message).To(ContainSubstring("connect agent is disconnected"), "providerStatus.message does not contain 'connect agent is disconnected'")
 
 	})
 
