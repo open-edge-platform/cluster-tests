@@ -9,6 +9,32 @@ ENV_PATH = "$(shell echo "${PATH}")":${HOME}/.asdf/shims
 
 CLUSTERCTL_VERSION = v1.9.5
 
+CAPI_K3S_FORK_REPO_URL ?=
+CAPI_K3S_VERSION ?= v0.2.1
+CAPI_OPERATOR_HELM_VERSION ?= 0.20.0
+
+# Providers versions/URLs as needed
+export CAPI_CORE_VERSION="v1.9.7"
+export CAPI_RKE2_VERSION="v0.14.0"
+export CAPI_KUBEADM_VERSION="v1.9.0"
+export CAPI_DOCKER_VERSION="v1.9.7"
+
+export CAPI_OPERATOR_HELM_VERSION
+export CAPI_K3S_BOOTSTRAP_URL
+export CAPI_K3S_CONTROLPLANE_URL
+export CAPI_K3S_VERSION
+
+# URL k3s official (default) 
+CAPI_K3S_OFFICIAL_BOOTSTRAP_URL = https://github.com/k3s-io/cluster-api-k3s/releases/download/$(CAPI_K3S_VERSION)/bootstrap-components.yaml
+CAPI_K3S_OFFICIAL_CONTROLPLANE_URL = https://github.com/k3s-io/cluster-api-k3s/releases/download/$(CAPI_K3S_VERSION)/control-plane-components.yaml
+# URL for the forked repository if provided
+# If CAPI_K3S_FORK_REPO_URL is set, it will override the official URLs
+CAPI_K3S_BOOTSTRAP_URL = $(if $(CAPI_K3S_FORK_REPO_URL),$(CAPI_K3S_FORK_REPO_URL)/releases/$(CAPI_K3S_VERSION)/bootstrap-components.yaml,$(CAPI_K3S_OFFICIAL_BOOTSTRAP_URL))
+CAPI_K3S_CONTROLPLANE_URL = $(if $(CAPI_K3S_FORK_REPO_URL),$(CAPI_K3S_FORK_REPO_URL)/releases/$(CAPI_K3S_VERSION)/control-plane-components.yaml,$(CAPI_K3S_OFFICIAL_CONTROLPLANE_URL))
+
+# example of how to set the CAPI_K3S_FORK_REPO_URL
+# make test CAPI_K3S_FORK_REPO_URL=https://github.com/jdanieck/cluster-api-k3s CAPI_K3S_VERSION=v0.2.2-dev-196ba04
+
 
 # Set the default target
 .DEFAULT_GOAL := all
@@ -60,12 +86,20 @@ lint: deps ## Run linters
 	PATH=${ENV_PATH} mage lint:markdown
 	PATH=${ENV_PATH} mage lint:yaml
 
+.PHONY: render-capi-operator
+render-capi-operator:
+	envsubst < configs/capi-operator.yaml > /tmp/capi-operator.yaml
+
 .PHONY: bootstrap
 bootstrap: deps ## Bootstrap the test environment before running tests
 	PATH=${ENV_PATH} mage test:bootstrap
 	kubectl get pods -A -o wide
 	kubectl get deployments -A -o wide
 	kubectl get svc -A -o wide
+	kubectl get bootstrapproviders -A
+	kubectl get controlplaneproviders -A
+	kubectl get coreproviders -A
+	kubectl get node -o wide
 
 .PHONY: bootstrap-mac
 bootstrap-mac: deps ## Bootstrap the test environment on MacOS before running tests
@@ -76,7 +110,7 @@ bootstrap-mac: deps ## Bootstrap the test environment on MacOS before running te
 	kubectl get svc -A -o wide
 
 .PHONY: test
-test: bootstrap ## Runs cluster orch cluster api smoke tests. This step bootstraps the env before running the test
+test: render-capi-operator bootstrap ## Runs cluster orch cluster api smoke tests. This step bootstraps the env before running the test
 	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiSmokeTest
 
 .PHONY: cluster-api-all-test
