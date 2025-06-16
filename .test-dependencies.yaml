@@ -181,8 +181,7 @@ components:
   - name: cluster-agent
     skip-component: false
     skip-local-build: false
-    pre-install-commands:
-      - ls ~/enic-docker.tar && docker load -i ~/enic-docker.tar
+    pre-install-commands: []
     helm-repo:
       - url: ""
         release-name: ""
@@ -197,7 +196,7 @@ components:
     make-directory: "cluster-agent/enic/"
     make-variables: []
     make-targets:
-      #- build-enic-docker      # Enable this if you want to build the enic docker image. This usually is a time-consuming process
+      - build-enic-docker      # Enable this if you want to build the enic docker image. This usually is a time-consuming process
       - load-enic-docker       # Enable this if you want to load the enic docker image that you build to the kind cluster
       - run-enic-pod
     post-install-commands: []
