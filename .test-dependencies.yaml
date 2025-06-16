@@ -57,7 +57,7 @@ components:
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/cluster-api-provider-intel.git
-      version: 1.2.0
+      version: main
     make-directory: ""
     make-variables:
       - VERSION=v0.0.0
@@ -84,7 +84,7 @@ components:
       - kubectl apply -f ../../configs/capi-variables.yaml --force
       # Use envsubst to substitute the environment variables in the YAML file
       - envsubst < ../../configs/capi-operator.yaml > /tmp/capi-operator.yaml
-      - helm install capi-operator capi-operator/cluster-api-operator --create-namespace -n capi-operator-system -f /tmp/capi-operator.yaml --wait --timeout 5m --version 0.15.1
+      - helm install capi-operator capi-operator/cluster-api-operator --create-namespace -n capi-operator-system -f /tmp/capi-operator.yaml --wait --timeout 5m --version ${CAPI_OPERATOR_HELM_VERSION}
       # Wait for the CAPI operator to be ready
       - until kubectl get -n capi-operator-system deployment/capi-operator-cluster-api-operator >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace capi-operator-system deployment/capi-operator-cluster-api-operator --for=condition=available --timeout=5m
       - until kubectl get -n capi-system deployment/capi-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace capi-system deployment/capi-controller-manager --for=condition=available --timeout=5m
@@ -92,11 +92,14 @@ components:
       - until kubectl get -n docker-infrastructure-system deployment/capd-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace docker-infrastructure-system deployment/capd-controller-manager --for=condition=available --timeout=5m
       - until kubectl get -n kubeadm-bootstrap-system deployment/capi-kubeadm-bootstrap-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace kubeadm-bootstrap-system deployment/capi-kubeadm-bootstrap-controller-manager --for=condition=available --timeout=5m
       - until kubectl get -n kubeadm-control-plane-system deployment/capi-kubeadm-control-plane-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace kubeadm-control-plane-system deployment/capi-kubeadm-control-plane-controller-manager --for=condition=available --timeout=5m
-      - until kubectl get -n rke2-bootstrap-system deployment/rke2-bootstrap-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace rke2-bootstrap-system deployment/rke2-bootstrap-controller-manager --for=condition=available --timeout=5m
-      - until kubectl get -n rke2-control-plane-system deployment/rke2-control-plane-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace rke2-control-plane-system deployment/rke2-control-plane-controller-manager --for=condition=available --timeout=5m
-      # Patch the K3S Providers so that they can be initialized
-      - until kubectl get -n k3s-control-plane-system controlplaneprovider/k3s >/dev/null 2>&1; do sleep 1; done && kubectl patch -n k3s-control-plane-system controlplaneprovider k3s --type=merge -p '{"spec":{"fetchConfig":{"url":"https://github.com/k3s-io/cluster-api-k3s/releases/v0.2.1/control-plane-components.yaml"}}}'
-      - until kubectl get -n k3s-bootstrap-system bootstrapprovider/k3s >/dev/null 2>&1; do sleep 1; done && kubectl patch -n k3s-bootstrap-system bootstrapprovider/k3s --type=merge -p '{"spec":{"fetchConfig":{"url":"https://github.com/k3s-io/cluster-api-k3s/releases/v0.2.1/bootstrap-components.yaml"}}}'
+      - until kubectl get -n capr-system deployment/rke2-bootstrap-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace capr-system deployment/rke2-bootstrap-controller-manager --for=condition=available --timeout=5m
+      - until kubectl get -n capr-system deployment/rke2-control-plane-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace capr-system deployment/rke2-control-plane-controller-manager --for=condition=available --timeout=5m
+      # Patch the K3S Providers so that they can be initialized and wait for the components to be ready
+      # Note: The patch is required to set the fetchConfig URL for the K3S providers. CAPI ProviderURL for K3s seems not been supported like for  RKE2 and Kubeadm. The field providerURL, however, still is needed.
+      - until kubectl get -n capk-system controlplaneprovider/k3s >/dev/null 2>&1; do sleep 1; done && kubectl patch -n capk-system controlplaneprovider k3s --type=merge -p '{"spec":{"fetchConfig":{"url":"'"${CAPI_K3S_CONTROLPLANE_URL}"'"}}}'
+      - until kubectl get -n capk-system bootstrapprovider/k3s >/dev/null 2>&1; do sleep 1; done && kubectl patch -n capk-system bootstrapprovider k3s --type=merge -p '{"spec":{"fetchConfig":{"url":"'"${CAPI_K3S_BOOTSTRAP_URL}"'"}}}'
+      - until kubectl get -n capk-system deployment/capi-k3s-bootstrap-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace capk-system deployment/capi-k3s-bootstrap-controller-manager --for=condition=available --timeout=5m
+      - until kubectl get -n capk-system deployment/capi-k3s-control-plane-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace capk-system deployment/capi-k3s-control-plane-controller-manager --for=condition=available --timeout=5m
       ##################################################################################
       # Install the CAPI operator and default control plane and infra providers -- end
       ##################################################################################
@@ -124,7 +127,7 @@ components:
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/cluster-connect-gateway.git
-      version: 1.2.0
+      version: main
     make-directory: ""
     make-variables:
       - VERSION=v0.0.0
