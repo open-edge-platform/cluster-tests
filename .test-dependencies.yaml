@@ -35,7 +35,7 @@ components:
   # Cluster API Provider Intel
   - name: cluster-api-provider-intel
     skip-component: false
-    skip-local-build: true
+    skip-local-build: false
     pre-install-commands:
       - echo "Installing Prometheus Operator CRDs to get Service Monitor CRD"
       - kubectl apply -f https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.81.0/stripped-down-crds.yaml
@@ -108,7 +108,7 @@ components:
   # Cluster Connect Gateway
   - name: cluster-connect-gateway
     skip-component: false
-    skip-local-build: true
+    skip-local-build: false
     pre-install-commands: []
     helm-repo:
       - url: "oci://registry-rs.edgeorchestration.intel.com"
@@ -145,7 +145,7 @@ components:
   # Cluster Manager
   - name: cluster-manager
     skip-component: false
-    skip-local-build: true
+    skip-local-build: false
     pre-install-commands: []
     helm-repo:
       - url: "oci://registry-rs.edgeorchestration.intel.com"
@@ -164,7 +164,7 @@ components:
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/cluster-manager.git
-      version: main
+      version: update-templates
     make-variables:
       - VERSION=v0.0.0
       - HELM_VERSION=v0.0.0
@@ -192,7 +192,7 @@ components:
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/edge-node-agents.git
-      version: lw-enic
+      version: lw-enic-k3s-1.32.4
     make-directory: "cluster-agent/enic/"
     make-variables: []
     make-targets:
