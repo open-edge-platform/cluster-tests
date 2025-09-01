@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: (C) 2025 Intel Corporation  
+# SPDX-License-Identifier: Apache-2.0
+
+---
+version: 'v0.5.0'
+
+# Globally unique identifier for ENiC container
+GUID: '12345678-1234-1234-1234-123456789012'
+
+logLevel: 'debug'
+
+# Intel CAPI Provider Southbound Handler gRPC endpoint  
+clusterOrchestratorURL: 'intel-infra-provider-grpc.default.svc.cluster.local:50020'
+heartbeat: '10s'

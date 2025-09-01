@@ -180,23 +180,75 @@ components:
   # Cluster Agent on LW-ENiC
   - name: cluster-agent
     skip-component: false
-    skip-local-build: false
-    pre-install-commands: []
-    helm-repo:
-      - url: ""
-        release-name: ""
-        package: ""
-        namespace: ""
-        version: ""
-        use-devel: false # Use development version of the chart
-        overrides: ""
+    skip-local-build: false  # We need to build locally since no helm chart exists
+    pre-install-commands: 
+      - wget -qO- https://github.com/oras-project/oras/releases/download/v1.1.0/oras_1.1.0_linux_amd64.tar.gz | tar -xzf - -C /tmp && sudo mv /tmp/oras /usr/local/bin/
+    helm-repo: []
     git-repo:
-      url: https://github.com/open-edge-platform/edge-node-agents.git
-      version: lw-enic
-    make-directory: "cluster-agent/enic/"
-    make-variables: []
+      url: https://github.com/open-edge-platform/virtual-edge-node.git
+      version: main
+    make-directory: "edge-node-container/"
+    make-variables:
+      - SHELL=/bin/bash
+      - PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     make-targets:
-      - build-enic-docker      # Enable this if you want to build the enic docker image. This usually is a time-consuming process
-      - load-enic-docker       # Enable this if you want to load the enic docker image that you build to the kind cluster
-      - run-enic-pod
-    post-install-commands: []
+      - bma_packages         # Download BMA packages
+      - docker-build-enic    # Build ENiC Docker image locally
+    post-install-commands:
+      # Load ENiC image into kind cluster and deploy
+      - kind load docker-image 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/infra/enic:0.8.4 --name kind
+      - |
+        cat <<EOF | kubectl apply -f -
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: cluster-agent-0
+          namespace: default
+          labels:
+            app: cluster-agent
+        spec:
+          containers:
+          - name: cluster-agent
+            image: 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/infra/enic:0.8.4
+            imagePullPolicy: IfNotPresent
+            env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            ports:
+            - containerPort: 8080
+            - containerPort: 5991
+            - containerPort: 22      # SSH for cluster bootstrap
+            # Run ENiC container with proper SSH server for Intel CAPI provider bootstrap
+            command: ["/bin/bash"]
+            args: ["-c", "echo 'Starting ENiC Edge Node Container with SSH server...' && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server curl wget && mkdir -p /var/run/sshd && echo 'root:password' | chpasswd && sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && echo 'Starting SSH daemon...' && /usr/sbin/sshd -D &echo 'SSH server started - ENiC ready for Intel CAPI provider bootstrap' && while true; do echo 'ENiC edge node ready - waiting for CAPI bootstrap'; if pgrep k3s > /dev/null 2>&1; then echo 'K3s has been bootstrapped and is running!'; fi; sleep 60; done"]
+            securityContext:
+              privileged: true
+          restartPolicy: Always
+        ---
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: cluster-agent
+          namespace: default
+          labels:
+            app: cluster-agent
+        spec:
+          selector:
+            app: cluster-agent
+          ports:
+          - name: ssh
+            port: 22
+            targetPort: 22
+            protocol: TCP
+          - name: http
+            port: 8080
+            targetPort: 8080
+            protocol: TCP
+          - name: oam
+            port: 5991
+            targetPort: 5991
+            protocol: TCP
+          type: ClusterIP
+        EOF

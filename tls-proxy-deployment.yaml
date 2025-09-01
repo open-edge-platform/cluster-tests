@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grpc-tls-proxy
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grpc-tls-proxy
+  template:
+    metadata:
+      labels:
+        app: grpc-tls-proxy
+    spec:
+      containers:
+      - name: tls-proxy
+        image: ubuntu:20.04
+        ports:
+        - containerPort: 50021
+        command: ["/bin/bash"]
+        args: 
+        - -c
+        - |
+          apt-get update && apt-get install -y socat openssl
+          openssl req -x509 -newkey rsa:2048 -keyout /tmp/key.pem -out /tmp/cert.pem -days 1 -nodes -subj '/CN=grpc-tls-proxy'
+          echo "Starting TLS proxy: TLS :50021 -> plaintext intel-infra-provider-grpc:50020"
+          socat OPENSSL-LISTEN:50021,cert=/tmp/cert.pem,key=/tmp/key.pem,verify=0,fork TCP:intel-infra-provider-grpc.default.svc.cluster.local:50020
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grpc-tls-proxy
+  namespace: default
+spec:
+  selector:
+    app: grpc-tls-proxy
+  ports:
+  - port: 50021
+    targetPort: 50021
+    protocol: TCP
+  type: ClusterIP
