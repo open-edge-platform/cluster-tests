@@ -77,7 +77,29 @@ func (Test) bootstrap() error {
 		return err
 	}
 
+	// Get environment variables for component filtering
+	skipComponents := strings.Split(os.Getenv("SKIP_COMPONENTS"), ",")
+	onlyComponents := strings.Split(os.Getenv("ONLY_COMPONENTS"), ",")
+
 	for _, component := range defaultConfig.Components {
+		// Skip if explicitly marked to skip in config
+		if component.SkipComponent {
+			fmt.Printf("Skipping component %s as marked in config\n", component.Name)
+			continue
+		}
+
+		// Skip if component is in SKIP_COMPONENTS
+		if containsComponent(skipComponents, component.Name) {
+			fmt.Printf("Skipping component %s as requested by SKIP_COMPONENTS\n", component.Name)
+			continue
+		}
+
+		// Skip if ONLY_COMPONENTS is set and this component is not in the list
+		if onlyComponents[0] != "" && !containsComponent(onlyComponents, component.Name) {
+			fmt.Printf("Skipping component %s as not included in ONLY_COMPONENTS\n", component.Name)
+			continue
+		}
+
 		if err := processComponent(component); err != nil {
 			return err
 		}
@@ -89,6 +111,55 @@ func (Test) bootstrap() error {
 func (Test) cleanup() error {
 	cmd := "kind delete cluster"
 	return runCommand(cmd)
+}
+
+func (Test) deployComponents() error {
+	defaultConfig, err := parseConfig(".test-dependencies.yaml")
+	if err != nil {
+		return err
+	}
+
+	additionalConfigStr := os.Getenv("ADDITIONAL_CONFIG")
+	fmt.Printf("Additional config: %s\n", additionalConfigStr)
+	if additionalConfigStr != "" {
+		var additionalConfig Config
+		if err := json.Unmarshal([]byte(additionalConfigStr), &additionalConfig); err != nil {
+			return err
+		}
+		fmt.Printf("Additional config after unmarshal: %+v\n", additionalConfig)
+
+		mergeConfigs(defaultConfig, &additionalConfig)
+	}
+
+	// Get environment variables for component filtering
+	skipComponents := strings.Split(os.Getenv("SKIP_COMPONENTS"), ",")
+	onlyComponents := strings.Split(os.Getenv("ONLY_COMPONENTS"), ",")
+
+	for _, component := range defaultConfig.Components {
+		// Skip if explicitly marked to skip in config
+		if component.SkipComponent {
+			fmt.Printf("Skipping component %s as marked in config\n", component.Name)
+			continue
+		}
+
+		// Skip if component is in SKIP_COMPONENTS
+		if containsComponent(skipComponents, component.Name) {
+			fmt.Printf("Skipping component %s as requested by SKIP_COMPONENTS\n", component.Name)
+			continue
+		}
+
+		// Skip if ONLY_COMPONENTS is set and this component is not in the list
+		if onlyComponents[0] != "" && !containsComponent(onlyComponents, component.Name) {
+			fmt.Printf("Skipping component %s as not included in ONLY_COMPONENTS\n", component.Name)
+			continue
+		}
+
+		if err := processComponent(component); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // nolint: unused
@@ -314,4 +385,14 @@ func processComponent(component Component) error {
 	}
 
 	return nil
+}
+
+// Helper function to check if a component is in a slice
+func containsComponent(slice []string, component string) bool {
+	for _, s := range slice {
+		if strings.TrimSpace(s) == component {
+			return true
+		}
+	}
+	return false
 }

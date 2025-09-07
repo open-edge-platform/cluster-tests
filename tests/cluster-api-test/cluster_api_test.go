@@ -116,7 +116,7 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 				}
 				fmt.Printf("Cluster components status:\n%s\n", string(output))
 				return utils.CheckAllComponentsReady(string(output))
-			}, 3*time.Minute, 10*time.Second).Should(BeTrue())
+			}, 130*time.Second, 10*time.Second).Should(BeTrue())
 
 			By("Checking that connect agent metric shows a successful connection")
 			metrics, err := utils.FetchMetrics()

@@ -39,8 +39,6 @@ CAPI_K3S_CONTROLPLANE_URL = $(if $(CAPI_K3S_FORK_REPO_URL),$(CAPI_K3S_FORK_REPO_
 # Set the default target
 .DEFAULT_GOAL := all
 
-.PHONY: all
-all: help
 
 ##@ General
 
@@ -78,6 +76,10 @@ deps: ## Install dependencies
 		echo "asdf not found, installing..."; \
 		go install github.com/asdf-vm/asdf/cmd/asdf@v0.16.3; \
 	fi
+	@if ! command -v oras &> /dev/null || [ "$$(oras version 2>/dev/null | grep -o 'Version: 1.1.0')" != "Version: 1.1.0" ]; then \
+		echo "oras not found or incorrect version, installing..."; \
+		wget -qO- https://github.com/oras-project/oras/releases/download/v1.1.0/oras_1.1.0_linux_amd64.tar.gz | tar -xzf - -C /tmp && sudo mv /tmp/oras /usr/local/bin/; \
+	fi	
 	mage asdfPlugins
 
 .PHONY: lint
@@ -128,6 +130,66 @@ template-api-all-test: ## Runs cluster orch template API all tests
 .PHONY: robustness-test
 robustness-test: bootstrap ## Runs cluster orch robustness tests
 	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchRobustness
+
+##@ Staged Testing Workflow
+
+.PHONY: bootstrap-infra
+bootstrap-infra: deps render-capi-operator ## Bootstrap only infrastructure and providers (without cluster-agent)
+	@echo "🚀 Starting Stage 1: Infrastructure Bootstrap..."
+	@start_time=$$(date +%s); \
+	PATH=${ENV_PATH} SKIP_COMPONENTS=cluster-agent mage test:bootstrap; \
+	kubectl get pods -A -o wide; \
+	kubectl get deployments -A -o wide; \
+	kubectl get svc -A -o wide; \
+	kubectl get bootstrapproviders -A; \
+	kubectl get controlplaneproviders -A; \
+	kubectl get coreproviders -A; \
+	kubectl get node -o wide; \
+	end_time=$$(date +%s); \
+	duration=$$((end_time - start_time)); \
+	echo "✅ Stage 1 completed in $${duration}s (Infrastructure Bootstrap)"
+
+.PHONY: deploy-cluster-agent
+deploy-cluster-agent: deps ## Build and deploy only the cluster-agent component
+	@echo "🔧 Starting Stage 2: Cluster Agent Deployment..."
+	@start_time=$$(date +%s); \
+	PATH=${ENV_PATH} ONLY_COMPONENTS=cluster-agent mage test:deployComponents; \
+	end_time=$$(date +%s); \
+	duration=$$((end_time - start_time)); \
+	echo "✅ Stage 2 completed in $${duration}s (Cluster Agent Deployment)"
+
+.PHONY: run-tests-only
+run-tests-only: ## Run only the tests without bootstrapping
+	@echo "🧪 Starting Stage 3: Test Execution..."
+	@start_time=$$(date +%s); \
+	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=true mage test:ClusterOrchClusterApiSmokeTest; \
+	end_time=$$(date +%s); \
+	duration=$$((end_time - start_time)); \
+	echo "✅ Stage 3 completed in $${duration}s (Test Execution)"
+
+.PHONY: test-staged
+test-staged: ## Run test in stages for easier debugging
+	@echo "🎯 Starting Staged Testing Workflow..."
+	@overall_start=$$(date +%s); \
+	$(MAKE) bootstrap-infra; \
+	$(MAKE) deploy-cluster-agent; \
+	$(MAKE) run-tests-only; \
+	overall_end=$$(date +%s); \
+	total_duration=$$((overall_end - overall_start)); \
+	echo ""; \
+	echo "🏁 Staged Testing Workflow Summary:"; \
+	echo "   Total Time: $${total_duration}s"; \
+	echo "   Infrastructure can be reused for subsequent runs"; \
+	echo "   Use 'make cleanup-infra' when finished"
+
+.PHONY: cleanup-infra
+cleanup-infra: ## Clean up the kind cluster and test infrastructure
+	@echo "🧹 Cleaning up test infrastructure..."
+	@start_time=$$(date +%s); \
+	PATH=${ENV_PATH} mage test:cleanup; \
+	end_time=$$(date +%s); \
+	duration=$$((end_time - start_time)); \
+	echo "✅ Cleanup completed in $${duration}s"
 
 .PHONY: help
 help: ## Display this help.

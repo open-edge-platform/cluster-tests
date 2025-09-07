@@ -181,8 +181,7 @@ components:
   - name: cluster-agent
     skip-component: false
     skip-local-build: false  # We need to build locally since no helm chart exists
-    pre-install-commands: 
-      - wget -qO- https://github.com/oras-project/oras/releases/download/v1.1.0/oras_1.1.0_linux_amd64.tar.gz | tar -xzf - -C /tmp && sudo mv /tmp/oras /usr/local/bin/
+    pre-install-commands: []
     helm-repo: []
     git-repo:
       url: https://github.com/open-edge-platform/virtual-edge-node.git
