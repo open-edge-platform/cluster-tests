@@ -158,6 +158,64 @@ deploy-cluster-agent: deps ## Build and deploy only the cluster-agent component
 	duration=$$((end_time - start_time)); \
 	echo "✅ Stage 2 completed in $${duration}s (Cluster Agent Deployment)"
 
+.PHONY: validate-agents
+validate-agents: ## Validate that agents are properly running before tests
+	@echo "🔍 Starting Stage 2.5: Agent Validation..."
+	@start_time=$$(date +%s); \
+	echo "Checking cluster-agent pod readiness..."; \
+	kubectl wait --for=condition=Ready pod/cluster-agent-0 --timeout=60s || (echo "❌ cluster-agent pod not ready" && exit 1); \
+	echo "Checking agent services status..."; \
+	kubectl exec cluster-agent-0 -- bash -c " \
+		echo 'Agent services status:'; \
+		systemctl list-units --all | grep -E 'agent|intel' || echo 'No agent services found'; \
+		echo ''; \
+		echo 'Checking agents.service status:'; \
+		if systemctl is-active agents.service --quiet; then \
+			echo '✅ agents.service is active'; \
+		else \
+			echo '❌ agents.service is not active:'; \
+			systemctl status agents.service --no-pager -l || true; \
+			echo 'Agent service failure detected - this will cause kubectl errors later'; \
+			exit 1; \
+		fi; \
+		echo ''; \
+		echo 'Checking for cluster-agent process:'; \
+		if ps aux | grep -E 'cluster.*agent|edge.*agent' | grep -v grep > /dev/null; then \
+			echo '✅ cluster-agent processes found:'; \
+			ps aux | grep -E 'cluster.*agent|edge.*agent' | grep -v grep; \
+		else \
+			echo '❌ No cluster-agent processes found - agents not running properly'; \
+			exit 1; \
+		fi; \
+		echo ''; \
+		echo 'Checking Intel Infrastructure Provider connectivity (port 5991):'; \
+		if curl -s --connect-timeout 3 localhost:5991 > /dev/null 2>&1; then \
+			echo '✅ Port 5991 is responding to connections'; \
+		else \
+			echo '❌ Port 5991 not responding - Intel Infrastructure Provider cannot connect'; \
+			echo 'This will cause cluster creation failures'; \
+			exit 1; \
+		fi; \
+		echo ''; \
+		echo 'Checking DNS resolution for cluster orchestrator:'; \
+		if host cluster-orch-node.localhost > /dev/null 2>&1; then \
+			echo '✅ DNS resolution working for cluster-orch-node.localhost'; \
+		else \
+			echo '❌ DNS resolution failed for cluster-orch-node.localhost'; \
+			echo 'This may cause connection issues but not critical for this test'; \
+		fi; \
+	"; \
+	if [ $$? -ne 0 ]; then \
+		echo ""; \
+		echo "❌ AGENT VALIDATION FAILED"; \
+		echo "The root cause of test failures is that agents are not running properly."; \
+		echo "Fix the agent services before proceeding with cluster creation tests."; \
+		exit 1; \
+	fi; \
+	end_time=$$(date +%s); \
+	duration=$$((end_time - start_time)); \
+	echo "✅ Stage 2.5 completed in $${duration}s (Agent Validation)"
+
 .PHONY: run-tests-only
 run-tests-only: ## Run only the tests without bootstrapping
 	@echo "🧪 Starting Stage 3: Test Execution..."
@@ -173,6 +231,7 @@ test-staged: ## Run test in stages for easier debugging
 	@overall_start=$$(date +%s); \
 	$(MAKE) bootstrap-infra; \
 	$(MAKE) deploy-cluster-agent; \
+	$(MAKE) validate-agents; \
 	$(MAKE) run-tests-only; \
 	overall_end=$$(date +%s); \
 	total_duration=$$((overall_end - overall_start)); \
