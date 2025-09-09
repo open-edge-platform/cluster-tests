@@ -189,7 +189,7 @@ validate-agents: validate-tls-proxy ## Validate that agents are properly running
 	@kubectl wait --for=condition=Ready pod/cluster-agent-0 --timeout=60s || (echo "Pod not ready" && exit 1)
 	@kubectl exec cluster-agent-0 -- bash -c " \
 		required_agents=\"cluster-agent node-agent platform-update-agent platform-telemetry-agent\"; \
-		max_retries=5; \
+		max_retries=6; \
 		retry_interval=10; \
 		for attempt in \$$(seq 1 \$$max_retries); do \
 			echo \"Attempt \$$attempt/\$$max_retries:\"; \

@@ -392,7 +392,7 @@ components:
         fi
 
         # CREATE PROPER JWT TOKENS TO PREVENT NODE-AGENT FAILURES
-        JWT_TOKEN='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJleHAiOjk5OTk5OTk5OTl9.Lkylg7XM_jk_5Dj0_Z7t6fJ6jTQ3nN7bYm4O-ZO2Y8w'
+        JWT_TOKEN='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTc1MDU2MTEsImlzcyI6Imh0dHBzOi8va2V5Y2xvYWsua2luZC5pbnRlcm5hbC9yZWFsbXMvbWFzdGVyIiwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbImNsdXN0ZXJzLXdyaXRlLXJvbGUiLCJjbHVzdGVycy1yZWFkLXJvbGUiLCJub2RlLWFnZW50LXJlYWR3cml0ZS1yb2xlIiwiY2x1c3Rlci1hZ2VudCJdfSwic3ViIjoiY2x1c3Rlci1hZ2VudCIsInR5cCI6IkJlYXJlciJ9.CtFfm699Lg7fhk_BQsNLw_TiwmPAbUKmvx17YV0Dao0'
         echo \"\$JWT_TOKEN\" > /etc/intel_edge_node/tokens/node-agent/access_token
         echo \"\$JWT_TOKEN\" > /etc/intel_edge_node/tokens/cluster-agent/access_token
         chmod 600 /etc/intel_edge_node/tokens/node-agent/access_token
@@ -827,7 +827,7 @@ components:
                       fi
 
                       # Create JWT tokens
-                      JWT_TOKEN='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJleHAiOjk5OTk5OTk5OTl9.Lkylg7XM_jk_5Dj0_Z7t6fJ6jTQ3nN7bYm4O-ZO2Y8w'
+                      JWT_TOKEN='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTc1MDU2MTEsImlzcyI6Imh0dHBzOi8va2V5Y2xvYWsua2luZC5pbnRlcm5hbC9yZWFsbXMvbWFzdGVyIiwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbImNsdXN0ZXJzLXdyaXRlLXJvbGUiLCJjbHVzdGVycy1yZWFkLXJvbGUiLCJub2RlLWFnZW50LXJlYWR3cml0ZS1yb2xlIiwiY2x1c3Rlci1hZ2VudCJdfSwic3ViIjoiY2x1c3Rlci1hZ2VudCIsInR5cCI6IkJlYXJlciJ9.CtFfm699Lg7fhk_BQsNLw_TiwmPAbUKmvx17YV0Dao0'
                       echo "$JWT_TOKEN" > /etc/intel_edge_node/tokens/node-agent/access_token
                       echo "$JWT_TOKEN" > /etc/intel_edge_node/tokens/cluster-agent/access_token
                       chmod 600 /etc/intel_edge_node/tokens/node-agent/access_token

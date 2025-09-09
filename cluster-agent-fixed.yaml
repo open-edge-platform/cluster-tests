@@ -157,7 +157,7 @@ spec:
               mkdir -p etc/intel_edge_node/client-credentials
 
               echo 'mock_client_secret_for_testing' > /etc/intel_edge_node/client-credentials/client_secret
-              JWT_TOKEN='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJleHAiOjk5OTk5OTk5OTl9.Lkylg7XM_jk_5Dj0_Z7t6fJ6jTQ3nN7bYm4O-ZO2Y8w'
+              JWT_TOKEN='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTc1MDU2MTEsImlzcyI6Imh0dHBzOi8va2V5Y2xvYWsua2luZC5pbnRlcm5hbC9yZWFsbXMvbWFzdGVyIiwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbImNsdXN0ZXJzLXdyaXRlLXJvbGUiLCJjbHVzdGVycy1yZWFkLXJvbGUiLCJub2RlLWFnZW50LXJlYWR3cml0ZS1yb2xlIiwiY2x1c3Rlci1hZ2VudCJdfSwic3ViIjoiY2x1c3Rlci1hZ2VudCIsInR5cCI6IkJlYXJlciJ9.CtFfm699Lg7fhk_BQsNLw_TiwmPAbUKmvx17YV0Dao0'
               echo "$JWT_TOKEN" > /etc/intel_edge_node/tokens/cluster-agent/access_token
               echo "$JWT_TOKEN" > /etc/intel_edge_node/tokens/node-agent/access_token
               touch etc/intel_edge_node/client-credentials/dummy
@@ -192,6 +192,19 @@ spec:
                   sed -i '335s/.*/    sed -i \"s|GUID: '\''.*'\''|GUID: '\''12345678-1234-1234-1234-123456789012'\''|\" \/etc\/edge-node\/node\/confs\/node-agent.yaml/' /opt/enic/bin/agents.sh
                   sed -i '301s/.*/  sed -i \"s|nodeid: .*|nodeid: 12345678-1234-1234-1234-123456789012|\" \/etc\/edge-node\/node\/confs\/platform-telemetry-agent.yaml/' /opt/enic/bin/agents.sh
                   sed -i '311s/.*/  sed -i \"s|EdgeNodeID .*|EdgeNodeID 12345678-1234-1234-1234-123456789012|\" \/etc\/fluent-bit\/fluent-bit.conf/' /opt/enic/bin/agents.sh
+                  
+                  # Update cluster-agent to use gRPC TLS proxy endpoint in agents.sh
+                  sed -i 's|cluster-orch-node.localhost:443|grpc-tls-proxy-simple:50021|g' /opt/enic/bin/agents.sh
+                  
+                  # Run the agents installation
+                  cd /opt/enic/bin && bash agents.sh
+                  
+                  # Double-check and fix cluster-agent configuration after installation
+                  sleep 5
+                  if [ -f /etc/edge-node/node/confs/cluster-agent.yaml ]; then
+                      sed -i 's|cluster-orch-node.localhost:443|grpc-tls-proxy-simple:50021|g' /etc/edge-node/node/confs/cluster-agent.yaml
+                      systemctl restart cluster-agent || true
+                  fi
               fi
 
               echo "Setup complete"
