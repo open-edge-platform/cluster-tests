@@ -222,6 +222,14 @@ components:
         kubectl wait --for=condition=Ready pod/cluster-agent-0 --timeout=300s || true
         kubectl exec cluster-agent-0 -- mkdir -p /usr/local/share/ca-certificates
         kubectl exec cluster-agent-0 -- touch /usr/local/share/ca-certificates/IntelSHA256RootCA-base64.crt
+      # Pre-download K3s components to avoid download issues during cluster creation
+      - |
+        kubectl exec cluster-agent-0 -- mkdir -p /var/lib/rancher/k3s/agent/images/
+        kubectl exec cluster-agent-0 -- curl -L -o /var/lib/rancher/k3s/agent/images/k3s-airgap-images-amd64.tar.zst "https://github.com/k3s-io/k3s/releases/download/v1.33.0%2Bk3s1/k3s-airgap-images-amd64.tar.zst"
+        kubectl exec cluster-agent-0 -- curl -L -o /usr/local/bin/k3s https://github.com/k3s-io/k3s/releases/download/v1.33.0%2Bk3s1/k3s
+        kubectl exec cluster-agent-0 -- chmod +x /usr/local/bin/k3s
+        kubectl exec cluster-agent-0 -- curl -L -o /opt/install.sh https://get.k3s.io
+        kubectl exec cluster-agent-0 -- chmod +x /opt/install.sh
       # Setup comprehensive authentication bypass infrastructure for CI
       - |
         # Wait for pod to be ready
