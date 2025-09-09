@@ -13,6 +13,9 @@ CAPI_K3S_FORK_REPO_URL ?=
 CAPI_K3S_VERSION ?= v0.2.1
 CAPI_OPERATOR_HELM_VERSION ?= 0.20.0
 
+# K3s runtime version for cluster deployment
+K3S_RUNTIME_VERSION ?= v1.32.0+k3s1
+
 # Providers versions/URLs as needed
 export CAPI_CORE_VERSION="v1.9.7"
 export CAPI_RKE2_VERSION="v0.14.0"
@@ -112,7 +115,7 @@ bootstrap-mac: deps ## Bootstrap the test environment on MacOS before running te
 	kubectl get svc -A -o wide
 
 .PHONY: test
-test: render-capi-operator bootstrap ## Runs cluster orch cluster api smoke tests. This step bootstraps the env before running the test
+test: render-capi-operator bootstrap-infra deploy-cluster-agent ## Runs cluster orch cluster api smoke tests using standardized cluster-agent deployment
 	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiSmokeTest
 
 .PHONY: cluster-api-all-test
@@ -150,7 +153,7 @@ bootstrap-infra: deps render-capi-operator ## Bootstrap only infrastructure and 
 	echo "✅ Stage 1 completed in $${duration}s (Infrastructure Bootstrap)"
 
 .PHONY: deploy-cluster-agent
-deploy-cluster-agent: deps ## Build and deploy only the cluster-agent component
+deploy-cluster-agent: deps create-proxy-config ## Build and deploy only the cluster-agent component
 	@echo "Starting Stage 2: Cluster Agent Deployment..."
 	@start_time=$$(date +%s); \
 	echo "Step 2.1: Deploying TLS proxy for gRPC termination..."; \
@@ -159,8 +162,13 @@ deploy-cluster-agent: deps ## Build and deploy only the cluster-agent component
 	kubectl wait --for=condition=Ready pod -l app=grpc-tls-proxy-simple --timeout=60s; \
 	echo "Step 2.3: Loading cluster-agent container image..."; \
 	PATH=${ENV_PATH} kind load docker-image 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/infra/enic:0.8.5 --name kind; \
-	echo "Step 2.4: Deploying cluster-agent..."; \
-	kubectl apply -f cluster-agent-fixed.yaml; \
+	echo "Step 2.4: Checking if cluster-agent already exists..."; \
+	if kubectl get pod cluster-agent-0 >/dev/null 2>&1; then \
+		echo "   cluster-agent-0 already exists, skipping deployment"; \
+	else \
+		echo "   Deploying cluster-agent..."; \
+		kubectl apply -f cluster-agent-fixed.yaml; \
+	fi; \
 	echo "Step 2.5: Waiting for cluster-agent pod to be ready..."; \
 	kubectl wait --for=condition=Ready pod/cluster-agent-0 --timeout=120s; \
 	echo "Step 2.6: Adding TLS proxy certificate to cluster-agent trust store..."; \

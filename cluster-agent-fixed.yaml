@@ -203,6 +203,16 @@ spec:
                   # Update cluster-agent to use gRPC TLS proxy endpoint in agents.sh
                   sed -i 's|cluster-orch-node.localhost:443|grpc-tls-proxy-simple:50021|g' /opt/enic/bin/agents.sh
                   
+                  # Pre-download K3s components before running agents.sh
+                  echo "Pre-downloading K3s components..."
+                  mkdir -p /var/lib/rancher/k3s/agent/images/
+                  curl -L -o /var/lib/rancher/k3s/agent/images/k3s-airgap-images-amd64.tar.zst "https://github.com/k3s-io/k3s/releases/download/v1.32.0+k3s1/k3s-airgap-images-amd64.tar.zst" || echo "Warning: K3s airgap images download failed"
+                  curl -L -o /usr/local/bin/k3s https://github.com/k3s-io/k3s/releases/download/v1.32.0+k3s1/k3s || echo "Warning: K3s binary download failed"
+                  chmod +x /usr/local/bin/k3s || true
+                  curl -L -o /opt/install.sh https://get.k3s.io || echo "Warning: K3s install script download failed"
+                  chmod +x /opt/install.sh || true
+                  echo "K3s components pre-download completed"
+                  
                   # Run the agents installation
                   cd /opt/enic/bin && bash agents.sh
                   
