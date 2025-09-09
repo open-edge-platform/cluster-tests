@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-agent-token
+data:
+  access_token: |
+    eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjIwNzI3OTQ1NDMsImlzcyI6Imh0dHBzOi8va2V5Y2xvYWsua2luZC5pbnRlcm5hbC9yZWFsbXMvbWFzdGVyIiwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbImNsdXN0ZXJzLXdyaXRlLXJvbGUiLCJjbHVzdGVycy1yZWFkLXJvbGUiLCJub2RlLWFnZW50LXJlYWR3cml0ZS1yb2xlIiwiY2x1c3Rlci1hZ2VudCJdfSwic3ViIjoiY2x1c3Rlci1hZ2VudCIsInR5cCI6IkJlYXJlciIsImF1ZCI6ImNsdXN0ZXItbWFuYWdlbWVudC1jbGllbnQiLCJpYXQiOjE3NTc0MzQ1NDN9.IsByn-OmWspv3uuImu-sxY9_lxcalKALqSXoswjMYtY
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cluster-agent-0
+  labels:
+    app: cluster-agent
+spec:
+  containers:
+  - name: cluster-agent
+    image: 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/infra/enic:0.8.5
+    imagePullPolicy: IfNotPresent
+    env:
+    - name: OIDC_TLS_INSECURE_SKIP_VERIFY
+      value: "true"
+    - name: DISABLE_AUTH
+      value: "false"  # Enable auth for JWT testing
+    - name: GRPC_CLIENT_ID
+      value: "cluster-agent"
+    - name: CLIENT_ID
+      value: "cluster-agent"
+    - name: CLIENT_NAME
+      value: "cluster-agent"
+    - name: DEVICE_GUID
+      value: "12345678-1234-1234-1234-123456789012"
+    - name: SYSTEM_UUID_OVERRIDE
+      value: "12345678-1234-1234-1234-123456789012"
+    - name: NODE_NAME
+      value: "kind-control-plane"
+    - name: _OAM_SERVER_ADDRESS_
+      value: "localhost:5991"
+    - name: _ORCH_FQDN_
+      value: "localhost"
+    - name: _ORCH_PROJECT_
+      value: "53cd37b9-66b2-4cc8-b080-3722ed7af64a"
+    - name: _ORCH_USER_
+      value: "test-user"
+    - name: _ORCH_PASS_
+      value: "test-pass"
+    - name: ALLOW_MISSING_AUTH_CLIENTS
+      value: "cluster-agent"
+    volumeMounts:
+    - name: cluster-agent-token
+      mountPath: /etc/intel_edge_node/tokens/cluster-agent/
+      readOnly: true
+    - name: ca-certificates
+      mountPath: /usr/local/share/ca-certificates
+    command: ["/bin/bash"]
+    args: ["-c", "update-ca-certificates && exec /opt/enic/bin/cluster-agent.sh"]
+    ports:
+    - containerPort: 5991
+      name: oam
+    - containerPort: 8080
+      name: http
+  volumes:
+  - name: cluster-agent-token
+    configMap:
+      name: cluster-agent-token
+      defaultMode: 0750
+  - name: ca-certificates
+    emptyDir: {}
+  restartPolicy: Always

@@ -1,0 +1,106 @@
+# Cluster Agent Pod Configuration - Minimal (No-Auth Mode)
+#
+# This cluster-agent is configured for CI environments where authentication
+# is bypassed using useGrpcStubMiddleware=true in the Intel Infrastructure Provider.
+#
+# IMPORTANT: Deploy tls-proxy-simple.yaml BEFORE deploying this cluster-agent!
+#
+# This version does NOT include JWT tokens since auth is bypassed.
+#
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cluster-agent-0
+  namespace: default
+  labels:
+    app: cluster-agent
+spec:
+  containers:
+  - name: cluster-agent
+    image: 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/infra/enic:0.8.5
+    imagePullPolicy: IfNotPresent
+    env:
+    - name: NODE_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: spec.nodeName
+    - name: SYSTEM_UUID_OVERRIDE
+      value: "12345678-1234-1234-1234-123456789012"
+    - name: DEVICE_GUID
+      value: "12345678-1234-1234-1234-123456789012"
+    - name: _ORCH_FQDN_
+      value: "localhost"
+    - name: _ORCH_PROJECT_
+      value: "53cd37b9-66b2-4cc8-b080-3722ed7af64a"
+    - name: _ORCH_USER_
+      value: "test-user"
+    - name: _ORCH_PASS_
+      value: "test-pass"
+    - name: CLIENT_ID
+      value: "cluster-agent"
+    - name: CLIENT_NAME
+      value: "cluster-agent"
+    - name: GRPC_CLIENT_ID
+      value: "cluster-agent"
+    - name: _OAM_SERVER_ADDRESS_
+      value: "localhost:5991"
+    - name: OIDC_TLS_INSECURE_SKIP_VERIFY
+      value: "true"
+    - name: DISABLE_AUTH
+      value: "true"  # Authentication disabled for No-Auth CI
+    - name: ALLOW_MISSING_AUTH_CLIENTS
+      value: "cluster-agent"
+    ports:
+    - containerPort: 8080
+    - containerPort: 5991
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - name: ca-certificates
+      mountPath: /usr/local/share/ca-certificates
+    lifecycle:
+      postStart:
+        exec:
+          command:
+          - /bin/bash
+          - -c
+          - |
+            (
+              # Configure cluster-agent for CI environment (No-Auth mode)
+              mkdir -p /etc/intel_edge_node/tokens/cluster-agent/
+              
+              # Create empty token file (not used in No-Auth mode but prevents errors)  
+              echo "no-auth-mode" > /etc/intel_edge_node/tokens/cluster-agent/access_token
+              chmod 600 /etc/intel_edge_node/tokens/cluster-agent/access_token
+              
+              # Update CA certificates for TLS proxy
+              update-ca-certificates || true
+              
+              echo "No-Auth setup complete"
+            ) > /tmp/no_auth_setup.log 2>&1 &
+  volumes:
+  - name: ca-certificates
+    emptyDir: {}
+  restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cluster-agent
+  namespace: default
+  labels:
+    app: cluster-agent
+spec:
+  selector:
+    app: cluster-agent
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  - name: oam
+    port: 5991
+    targetPort: 5991
+    protocol: TCP
+  type: ClusterIP

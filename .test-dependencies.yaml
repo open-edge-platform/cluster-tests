@@ -102,6 +102,15 @@ components:
       # ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## #
       # Install the CAPI operator and default control plane and infra providers -- end
       # ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## #
+      # Wait for Intel Infrastructure Provider to be ready and patch with SHARED_SECRET_KEY
+      - until kubectl get deployment intel-infra-provider-southbound >/dev/null 2>&1; do sleep 1; done && kubectl wait --for=condition=Available --timeout=300s deployment/intel-infra-provider-southbound
+      - until kubectl get deployment intel-infra-provider-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --for=condition=Available --timeout=300s deployment/intel-infra-provider-manager
+      - kubectl patch deployment intel-infra-provider-southbound -p '{"spec":{"template":{"spec":{"containers":[{"name":"intel-infra-provider-southbound","env":[{"name":"SHARED_SECRET_KEY","value":"randomSecretKey"}]}]}}}}'
+      - kubectl patch deployment intel-infra-provider-manager -p '{"spec":{"template":{"spec":{"containers":[{"name":"intel-infra-provider-manager","env":[{"name":"SHARED_SECRET_KEY","value":"randomSecretKey"}]}]}}}}'
+      - kubectl patch deployment intel-infra-provider-southbound -p '{"spec":{"template":{"spec":{"containers":[{"name":"intel-infra-provider-southbound","env":[{"name":"ALLOW_MISSING_AUTH_CLIENTS","value":"cluster-agent"}]}]}}}}'
+      - kubectl patch deployment intel-infra-provider-manager -p '{"spec":{"template":{"spec":{"containers":[{"name":"intel-infra-provider-manager","env":[{"name":"ALLOW_MISSING_AUTH_CLIENTS","value":"cluster-agent"}]}]}}}}'
+      - kubectl rollout status deployment/intel-infra-provider-southbound
+      - kubectl rollout status deployment/intel-infra-provider-manager
       - kubectl delete -f config/crd/deps/cluster.edge-orchestrator.intel.com_clusterconnects.yaml || true
 
   # Cluster Connect Gateway
