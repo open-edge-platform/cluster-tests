@@ -204,6 +204,24 @@ components:
     post-install-commands:
       # Load ENiC image into kind cluster and deploy
       - kind load docker-image 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/infra/enic:0.8.5 --name kind
+      # Extract proxy configuration from environment variables and create ConfigMap
+      - |
+        HTTP_PROXY_VALUE=${HTTP_PROXY}
+        HTTPS_PROXY_VALUE=${HTTPS_PROXY}
+        NO_PROXY_VALUE=${NO_PROXY}
+        kubectl create configmap proxy-config \
+          --from-literal=HTTP_PROXY="$HTTP_PROXY_VALUE" \
+          --from-literal=HTTPS_PROXY="$HTTPS_PROXY_VALUE" \
+          --from-literal=NO_PROXY="$NO_PROXY_VALUE" \
+          --from-literal=http_proxy="$HTTP_PROXY_VALUE" \
+          --from-literal=https_proxy="$HTTPS_PROXY_VALUE" \
+          --from-literal=no_proxy="$NO_PROXY_VALUE" \
+          --dry-run=client -o yaml | kubectl apply -f -
+      # Fix Intel certificate download issue by creating dummy certificate file
+      - |
+        kubectl wait --for=condition=Ready pod/cluster-agent-0 --timeout=300s || true
+        kubectl exec cluster-agent-0 -- mkdir -p /usr/local/share/ca-certificates
+        kubectl exec cluster-agent-0 -- touch /usr/local/share/ca-certificates/IntelSHA256RootCA-base64.crt
       # Setup comprehensive authentication bypass infrastructure for CI
       - |
         # Wait for pod to be ready

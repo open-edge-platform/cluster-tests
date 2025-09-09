@@ -21,6 +21,9 @@ spec:
   - name: cluster-agent
     image: 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/infra/enic:0.8.5
     imagePullPolicy: IfNotPresent
+    envFrom:
+    - configMapRef:
+        name: proxy-config
     env:
     - name: NODE_NAME
       valueFrom:
@@ -149,6 +152,10 @@ spec:
               export _CADDY_VERSION_=2.7.6
 
               envsubst < /etc/agents_env.tpl > /opt/enic/bin/agents_env.sh
+
+              # Fix Intel certificate download issue by creating dummy certificate file
+              mkdir -p /usr/local/share/ca-certificates
+              touch /usr/local/share/ca-certificates/IntelSHA256RootCA-base64.crt
 
               # Create directories and tokens
               mkdir -p /etc/intel_edge_node/client-credentials
