@@ -1,0 +1,139 @@
+# TLS Termination Proxy for Cluster Agent
+# 
+# This nginx-based proxy provides TLS termination to bridge the protocol mismatch between:
+# - cluster-agent: Expects TLS gRPC connections
+# - intel-infra-provider: Provides plain gRPC (no TLS)
+#
+# Architecture: cluster-agent (TLS) → nginx-proxy (TLS termination) → intel-provider (plain gRPC)
+# 
+# Deployment order:
+# 1. Deploy this TLS proxy
+# 2. Wait for proxy to be ready
+# 3. Deploy cluster-agent (configured to connect to grpc-tls-proxy-simple:50021)
+# 4. Extract TLS certificate from proxy and add to cluster-agent trust store
+# 5. Restart cluster-agent to establish trusted TLS connection
+#
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-tls-termination
+  namespace: default
+data:
+  nginx.conf: |
+    events {
+        worker_connections 1024;
+    }
+    
+    stream {
+        upstream intel_provider_backend {
+            server intel-infra-provider-grpc:50020;
+        }
+        
+        server {
+            listen 50021 ssl;
+            proxy_pass intel_provider_backend;
+            
+            # TLS configuration with ALPN support for gRPC
+            ssl_certificate /etc/nginx/certs/tls.crt;
+            ssl_certificate_key /etc/nginx/certs/tls.key;
+            ssl_protocols TLSv1.2 TLSv1.3;
+            ssl_ciphers HIGH:!aNULL:!MD5;
+            
+            # ALPN support for gRPC (HTTP/2)
+            ssl_alpn h2;
+            
+            # gRPC specific settings
+            proxy_timeout 300s;
+            proxy_responses 1;
+        }
+    }
+  
+  generate-certs.sh: |
+    #!/bin/sh
+    # Generate a simple self-signed certificate with proper settings for gRPC
+    openssl req -x509 -newkey rsa:2048 -keyout /certs/tls.key -out /certs/tls.crt -days 365 -nodes \
+      -subj "/C=US/ST=Test/L=Test/O=TestOrg/CN=grpc-tls-proxy-simple" \
+      -addext "subjectAltName=DNS:grpc-tls-proxy-simple,DNS:grpc-tls-proxy-simple.default,DNS:grpc-tls-proxy-simple.default.svc,DNS:grpc-tls-proxy-simple.default.svc.cluster.local"
+    
+    chmod 600 /certs/tls.key
+    chmod 644 /certs/tls.crt
+    
+    echo "Certificate generated successfully"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grpc-tls-proxy-simple
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grpc-tls-proxy-simple
+  template:
+    metadata:
+      labels:
+        app: grpc-tls-proxy-simple
+    spec:
+      initContainers:
+      - name: cert-generator
+        image: alpine/openssl:latest
+        command: ["/bin/sh", "/scripts/generate-certs.sh"]
+        volumeMounts:
+        - name: cert-scripts
+          mountPath: /scripts
+        - name: certs
+          mountPath: /certs
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+      containers:
+      - name: nginx-tls-proxy
+        image: nginx:alpine
+        ports:
+        - containerPort: 50021
+          name: grpc-tls
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        - name: certs
+          mountPath: /etc/nginx/certs
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+      volumes:
+      - name: cert-scripts
+        configMap:
+          name: nginx-tls-termination
+          defaultMode: 0755
+      - name: nginx-config
+        configMap:
+          name: nginx-tls-termination
+      - name: certs
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grpc-tls-proxy-simple
+  namespace: default
+spec:
+  selector:
+    app: grpc-tls-proxy-simple
+  ports:
+  - port: 50021
+    targetPort: 50021
+    protocol: TCP
+  type: ClusterIP

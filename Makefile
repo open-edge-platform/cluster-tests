@@ -151,70 +151,74 @@ bootstrap-infra: deps render-capi-operator ## Bootstrap only infrastructure and 
 
 .PHONY: deploy-cluster-agent
 deploy-cluster-agent: deps ## Build and deploy only the cluster-agent component
-	@echo "🔧 Starting Stage 2: Cluster Agent Deployment..."
+	@echo "Starting Stage 2: Cluster Agent Deployment..."
 	@start_time=$$(date +%s); \
-	PATH=${ENV_PATH} ONLY_COMPONENTS=cluster-agent mage test:deployComponents; \
+	echo "Step 2.1: Deploying TLS proxy for gRPC termination..."; \
+	kubectl apply -f tls-proxy-simple.yaml; \
+	echo "Step 2.2: Waiting for TLS proxy to be ready..."; \
+	kubectl wait --for=condition=Ready pod -l app=grpc-tls-proxy-simple --timeout=60s; \
+	echo "Step 2.3: Loading cluster-agent container image..."; \
+	PATH=${ENV_PATH} kind load docker-image 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/infra/enic:0.8.5 --name kind; \
+	echo "Step 2.4: Deploying cluster-agent..."; \
+	kubectl apply -f cluster-agent-fixed.yaml; \
+	echo "Step 2.5: Waiting for cluster-agent pod to be ready..."; \
+	kubectl wait --for=condition=Ready pod/cluster-agent-0 --timeout=120s; \
+	echo "Step 2.6: Adding TLS proxy certificate to cluster-agent trust store..."; \
+	kubectl exec $$(kubectl get pods -l app=grpc-tls-proxy-simple -o jsonpath='{.items[0].metadata.name}') -- cat /etc/nginx/certs/tls.crt > /tmp/proxy-cert.crt; \
+	kubectl cp /tmp/proxy-cert.crt cluster-agent-0:/usr/local/share/ca-certificates/grpc-proxy.crt; \
+	kubectl exec cluster-agent-0 -- update-ca-certificates; \
+	rm -f /tmp/proxy-cert.crt; \
+	echo "Step 2.7: Verifying cluster-agent pod is running..."; \
+	kubectl get pod cluster-agent-0; \
 	end_time=$$(date +%s); \
 	duration=$$((end_time - start_time)); \
-	echo "✅ Stage 2 completed in $${duration}s (Cluster Agent Deployment)"
+	echo "✅ Stage 2 completed in $${duration}s (Cluster Agent Deployment with TLS Proxy)"
+
+.PHONY: validate-tls-proxy
+validate-tls-proxy: ## Validate that TLS proxy is working properly
+	@echo "TLS Proxy Validation..."
+	@echo "Checking TLS proxy pod status..."
+	@kubectl wait --for=condition=Ready pod -l app=grpc-tls-proxy-simple --timeout=60s || (echo "TLS proxy pod not ready" && exit 1)
+	@echo "Verifying TLS proxy service connectivity..."
+	@kubectl exec cluster-agent-0 -- timeout 10 bash -c "openssl s_client -connect grpc-tls-proxy-simple:50021 -servername grpc-tls-proxy-simple < /dev/null" || (echo "TLS proxy connectivity failed" && exit 1)
+	@echo "✅ TLS proxy validation completed successfully"
 
 .PHONY: validate-agents
-validate-agents: ## Validate that agents are properly running before tests
-	@echo "🔍 Starting Stage 2.5: Agent Validation..."
-	@start_time=$$(date +%s); \
-	echo "Checking cluster-agent pod readiness..."; \
-	kubectl wait --for=condition=Ready pod/cluster-agent-0 --timeout=60s || (echo "❌ cluster-agent pod not ready" && exit 1); \
-	echo "Checking agent services status..."; \
-	kubectl exec cluster-agent-0 -- bash -c " \
-		echo 'Agent services status:'; \
-		systemctl list-units --all | grep -E 'agent|intel' || echo 'No agent services found'; \
-		echo ''; \
-		echo 'Checking agents.service status:'; \
-		if systemctl is-active agents.service --quiet; then \
-			echo '✅ agents.service is active'; \
-		else \
-			echo '❌ agents.service is not active:'; \
-			systemctl status agents.service --no-pager -l || true; \
-			echo 'Agent service failure detected - this will cause kubectl errors later'; \
-			exit 1; \
-		fi; \
-		echo ''; \
-		echo 'Checking for cluster-agent process:'; \
-		if ps aux | grep -E 'cluster.*agent|edge.*agent' | grep -v grep > /dev/null; then \
-			echo '✅ cluster-agent processes found:'; \
-			ps aux | grep -E 'cluster.*agent|edge.*agent' | grep -v grep; \
-		else \
-			echo '❌ No cluster-agent processes found - agents not running properly'; \
-			exit 1; \
-		fi; \
-		echo ''; \
-		echo 'Checking Intel Infrastructure Provider connectivity (port 5991):'; \
-		if curl -s --connect-timeout 3 localhost:5991 > /dev/null 2>&1; then \
-			echo '✅ Port 5991 is responding to connections'; \
-		else \
-			echo '❌ Port 5991 not responding - Intel Infrastructure Provider cannot connect'; \
-			echo 'This will cause cluster creation failures'; \
-			exit 1; \
-		fi; \
-		echo ''; \
-		echo 'Checking DNS resolution for cluster orchestrator:'; \
-		if host cluster-orch-node.localhost > /dev/null 2>&1; then \
-			echo '✅ DNS resolution working for cluster-orch-node.localhost'; \
-		else \
-			echo '❌ DNS resolution failed for cluster-orch-node.localhost'; \
-			echo 'This may cause connection issues but not critical for this test'; \
-		fi; \
-	"; \
-	if [ $$? -ne 0 ]; then \
-		echo ""; \
-		echo "❌ AGENT VALIDATION FAILED"; \
-		echo "The root cause of test failures is that agents are not running properly."; \
-		echo "Fix the agent services before proceeding with cluster creation tests."; \
+validate-agents: validate-tls-proxy ## Validate that agents are properly running before tests
+	@echo "Agent Validation..."
+	@kubectl wait --for=condition=Ready pod/cluster-agent-0 --timeout=60s || (echo "Pod not ready" && exit 1)
+	@kubectl exec cluster-agent-0 -- bash -c " \
+		required_agents=\"cluster-agent node-agent platform-update-agent platform-telemetry-agent\"; \
+		max_retries=5; \
+		retry_interval=10; \
+		for attempt in \$$(seq 1 \$$max_retries); do \
+			echo \"Attempt \$$attempt/\$$max_retries:\"; \
+			active_count=0; \
+			total_count=0; \
+			for agent in \$$required_agents; do \
+				total_count=\$$((total_count + 1)); \
+				service_status=\$$(systemctl is-active \$$agent.service 2>/dev/null || echo 'inactive'); \
+				if [ \"\$$service_status\" = \"active\" ]; then \
+					echo \"   \$$agent.service: ACTIVE\"; \
+					active_count=\$$((active_count + 1)); \
+				else \
+					echo \"   \$$agent.service: \$$service_status\"; \
+				fi; \
+			done; \
+			if [ \$$active_count -eq \$$total_count ]; then \
+				echo \"PASSED: All \$$active_count/\$$total_count services active\"; \
+				exit 0; \
+			else \
+				echo \"FAILED: Only \$$active_count/\$$total_count services active\"; \
+				if [ \$$attempt -lt \$$max_retries ]; then \
+					echo \"Retrying in \$$retry_interval seconds...\"; \
+					sleep \$$retry_interval; \
+				fi; \
+			fi; \
+		done; \
+		echo \"FINAL FAILURE: Validation failed after \$$max_retries attempts\"; \
 		exit 1; \
-	fi; \
-	end_time=$$(date +%s); \
-	duration=$$((end_time - start_time)); \
-	echo "✅ Stage 2.5 completed in $${duration}s (Agent Validation)"
+	"
 
 .PHONY: run-tests-only
 run-tests-only: ## Run only the tests without bootstrapping

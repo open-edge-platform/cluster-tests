@@ -21,7 +21,7 @@
               {}
             ],
             "agentConfig": {
-              "airGapped": true,
+              "airGapped": false,
               "kubeletArgs": [
                 "--topology-manager-policy=best-effort",
                 "--cpu-manager-policy=static",
