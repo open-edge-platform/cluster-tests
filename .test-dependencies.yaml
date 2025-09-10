@@ -193,7 +193,7 @@ components:
     make-directory: ""
     post-install-commands: []
 
-  # Cluster Agent on LW-ENiC
+  # Cluster Agent in the virtual EN
   - name: cluster-agent
     skip-component: false
     skip-local-build: false  # We need 'false' to build locally if no helm chart exists
@@ -210,7 +210,11 @@ components:
       - bma_packages         # Download BMA packages
       - docker-build-enic    # Build ENiC Docker image locally
     post-install-commands:
-      # Load ENiC image into kind cluster and deploy
+      # Deploy TLS proxy for gRPC termination (required by cluster-agent-fixed.yaml)
+      - kubectl apply -f ../../configs/tls-proxy-simple.yaml
+      # Wait for TLS proxy to be ready
+      - kubectl wait --for=condition=Ready pod -l app=grpc-tls-proxy-simple --timeout=60s
+      # Load ENiC image into kind cluster
       - kind load docker-image 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/infra/enic:0.8.5 --name kind
-      # Deploy cluster-agent using the optimized configuration file
-      - kubectl apply -f configs/cluster-agent-fixed.yaml
+      # Generate JWT token and deploy cluster-agent (the pod handles all other setup internally)
+      - CI_JWT_TOKEN=$(../../configs/token-jwt.sh) envsubst < ../../configs/cluster-agent-fixed.yaml | kubectl apply -f -
