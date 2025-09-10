@@ -162,13 +162,10 @@ deploy-cluster-agent: deps ## Build and deploy only the cluster-agent component
 	kubectl wait --for=condition=Ready pod -l app=grpc-tls-proxy-simple --timeout=60s; \
 	echo "Step 2.3: Loading cluster-agent container image..."; \
 	PATH=${ENV_PATH} kind load docker-image 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/infra/enic:0.8.5 --name kind; \
-	echo "Step 2.4: Checking if cluster-agent already exists..."; \
-	if kubectl get pod cluster-agent-0 >/dev/null 2>&1; then \
-		echo "   cluster-agent-0 already exists, skipping deployment"; \
-	else \
-		echo "   Deploying cluster-agent..."; \
-		kubectl apply -f cluster-agent-fixed.yaml; \
-	fi; \
+	echo "Step 2.3.1: generating token..."; \
+	export CI_JWT_TOKEN=$$(./token-jwt.sh); \
+	echo "Step 2.4: Applying cluster-agent configuration..."; \
+	CI_JWT_TOKEN=$$CI_JWT_TOKEN envsubst < cluster-agent-fixed.yaml | kubectl apply -f -; \
 	echo "Step 2.5: Waiting for cluster-agent pod to be ready..."; \
 	kubectl wait --for=condition=Ready pod/cluster-agent-0 --timeout=120s; \
 	echo "Step 2.6: Adding TLS proxy certificate to cluster-agent trust store..."; \
@@ -220,10 +217,10 @@ validate-agents: validate-tls-proxy ## Validate that agents are properly running
 				fi; \
 			done; \
 			if [ \$$active_count -eq \$$total_count ]; then \
-				echo \"PASSED: All \$$active_count/\$$total_count services active\"; \
+				echo \"✅ All \$$active_count/\$$total_count services active\"; \
 				exit 0; \
 			else \
-				echo \"FAILED: Only \$$active_count/\$$total_count services active\"; \
+				echo \"Only \$$active_count/\$$total_count services active\"; \
 				if [ \$$attempt -lt \$$max_retries ]; then \
 					echo \"Retrying in \$$retry_interval seconds...\"; \
 					sleep \$$retry_interval; \

@@ -25,27 +25,38 @@ data:
         worker_connections 1024;
     }
     
-    stream {
+    http {
+        # Map to convert HTTP Authorization to gRPC metadata
+        map $http_authorization $grpc_bearer {
+            ~^Bearer\ (.+)$ $1;
+            default "";
+        }
+        
         upstream intel_provider_backend {
             server intel-infra-provider-grpc:50020;
         }
         
         server {
             listen 50021 ssl;
-            proxy_pass intel_provider_backend;
+            http2 on;
             
-            # TLS configuration with ALPN support for gRPC
+            # TLS configuration
             ssl_certificate /etc/nginx/certs/tls.crt;
             ssl_certificate_key /etc/nginx/certs/tls.key;
             ssl_protocols TLSv1.2 TLSv1.3;
             ssl_ciphers HIGH:!aNULL:!MD5;
             
-            # ALPN support for gRPC (HTTP/2)
-            ssl_alpn h2;
-            
-            # gRPC specific settings
-            proxy_timeout 300s;
-            proxy_responses 1;
+            location / {
+                # gRPC proxy configuration
+                grpc_pass grpc://intel_provider_backend;
+                
+                # Convert HTTP Authorization header to gRPC metadata
+                grpc_set_header bearer $grpc_bearer;
+                grpc_set_header client cluster-agent;
+                
+                # Remove original authorization header to avoid conflicts
+                proxy_set_header Authorization "";
+            }
         }
     }
   
