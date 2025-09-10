@@ -196,7 +196,7 @@ components:
   # Cluster Agent on LW-ENiC
   - name: cluster-agent
     skip-component: false
-    skip-local-build: true  # We need 'false' to build locally if no helm chart exists
+    skip-local-build: false  # We need 'false' to build locally if no helm chart exists
     pre-install-commands: []
     helm-repo: []
     git-repo:

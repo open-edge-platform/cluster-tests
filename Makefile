@@ -115,7 +115,7 @@ bootstrap-mac: deps ## Bootstrap the test environment on MacOS before running te
 	kubectl get svc -A -o wide
 
 .PHONY: test
-test: render-capi-operator bootstrap-infra deploy-cluster-agent validate-agents ## Runs cluster orch cluster api smoke tests using standardized cluster-agent deployment
+test: render-capi-operator bootstrap ## Runs cluster orch cluster api smoke tests. This step bootstraps the env before running the test
 	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiSmokeTest
 
 .PHONY: cluster-api-all-test
