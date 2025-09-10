@@ -115,7 +115,7 @@ bootstrap-mac: deps ## Bootstrap the test environment on MacOS before running te
 	kubectl get svc -A -o wide
 
 .PHONY: test
-test: render-capi-operator bootstrap-infra deploy-cluster-agent ## Runs cluster orch cluster api smoke tests using standardized cluster-agent deployment
+test: render-capi-operator bootstrap-infra deploy-cluster-agent validate-agents ## Runs cluster orch cluster api smoke tests using standardized cluster-agent deployment
 	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiSmokeTest
 
 .PHONY: cluster-api-all-test
@@ -153,7 +153,7 @@ bootstrap-infra: deps render-capi-operator ## Bootstrap only infrastructure and 
 	echo "✅ Stage 1 completed in $${duration}s (Infrastructure Bootstrap)"
 
 .PHONY: deploy-cluster-agent
-deploy-cluster-agent: deps create-proxy-config ## Build and deploy only the cluster-agent component
+deploy-cluster-agent: deps ## Build and deploy only the cluster-agent component
 	@echo "Starting Stage 2: Cluster Agent Deployment..."
 	@start_time=$$(date +%s); \
 	echo "Step 2.1: Deploying TLS proxy for gRPC termination..."; \
@@ -197,7 +197,7 @@ validate-agents: validate-tls-proxy ## Validate that agents are properly running
 	@kubectl wait --for=condition=Ready pod/cluster-agent-0 --timeout=60s || (echo "Pod not ready" && exit 1)
 	@kubectl exec cluster-agent-0 -- bash -c " \
 		required_agents=\"cluster-agent node-agent platform-update-agent platform-telemetry-agent\"; \
-		max_retries=6; \
+		max_retries=7; \
 		retry_interval=10; \
 		for attempt in \$$(seq 1 \$$max_retries); do \
 			echo \"Attempt \$$attempt/\$$max_retries:\"; \

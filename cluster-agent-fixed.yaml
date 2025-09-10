@@ -216,6 +216,21 @@ spec:
                   # Run the agents installation
                   cd /opt/enic/bin && bash agents.sh
                   
+                  # Fix K3s snapshotter for container environment compatibility
+                  echo "Fixing K3s snapshotter configuration for container environment..."
+                  if [ -f /etc/systemd/system/k3s.service ]; then
+                      # Stop K3s service if running
+                      systemctl stop k3s 2>/dev/null || true
+                      
+                      # Update K3s service to use native snapshotter
+                      sed -i 's|ExecStart=/usr/local/bin/k3s.*server.*|ExecStart=/usr/local/bin/k3s server --snapshotter=native|g' /etc/systemd/system/k3s.service
+                      
+                      # Reload systemd and restart K3s
+                      systemctl daemon-reload
+                      systemctl start k3s || true
+                      echo "K3s snapshotter fixed to use native driver"
+                  fi
+                  
                   # Double-check and fix cluster-agent configuration after installation
                   sleep 5
                   if [ -f /etc/edge-node/node/confs/cluster-agent.yaml ]; then
