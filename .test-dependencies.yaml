@@ -67,9 +67,9 @@ components:
       - kind-load
       - helm-install
     post-install-commands:
-      # ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## #
+      ##################################################################################
       # Install the CAPI operator and default control plane and infra providers -- start
-      # ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## #
+      ##################################################################################
       # Install cert-manager
       - kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.16.0/cert-manager.yaml
       # Wait for cert-manager to be ready
@@ -99,9 +99,9 @@ components:
       - until kubectl get -n capk-system bootstrapprovider/k3s >/dev/null 2>&1; do sleep 1; done && kubectl patch -n capk-system bootstrapprovider k3s --type=merge -p '{"spec":{"fetchConfig":{"url":"'"${CAPI_K3S_BOOTSTRAP_URL}"'"}}}'
       - until kubectl get -n capk-system deployment/capi-k3s-bootstrap-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace capk-system deployment/capi-k3s-bootstrap-controller-manager --for=condition=available --timeout=5m
       - until kubectl get -n capk-system deployment/capi-k3s-control-plane-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace capk-system deployment/capi-k3s-control-plane-controller-manager --for=condition=available --timeout=5m
-      # ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## #
+      ##################################################################################
       # Install the CAPI operator and default control plane and infra providers -- end
-      # ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## #
+      ##################################################################################
       # Wait for Intel Infrastructure Provider to be ready and patch with SHARED_SECRET_KEY
       - until kubectl get deployment intel-infra-provider-southbound >/dev/null 2>&1; do sleep 1; done && kubectl wait --for=condition=Available --timeout=300s deployment/intel-infra-provider-southbound
       - until kubectl get deployment intel-infra-provider-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --for=condition=Available --timeout=300s deployment/intel-infra-provider-manager
@@ -218,4 +218,4 @@ components:
       # Load ENiC image into kind cluster and deploy
       - kind load docker-image 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/infra/enic:0.8.5 --name kind
       # Deploy cluster-agent using the optimized configuration file
-      - kubectl apply -f cluster-agent-fixed.yaml
+      - kubectl apply -f configs/cluster-agent-fixed.yaml

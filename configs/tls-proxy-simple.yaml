@@ -1,17 +1,11 @@
+# SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 # TLS Termination Proxy for Cluster Agent
-# 
 # This nginx-based proxy provides TLS termination to bridge the protocol mismatch between:
 # - cluster-agent: Expects TLS gRPC connections
 # - intel-infra-provider: Provides plain gRPC (no TLS)
-#
-# Architecture: cluster-agent (TLS) → nginx-proxy (TLS termination) → intel-provider (plain gRPC)
-# 
-# Deployment order:
-# 1. Deploy this TLS proxy
-# 2. Wait for proxy to be ready
-# 3. Deploy cluster-agent (configured to connect to grpc-tls-proxy-simple:50021)
-# 4. Extract TLS certificate from proxy and add to cluster-agent trust store
-# 5. Restart cluster-agent to establish trusted TLS connection
+# cluster-agent (TLS) → nginx-proxy (TLS termination) → intel-provider (plain gRPC)
 #
 ---
 apiVersion: v1

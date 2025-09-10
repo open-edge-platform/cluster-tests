@@ -1,17 +1,14 @@
-#!/bin/bash
+# SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
+#!/bin/bash
 # Generate a minimal 10-minute JWT token for cluster-agent authentication
 # This script creates a JWT token that expires in 10 minutes to avoid GitLeaks detection
-
 set -e
 
-# JWT Header
 header='{"alg":"HS256","typ":"JWT"}'
-
-# JWT Payload with 10-minute expiration
 current_time=$(date +%s)
 expiration_time=$((current_time + 600))  # 10 minutes from now
-
 payload=$(cat <<EOF
 {
   "exp": ${expiration_time},

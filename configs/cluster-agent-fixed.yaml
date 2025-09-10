@@ -1,13 +1,14 @@
+# SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 # Cluster Agent Pod Configuration
-#
-# This cluster-agent is configured to connect to the Intel Infrastructure Provider
+# This cluster-agent is configured to connect to the CAPIntel Infrastructure Provider
 # through a TLS termination proxy (grpc-tls-proxy-simple:50021).
-#
-# IMPORTANT: Deploy tls-proxy-simple.yaml BEFORE deploying this cluster-agent!
-#
+# IMPORTANT: Deploy configs/tls-proxy-simple.yaml BEFORE deploying this cluster-agent!
 # The postStart hook fixes the source configuration and sets up proper tokens
 # for CI testing environment.
-#
+
+# TODO Versions are hardcoded for CI testing purposes - replace with dynamic values as needed
 ---
 apiVersion: v1
 kind: Pod
@@ -104,13 +105,13 @@ spec:
           - -c
           - |
             (
-              sleep 15
-
-              # Create PUA proxy files
+              sleep 5
+              # Create PUA proxy files with GitLeaks-safe dummy PGP key
               mkdir -p /opt/files-edge-orch
               echo '-----BEGIN PGP PUBLIC KEY BLOCK-----' > /opt/files-edge-orch/edge-node.asc
               echo '' >> /opt/files-edge-orch/edge-node.asc
-              echo 'mQENBF8jXE0BCAC/K3KpJFjWaGhJT9Sk9SFXjd5E/YCr1Y3FBQAAAQEAAAAAAkFB' >> /opt/files-edge-orch/edge-node.asc
+              # Generate dummy base64 content to avoid GitLeaks detection
+              echo "$(echo 'DUMMY-TEST-PGP-KEY-CONTENT-FOR-CI-TESTING-ONLY' | base64)" >> /opt/files-edge-orch/edge-node.asc
               echo 'TEST EDGE NODE PUBLIC KEY FOR TESTING PURPOSES ONLY' >> /opt/files-edge-orch/edge-node.asc
               echo '-----END PGP PUBLIC KEY BLOCK-----' >> /opt/files-edge-orch/edge-node.asc
 
@@ -177,7 +178,6 @@ spec:
               # Fix agents.sh
               if [ -f /opt/enic/bin/agents.sh ]; then
                   cp /opt/enic/bin/agents.sh /opt/enic/bin/agents.sh.backup
-
                   sed -i 's|caddy_\${CADDY_VERSION}_linux_amd64.deb|caddy_2.7.6_linux_amd64.deb|g' /opt/enic/bin/agents.sh
                   sed -i 's|node-agent_\${NODE_AGENT_VERSION}_amd64.deb|node-agent_1.7.3_amd64.deb|g' /opt/enic/bin/agents.sh
                   sed -i 's|cluster-agent_\${CLUSTER_AGENT_VERSION}_amd64.deb|cluster-agent_1.7.4_amd64.deb|g' /opt/enic/bin/agents.sh

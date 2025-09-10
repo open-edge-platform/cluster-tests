@@ -157,15 +157,15 @@ deploy-cluster-agent: deps ## Build and deploy only the cluster-agent component
 	@echo "Starting Stage 2: Cluster Agent Deployment..."
 	@start_time=$$(date +%s); \
 	echo "Step 2.1: Deploying TLS proxy for gRPC termination..."; \
-	kubectl apply -f tls-proxy-simple.yaml; \
+	kubectl apply -f configs/tls-proxy-simple.yaml; \
 	echo "Step 2.2: Waiting for TLS proxy to be ready..."; \
 	kubectl wait --for=condition=Ready pod -l app=grpc-tls-proxy-simple --timeout=60s; \
 	echo "Step 2.3: Loading cluster-agent container image..."; \
 	PATH=${ENV_PATH} kind load docker-image 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/infra/enic:0.8.5 --name kind; \
 	echo "Step 2.3.1: generating token..."; \
-	export CI_JWT_TOKEN=$$(./token-jwt.sh); \
+	export CI_JWT_TOKEN=$$(./configs/token-jwt.sh); \
 	echo "Step 2.4: Applying cluster-agent configuration..."; \
-	CI_JWT_TOKEN=$$CI_JWT_TOKEN envsubst < cluster-agent-fixed.yaml | kubectl apply -f -; \
+	CI_JWT_TOKEN=$$CI_JWT_TOKEN envsubst < configs/cluster-agent-fixed.yaml | kubectl apply -f -; \
 	echo "Step 2.5: Waiting for cluster-agent pod to be ready..."; \
 	kubectl wait --for=condition=Ready pod/cluster-agent-0 --timeout=120s; \
 	echo "Step 2.6: Adding TLS proxy certificate to cluster-agent trust store..."; \
@@ -190,7 +190,7 @@ validate-tls-proxy: ## Validate that TLS proxy is working properly
 	@echo "Checking TLS proxy pod status..."
 	@kubectl wait --for=condition=Ready pod -l app=grpc-tls-proxy-simple --timeout=60s || (echo "TLS proxy pod not ready" && exit 1)
 	@echo "Verifying TLS proxy service connectivity..."
-	@kubectl exec cluster-agent-0 -- timeout 10 bash -c "openssl s_client -connect grpc-tls-proxy-simple:50021 -servername grpc-tls-proxy-simple < /dev/null" || (echo "TLS proxy connectivity failed" && exit 1)
+	@kubectl exec cluster-agent-0 -- timeout 10 bash -c "openssl s_client -connect grpc-tls-proxy-simple:50021 -servername grpc-tls-proxy-simple < /dev/null 2>/dev/null | grep -q 'Verify return code: 0 (ok)'" || (echo "TLS proxy connectivity failed" && exit 1)
 	@echo "✅ TLS proxy validation completed successfully"
 
 .PHONY: validate-agents
