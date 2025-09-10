@@ -181,11 +181,11 @@ deploy-cluster-agent: deps ## Build and deploy only the cluster-agent component
 	echo "Step 2.6.2: Fixing cluster-agent configuration to use gRPC TLS proxy..."; \
 	kubectl exec cluster-agent-0 -- sed -i 's|cluster-orch-node.localhost:443|grpc-tls-proxy-simple:50021|g' /etc/edge-node/node/confs/cluster-agent.yaml; \
 	kubectl exec cluster-agent-0 -- systemctl restart cluster-agent; \
-	echo "Step 2.7: Verifying cluster-agent pod is running..."; \
+	echo "Step 2.8: Verifying cluster-agent pod is running..."; \
 	kubectl get pod cluster-agent-0; \
 	end_time=$$(date +%s); \
 	duration=$$((end_time - start_time)); \
-	echo "✅ Stage 2 completed in $${duration}s (Cluster Agent Deployment with TLS Proxy)"
+	echo "✅ Stage 2 completed in $${duration}s (Cluster Agent Deployment with TLS Proxy and K3s Fixes)"
 
 .PHONY: validate-tls-proxy
 validate-tls-proxy: ## Validate that TLS proxy is working properly
@@ -200,6 +200,7 @@ validate-tls-proxy: ## Validate that TLS proxy is working properly
 validate-agents: validate-tls-proxy ## Validate that agents are properly running before tests
 	@echo "Agent Validation..."
 	@kubectl wait --for=condition=Ready pod/cluster-agent-0 --timeout=60s || (echo "Pod not ready" && exit 1)
+	@echo "K3s bootstrap fixes are integrated into cluster-agent lifecycle"
 	@kubectl exec cluster-agent-0 -- bash -c " \
 		required_agents=\"cluster-agent node-agent platform-update-agent platform-telemetry-agent\"; \
 		max_retries=7; \

@@ -198,6 +198,23 @@ spec:
                   sed -i '323s/.*/    sed -i \"s|GUID: '\''.*'\''|GUID: '\''12345678-1234-1234-1234-123456789012'\''|\" \/etc\/edge-node\/node\/confs\/cluster-agent.yaml/' /opt/enic/bin/agents.sh
                   sed -i '335s/.*/    sed -i \"s|GUID: '\''.*'\''|GUID: '\''12345678-1234-1234-1234-123456789012'\''|\" \/etc\/edge-node\/node\/confs\/node-agent.yaml/' /opt/enic/bin/agents.sh
                   sed -i '301s/.*/  sed -i \"s|nodeid: .*|nodeid: 12345678-1234-1234-1234-123456789012|\" \/etc\/edge-node\/node\/confs\/platform-telemetry-agent.yaml/' /opt/enic/bin/agents.sh
+
+                  # Add K3s bootstrap fixes to agents.sh
+                  echo '' >> /opt/enic/bin/agents.sh
+                  echo '# K3s Bootstrap Fixes for containerized environment' >> /opt/enic/bin/agents.sh
+                  echo 'echo "Applying K3s bootstrap fixes..."' >> /opt/enic/bin/agents.sh
+                  echo '' >> /opt/enic/bin/agents.sh
+                  echo '# Fix AppArmor permissions for K3s bootstrap script' >> /opt/enic/bin/agents.sh
+                  echo 'sed -i "/owner \/run\/systemd\/private rw,/a \  \/opt\/install.sh rwix," /etc/apparmor.d/opt.edge-node.bin.cluster-agent' >> /opt/enic/bin/agents.sh
+                  echo 'apparmor_parser -r /etc/apparmor.d/opt.edge-node.bin.cluster-agent' >> /opt/enic/bin/agents.sh
+                  echo '' >> /opt/enic/bin/agents.sh
+                  echo '# Setup K3s native snapshotter configuration hook' >> /opt/enic/bin/agents.sh
+                  echo 'mkdir -p /etc/systemd/system/k3s.service.d' >> /opt/enic/bin/agents.sh
+                  echo 'cat > /etc/systemd/system/k3s.service.d/snapshotter-fix.conf << EOF' >> /opt/enic/bin/agents.sh
+                  echo '[Service]' >> /opt/enic/bin/agents.sh
+                  echo 'ExecStartPre=/bin/bash -c "if [ -f /etc/rancher/k3s/config.yaml ] && ! grep -q snapshotter: /etc/rancher/k3s/config.yaml; then echo snapshotter: native >> /etc/rancher/k3s/config.yaml; fi"' >> /opt/enic/bin/agents.sh
+                  echo 'EOF' >> /opt/enic/bin/agents.sh
+                  echo 'systemctl daemon-reload' >> /opt/enic/bin/agents.sh
                   sed -i '311s/.*/  sed -i \"s|EdgeNodeID .*|EdgeNodeID 12345678-1234-1234-1234-123456789012|\" \/etc\/fluent-bit\/fluent-bit.conf/' /opt/enic/bin/agents.sh
                   
                   # Update cluster-agent to use gRPC TLS proxy endpoint in agents.sh
