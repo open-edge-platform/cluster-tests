@@ -176,6 +176,11 @@ deploy-cluster-agent: deps ## Build and deploy only the cluster-agent component
 	kubectl cp /tmp/proxy-cert.crt cluster-agent-0:/usr/local/share/ca-certificates/grpc-proxy.crt; \
 	kubectl exec cluster-agent-0 -- update-ca-certificates; \
 	rm -f /tmp/proxy-cert.crt; \
+	echo "Step 2.6.1: Waiting for cluster-agent configuration to be created..."; \
+	timeout 300 bash -c 'while ! kubectl exec cluster-agent-0 -- test -f /etc/edge-node/node/confs/cluster-agent.yaml >/dev/null 2>&1; do echo "   Waiting for agents.sh to complete..."; sleep 5; done'; \
+	echo "Step 2.6.2: Fixing cluster-agent configuration to use gRPC TLS proxy..."; \
+	kubectl exec cluster-agent-0 -- sed -i 's|cluster-orch-node.localhost:443|grpc-tls-proxy-simple:50021|g' /etc/edge-node/node/confs/cluster-agent.yaml; \
+	kubectl exec cluster-agent-0 -- systemctl restart cluster-agent; \
 	echo "Step 2.7: Verifying cluster-agent pod is running..."; \
 	kubectl get pod cluster-agent-0; \
 	end_time=$$(date +%s); \
