@@ -82,15 +82,34 @@ spec:
       labels:
         app: grpc-tls-proxy-simple
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
       - name: cert-generator
-        image: alpine/openssl:latest
+        image: alpine/openssl:3.1.4
         command: ["/bin/sh", "/scripts/generate-certs.sh"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 10000
+          runAsGroup: 10000
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
         volumeMounts:
         - name: cert-scripts
           mountPath: /scripts
         - name: certs
           mountPath: /certs
+        - name: tmp
+          mountPath: /tmp
         resources:
           requests:
             memory: "32Mi"
@@ -100,7 +119,20 @@ spec:
             cpu: "100m"
       containers:
       - name: nginx-tls-proxy
-        image: nginx:alpine
+        image: nginx:1.25.3-alpine
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 10000
+          runAsGroup: 10000
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE
+          seccompProfile:
+            type: RuntimeDefault
         ports:
         - containerPort: 50021
           name: grpc-tls
@@ -110,6 +142,12 @@ spec:
           subPath: nginx.conf
         - name: certs
           mountPath: /etc/nginx/certs
+        - name: tmp
+          mountPath: /tmp
+        - name: var-cache-nginx
+          mountPath: /var/cache/nginx
+        - name: var-run
+          mountPath: /var/run
         resources:
           requests:
             memory: "64Mi"
@@ -126,6 +164,12 @@ spec:
         configMap:
           name: nginx-tls-termination
       - name: certs
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+      - name: var-cache-nginx
+        emptyDir: {}
+      - name: var-run
         emptyDir: {}
 
 ---
