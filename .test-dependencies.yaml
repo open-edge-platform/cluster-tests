@@ -154,7 +154,7 @@ components:
         namespace: "default"
         version: ""  # Use the latest version when nil
         use-devel: false # Use development version of the chart
-        overrides: "--set clusterManager.extraArgs.disable-mt=true --set clusterManager.extraArgs.disable-auth=true --set clusterManager.extraArgs.disable-inventory=true --set templateController.extraArgs[0]='--webhook-enabled=true' --set webhookService.enabled=true"
+        overrides: "--set clusterManager.extraArgs.disable-mt=true --set clusterManager.extraArgs.disable-inventory=true --set templateController.extraArgs[0]='--webhook-enabled=true' --set webhookService.enabled=true"
       - url: "oci://registry-rs.edgeorchestration.intel.com"
         release-name: "cluster-template-crd"
         package: "edge-orch/cluster/charts/cluster-template-crd"
@@ -170,7 +170,7 @@ components:
       - HELM_VERSION=v0.0.0
       - KIND_CLUSTER=kind
       - DISABLE_MT=true  # Enable this flag to disable the multi-tenancy feature. This is required for the test environment where no MT controllers are installed
-      - DISABLE_AUTH=true  # Should be true for CO subsystem integration tests if keycloak is not deployed
+      - DISABLE_AUTH=false  # Changed from true to false to enable authentication
       - DISABLE_INV=true  # Should be true for CO subsystem integration tests if inventory is not deployed
     make-targets:
       - helm-install
