@@ -189,6 +189,19 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 
 			fmt.Printf("Output of `ls` command:\n%s\n", string(output))
 
+			By("Getting OS release information from the local-path-provisioner pod")
+			cmd = exec.Command("kubectl", "exec", "-it", podName, "-n", "kube-system", "--kubeconfig", kubeConfigName, "--", "cat", "/etc/os-release")
+			output, err = cmd.Output()
+			Expect(err).NotTo(HaveOccurred(), "Failed to get OS release information from the pod")
+
+			fmt.Printf("OS Release information:\n%s\n", string(output))
+
+			By("Getting kernel version from the local-path-provisioner pod")
+			cmd = exec.Command("kubectl", "exec", "-it", podName, "-n", "kube-system", "--kubeconfig", kubeConfigName, "--", "uname", "-r")
+			output, err = cmd.Output()
+			Expect(err).NotTo(HaveOccurred(), "Failed to get kernel version from the pod")
+
+			fmt.Printf("Kernel version: %s\n", strings.TrimSpace(string(output)))
 		})
 
 		JustAfterEach(func() {

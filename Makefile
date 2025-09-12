@@ -139,9 +139,21 @@ robustness-test: bootstrap ## Runs cluster orch robustness tests
 
 .PHONY: bootstrap-infra
 bootstrap-infra: deps render-capi-operator ## Bootstrap only infrastructure and providers (without cluster-agent)
-	@echo "🚀 Starting Stage 1: Infrastructure Bootstrap..."
+	@echo "Starting Stage 1: Infrastructure Bootstrap..."
 	@start_time=$$(date +%s); \
 	PATH=${ENV_PATH} SKIP_COMPONENTS=cluster-agent mage test:bootstrap; \
+	echo "Creating proxy ConfigMap for cluster-agent..."; \
+	HTTP_PROXY_VALUE=$${HTTP_PROXY:-}; \
+	HTTPS_PROXY_VALUE=$${HTTPS_PROXY:-}; \
+	NO_PROXY_VALUE=$${NO_PROXY:-}; \
+	kubectl create configmap proxy-config \
+		--from-literal=HTTP_PROXY="$$HTTP_PROXY_VALUE" \
+		--from-literal=HTTPS_PROXY="$$HTTPS_PROXY_VALUE" \
+		--from-literal=NO_PROXY="$$NO_PROXY_VALUE" \
+		--from-literal=http_proxy="$$HTTP_PROXY_VALUE" \
+		--from-literal=https_proxy="$$HTTPS_PROXY_VALUE" \
+		--from-literal=no_proxy="$$NO_PROXY_VALUE" \
+		--dry-run=client -o yaml | kubectl apply -f -; \
 	kubectl get pods -A -o wide; \
 	kubectl get deployments -A -o wide; \
 	kubectl get svc -A -o wide; \
@@ -151,7 +163,7 @@ bootstrap-infra: deps render-capi-operator ## Bootstrap only infrastructure and 
 	kubectl get node -o wide; \
 	end_time=$$(date +%s); \
 	duration=$$((end_time - start_time)); \
-	echo "✅ Stage 1 completed in $${duration}s (Infrastructure Bootstrap)"
+	echo "Stage 1 completed in $${duration}s (Infrastructure Bootstrap)"
 
 .PHONY: deploy-cluster-agent
 deploy-cluster-agent: deps ## Build and deploy only the cluster-agent component
@@ -172,19 +184,10 @@ deploy-cluster-agent: deps ## Build and deploy only the cluster-agent component
 	kubectl get pod cluster-agent-0; \
 	end_time=$$(date +%s); \
 	duration=$$((end_time - start_time)); \
-	echo "✅ Stage 2 completed in $${duration}s (Cluster Agent Deployment with TLS Proxy and K3s Fixes)"
-
-.PHONY: validate-tls-proxy
-validate-tls-proxy: ## Validate that TLS proxy is working properly
-	@echo "TLS Proxy Validation..."
-	@echo "Checking TLS proxy pod status..."
-	@kubectl wait --for=condition=Ready pod -l app=grpc-tls-proxy-simple --timeout=60s || (echo "TLS proxy pod not ready" && exit 1)
-	@echo "Verifying TLS proxy service connectivity..."
-	@kubectl exec cluster-agent-0 -- timeout 10 bash -c "openssl s_client -connect grpc-tls-proxy-simple:50021 -servername grpc-tls-proxy-simple < /dev/null 2>/dev/null | grep -q 'Verify return code: 0 (ok)'" || (echo "TLS proxy connectivity failed" && exit 1)
-	@echo "✅ TLS proxy validation completed successfully"
+	echo "Stage 2 completed in $${duration}s (Cluster Agent Deployment with TLS Proxy and K3s Fixes)"
 
 .PHONY: validate-agents
-validate-agents: ##validate-tls-proxy ## Validate that agents are properly running before tests
+validate-agents: ## Validate that agents are properly running before tests
 	@echo "Agent Validation..."
 	@kubectl wait --for=condition=Ready pod/cluster-agent-0 --timeout=60s || (echo "Pod not ready" && exit 1)
 	@echo "K3s bootstrap fixes are integrated into cluster-agent lifecycle"
@@ -208,7 +211,7 @@ validate-agents: ##validate-tls-proxy ## Validate that agents are properly runni
 				fi; \
 			done; \
 			if [ \$$active_count -eq \$$total_count ]; then \
-				echo \"✅ All \$$active_count/\$$total_count services active\"; \
+				echo \"All \$$active_count/\$$total_count services active\"; \
 				break; \
 			else \
 				echo \"Only \$$active_count/\$$total_count services active\"; \
@@ -225,7 +228,7 @@ validate-agents: ##validate-tls-proxy ## Validate that agents are properly runni
 		echo \"Checking cluster-agent ready status...\"; \
 		timeout 60 bash -c 'while ! journalctl -u cluster-agent --no-pager -n 20 | grep -q \"msg=\\\"Status Ready\\\"\"; do sleep 2; done' || echo \"Warning: cluster-agent not ready\"; \
 		if journalctl -u cluster-agent --no-pager -n 20 | grep -q 'msg=\"Status Ready\"'; then \
-			echo \"✅ cluster-agent reports Status Ready\"; \
+			echo \"cluster-agent reports Status Ready\"; \
 		else \
 			echo \"FINAL FAILURE: cluster-agent not ready after timeout\"; \
 			exit 1; \
@@ -234,16 +237,16 @@ validate-agents: ##validate-tls-proxy ## Validate that agents are properly runni
 
 .PHONY: run-tests-only
 run-tests-only: ## Run only the tests without bootstrapping
-	@echo "🧪 Starting Stage 3: Test Execution..."
+	@echo "Starting Stage 3: Test Execution..."
 	@start_time=$$(date +%s); \
 	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=true mage test:ClusterOrchClusterApiSmokeTest; \
 	end_time=$$(date +%s); \
 	duration=$$((end_time - start_time)); \
-	echo "✅ Stage 3 completed in $${duration}s (Test Execution)"
+	echo "Stage 3 completed in $${duration}s (Test Execution)"
 
 .PHONY: test-staged
 test-staged: ## Run test in stages for easier debugging
-	@echo "🎯 Starting Staged Testing Workflow..."
+	@echo "Starting Staged Testing Workflow..."
 	@overall_start=$$(date +%s); \
 	$(MAKE) bootstrap-infra; \
 	$(MAKE) deploy-cluster-agent; \
@@ -252,19 +255,19 @@ test-staged: ## Run test in stages for easier debugging
 	overall_end=$$(date +%s); \
 	total_duration=$$((overall_end - overall_start)); \
 	echo ""; \
-	echo "🏁 Staged Testing Workflow Summary:"; \
+	echo "Staged Testing Workflow Summary:"; \
 	echo "   Total Time: $${total_duration}s"; \
 	echo "   Infrastructure can be reused for subsequent runs"; \
 	echo "   Use 'make cleanup-infra' when finished"
 
 .PHONY: cleanup-infra
 cleanup-infra: ## Clean up the kind cluster and test infrastructure
-	@echo "🧹 Cleaning up test infrastructure..."
+	@echo "Cleaning up test infrastructure..."
 	@start_time=$$(date +%s); \
 	PATH=${ENV_PATH} mage test:cleanup; \
 	end_time=$$(date +%s); \
 	duration=$$((end_time - start_time)); \
-	echo "✅ Cleanup completed in $${duration}s"
+	echo "Cleanup completed in $${duration}s"
 
 .PHONY: help
 help: ## Display this help.

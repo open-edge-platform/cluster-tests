@@ -100,15 +100,17 @@ spec:
     - containerPort: 8080
     - containerPort: 5991
     securityContext:
-      # WARNING: privileged: true is a HIGH security risk but required for:
+      # WARNING: privileged: true is required for:
       # 1. systemd operation within container
       # 2. K3s cluster deployment and management
       # 3. Edge agent installation and configuration
       # This container acts as a Virtual Edge Node requiring host-level access
+      # This is used ONLY for test purpose
       privileged: true
       # Note: allowPrivilegeEscalation cannot be set to false when privileged=true
       # Note: Temporary workaround for VEN-ENiC requiring writable /etc
       # This is needed because the agents.sh script writes proxy config to /etc/environment
+      # This is used ONLY for test purpose
       # TODO: Make this more granular once we identify all required writable paths
       readOnlyRootFilesystem: false
       capabilities:

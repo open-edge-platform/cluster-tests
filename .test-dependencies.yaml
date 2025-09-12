@@ -183,9 +183,9 @@ components:
   # Cluster Agent in the virtual EN
   - name: cluster-agent
     skip-component: false
-    skip-local-build: true  # We need 'false' to build locally if no helm chart exists
-    pre-install-commands: 
-        # Create proxy ConfigMap for cluster-agent (needed for both traditional and staged workflows)
+    skip-local-build: false  # We need 'false' to build locally if no helm chart exists
+    pre-install-commands:
+      # Create proxy ConfigMap for cluster-agent (needed for both traditional and staged workflows)
       - |
         HTTP_PROXY_VALUE=${HTTP_PROXY:-}
         HTTPS_PROXY_VALUE=${HTTPS_PROXY:-}
@@ -201,7 +201,7 @@ components:
     helm-repo: []
     git-repo:
       url: https://github.com/open-edge-platform/virtual-edge-node.git
-      version: main
+      version: edge-node-container/v0.8.5
     make-directory: "edge-node-container/"
     make-variables:
       - SHELL=/bin/bash
