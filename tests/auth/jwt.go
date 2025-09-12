@@ -43,7 +43,7 @@ func (g *TestJWTGenerator) GenerateClusterManagerToken(subject string) (string, 
 		"iat":         now.Unix(),
 		"exp":         now.Add(time.Hour).Unix(),
 		"nbf":         now.Add(-time.Minute).Unix(), // Allow for clock skew
-		"jti":         fmt.Sprintf("test-%d", now.Unix()),
+		"jti":         fmt.Sprintf("test-%d", now.UnixNano()),
 		"scope":       "cluster:read cluster:write cluster:admin",
 		"permissions": []string{"cluster:read", "cluster:write", "cluster:delete", "kubeconfig:read"},
 		"groups":      []string{"system:authenticated", "cluster-admins"},

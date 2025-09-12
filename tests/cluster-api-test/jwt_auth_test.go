@@ -39,7 +39,7 @@ var _ = Describe("JWT Authentication Tests",
 			By("Checking token claims")
 			Expect((*claims)["sub"]).To(Equal("test-user"))
 			Expect((*claims)["iss"]).To(Equal("cluster-tests"))
-			Expect((*claims)["scope"]).To(Equal("cluster:read cluster:write"))
+			Expect((*claims)["scope"]).To(Equal("cluster:read cluster:write cluster:admin"))
 		})
 
 		It("Should test cluster-manager API authentication", func() {
