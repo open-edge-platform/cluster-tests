@@ -13,11 +13,10 @@ type ClusterManagerAuthConfig struct {
 
 // TestAuthContext holds authentication context for tests
 type TestAuthContext struct {
-	JWTGenerator *TestJWTGenerator
-	Token        string
-	Subject      string
-	Issuer       string
-	Audience     []string
+	Token    string
+	Subject  string
+	Issuer   string
+	Audience []string
 }
 
 // TokenClaims represents the structure of JWT claims used in tests

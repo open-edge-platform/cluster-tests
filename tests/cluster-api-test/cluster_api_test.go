@@ -14,6 +14,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/open-edge-platform/cluster-tests/tests/auth"
 	"github.com/open-edge-platform/cluster-tests/tests/utils"
 )
 
@@ -26,6 +27,7 @@ func TestClusterApiTest(t *testing.T) {
 var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manager APIs with baseline template",
 	Ordered, Label(utils.ClusterOrchClusterApiSmokeTest, utils.ClusterOrchClusterApiAllTest), func() {
 		var (
+			authContext            *auth.TestAuthContext
 			gatewayPortForward     *exec.Cmd
 			namespace              string
 			nodeGUID               string
@@ -38,8 +40,15 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 			namespace = utils.GetEnv(utils.NamespaceEnvVar, utils.DefaultNamespace)
 			nodeGUID = utils.GetEnv(utils.NodeGUIDEnvVar, utils.DefaultNodeGUID)
 
+			By("Setting up JWT authentication")
+			var err error
+			authContext, err = utils.SetupTestAuthentication("test-user")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(authContext).NotTo(BeNil())
+			Expect(authContext.Token).NotTo(BeEmpty())
+
 			By("Ensuring the namespace exists")
-			err := utils.EnsureNamespaceExists(namespace)
+			err = utils.EnsureNamespaceExists(namespace)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Port forwarding to the cluster manager service")
@@ -49,8 +58,8 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 			Expect(err).NotTo(HaveOccurred())
 			time.Sleep(5 * time.Second)
 
-			By("Importing the cluster template")
-			err = utils.ImportClusterTemplate(namespace, utils.TemplateTypeK3sBaseline)
+			By("Importing the cluster template with JWT authentication")
+			err = utils.ImportClusterTemplateAuthenticated(authContext, namespace, utils.TemplateTypeK3sBaseline)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Waiting for the cluster template to be ready")
@@ -61,7 +70,7 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 			clusterCreateStartTime = time.Now()
 
 			By("Creating the k3s cluster")
-			err = utils.CreateCluster(namespace, nodeGUID, utils.K3sTemplateName)
+			err = utils.CreateClusterAuthenticated(authContext, namespace, nodeGUID, utils.K3sTemplateName)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Port forwarding to the cluster gateway service")

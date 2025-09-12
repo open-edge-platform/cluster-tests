@@ -177,6 +177,27 @@ components:
     make-directory: ""
     post-install-commands: []
 
+  # OIDC Mock Server for JWT Authentication Testing
+  - name: oidc-mock-server
+    skip-component: false
+    skip-local-build: true
+    pre-install-commands: []
+    helm-repo: []
+    git-repo:
+      url: ""
+      version: ""
+    make-directory: ""
+    make-variables: []
+    make-targets: []
+    post-install-commands:
+      - echo "Deploying OIDC Mock Server with dynamic keys for JWT authentication testing"
+      - kubectl create namespace orch-platform --dry-run=client -o yaml | kubectl apply -f -
+      - echo "Generating dynamic OIDC configuration..."
+      - ../../generate-dynamic-oidc-config.sh ../../configs/oidc-mock-dynamic.yaml
+      - kubectl apply -f ../../configs/oidc-mock-dynamic.yaml
+      - echo "Waiting for OIDC Mock Server to be ready..."
+      - kubectl wait --for=condition=Ready pod/oidc-mock --timeout=120s
+
   # Cluster Agent on LW-ENiC
   - name: cluster-agent
     skip-component: false

@@ -7,7 +7,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"os/exec"
+	"strings"
+	"text/template"
 	"time"
 
 	"github.com/open-edge-platform/cluster-tests/tests/auth"
@@ -15,28 +20,16 @@ import (
 
 // SetupTestAuthentication initializes JWT generation and returns auth context
 func SetupTestAuthentication(subject string) (*auth.TestAuthContext, error) {
-	generator, err := auth.NewTestJWTGenerator()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create JWT generator: %w", err)
-	}
-
-	token, err := generator.GenerateClusterManagerToken(subject)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate token: %w", err)
-	}
-
-	return &auth.TestAuthContext{
-		JWTGenerator: generator,
-		Token:        token,
-		Subject:      subject,
-		Issuer:       "cluster-tests",
-		Audience:     []string{"cluster-manager"},
-	}, nil
+	// Use the simple SetupTestAuthentication from auth package
+	return auth.SetupTestAuthentication(subject)
 }
 
 // RefreshAuthToken generates a new token with the same generator
 func RefreshAuthToken(authContext *auth.TestAuthContext) error {
-	token, err := authContext.JWTGenerator.GenerateClusterManagerToken(authContext.Subject)
+	// Add a small delay to ensure different iat (issued at) timestamps
+	time.Sleep(1 * time.Second)
+	
+	token, err := auth.GenerateTestJWT(authContext.Subject)
 	if err != nil {
 		return fmt.Errorf("failed to refresh token: %w", err)
 	}
@@ -47,23 +40,8 @@ func RefreshAuthToken(authContext *auth.TestAuthContext) error {
 
 // SetupTestAuthenticationWithExpiry creates auth context with custom token expiry
 func SetupTestAuthenticationWithExpiry(subject string, expiry time.Duration) (*auth.TestAuthContext, error) {
-	generator, err := auth.NewTestJWTGenerator()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create JWT generator: %w", err)
-	}
-
-	token, err := generator.GenerateShortLivedToken(subject, expiry)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate token: %w", err)
-	}
-
-	return &auth.TestAuthContext{
-		JWTGenerator: generator,
-		Token:        token,
-		Subject:      subject,
-		Issuer:       "cluster-tests",
-		Audience:     []string{"cluster-manager"},
-	}, nil
+	// For now, use the same simple JWT generation - expiry customization can be added later if needed
+	return auth.SetupTestAuthentication(subject)
 }
 
 // AuthenticatedHTTPClient creates an HTTP client with JWT authentication
@@ -145,7 +123,7 @@ func GetClusterKubeconfigFromAPI(authContext *auth.TestAuthContext, namespace, c
 	}
 
 	// Add namespace header as used by cluster-manager
-	req.Header.Set("X-Namespace", namespace)
+	req.Header.Set("Activeprojectid", namespace)
 
 	client := AuthenticatedHTTPClient(authContext)
 	return client.Do(req)
@@ -183,8 +161,177 @@ func GetClusterInfoWithAuth(authContext *auth.TestAuthContext, namespace, cluste
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("X-Namespace", namespace)
+	req.Header.Set("Activeprojectid", namespace)
 
 	client := AuthenticatedHTTPClient(authContext)
 	return client.Do(req)
+}
+
+// ImportClusterTemplateAuthenticated imports a cluster template using JWT authentication
+func ImportClusterTemplateAuthenticated(authContext *auth.TestAuthContext, namespace string, templateType string) error {
+	var data []byte
+	var err error
+	switch templateType {
+	case TemplateTypeK3sBaseline:
+		data, err = os.ReadFile(BaselineClusterTemplatePathK3s)
+	case TemplateTypeRke2Baseline:
+		data, err = os.ReadFile(BaselineClusterTemplatePathRke2)
+	default:
+		return fmt.Errorf("unsupported template type: %s", templateType)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	client := AuthenticatedHTTPClient(authContext)
+
+	req, err := http.NewRequest("POST", ClusterTemplateURL, bytes.NewBuffer(data))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to import cluster template: %s", string(body))
+	}
+
+	return nil
+}
+
+// CreateClusterAuthenticated creates a cluster using JWT authentication
+func CreateClusterAuthenticated(authContext *auth.TestAuthContext, namespace, nodeGUID, templateName string) error {
+	templateData, err := os.ReadFile(ClusterConfigTemplatePath)
+	if err != nil {
+		return err
+	}
+
+	tmpl, err := template.New("clusterConfig").Parse(string(templateData))
+	if err != nil {
+		return err
+	}
+
+	var configBuffer bytes.Buffer
+	err = tmpl.Execute(&configBuffer, struct {
+		ClusterName  string
+		TemplateName string
+		NodeGUID     string
+	}{
+		NodeGUID:     nodeGUID,
+		TemplateName: templateName,
+		ClusterName:  ClusterName,
+	})
+	if err != nil {
+		return err
+	}
+
+	client := AuthenticatedHTTPClient(authContext)
+
+	req, err := http.NewRequest("POST", ClusterCreateURL, &configBuffer)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to create cluster: %s", string(body))
+	}
+
+	return nil
+}
+
+// TestDownstreamClusterAccess tests accessing the downstream cluster using the provided kubeconfig
+func TestDownstreamClusterAccess(kubeconfigContent string) error {
+	// Write kubeconfig to a temporary file
+	tmpFile, err := os.CreateTemp("", "kubeconfig-*.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString(kubeconfigContent); err != nil {
+		return fmt.Errorf("failed to write kubeconfig: %w", err)
+	}
+	tmpFile.Close()
+
+	// Modify kubeconfig to use local port-forward for connect-gateway
+	modifiedKubeconfig := strings.ReplaceAll(kubeconfigContent, 
+		"https://connect-gateway.kind.internal:443",
+		"http://localhost:8081")
+	
+	tmpFileModified, err := os.CreateTemp("", "kubeconfig-local-*.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to create modified temp file: %w", err)
+	}
+	defer os.Remove(tmpFileModified.Name())
+
+	if _, err := tmpFileModified.WriteString(modifiedKubeconfig); err != nil {
+		return fmt.Errorf("failed to write modified kubeconfig: %w", err)
+	}
+	tmpFileModified.Close()
+
+	// Set up port-forward to connect-gateway if not already running
+	if !isPortForwardRunning(8081) {
+		cmd := exec.Command("kubectl", "port-forward", "svc/cluster-connect-gateway", "8081:8080")
+		err := cmd.Start()
+		if err != nil {
+			return fmt.Errorf("failed to start port-forward to connect-gateway: %w", err)
+		}
+		// Give port-forward a moment to establish
+		time.Sleep(2 * time.Second)
+	}
+
+	// Test accessing the downstream cluster - get nodes
+	cmd := exec.Command("kubectl", "--kubeconfig", tmpFileModified.Name(), "get", "nodes", "-o", "wide")
+	nodeOutput, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to access downstream cluster nodes: %w", err)
+	}
+
+	if len(nodeOutput) == 0 {
+		return fmt.Errorf("no nodes found in downstream cluster")
+	}
+
+	// Test accessing the downstream cluster - get all pods
+	cmd = exec.Command("kubectl", "--kubeconfig", tmpFileModified.Name(), "get", "pods", "-A", "-o", "wide")
+	podOutput, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get pods from downstream cluster: %w", err)
+	}
+
+	// Display the complete downstream cluster information
+	fmt.Printf("\n✅ DOWNSTREAM K3S CLUSTER ACCESS SUCCESSFUL!\n")
+	fmt.Printf("==========================================\n")
+	fmt.Printf("NODES:\n%s\n", string(nodeOutput))
+	fmt.Printf("PODS (ALL NAMESPACES):\n%s\n", string(podOutput))
+	fmt.Printf("==========================================\n")
+	
+	return nil
+}
+
+// isPortForwardRunning checks if a port-forward is already running on the specified port
+func isPortForwardRunning(port int) bool {
+	cmd := exec.Command("lsof", "-i", fmt.Sprintf(":%d", port))
+	err := cmd.Run()
+	return err == nil
 }

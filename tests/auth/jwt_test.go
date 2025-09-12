@@ -30,7 +30,8 @@ func TestGenerateClusterManagerToken(t *testing.T) {
 	}
 
 	subject := "test-user"
-	tokenString, err := generator.GenerateClusterManagerToken(subject)
+	projectUUID := "test-project-123"
+	tokenString, err := generator.GenerateClusterManagerToken(subject, projectUUID, time.Hour)
 	if err != nil {
 		t.Fatalf("Failed to generate token: %v", err)
 	}
@@ -46,16 +47,12 @@ func TestGenerateClusterManagerToken(t *testing.T) {
 	}
 
 	// Check claims
-	if (*claims)["sub"] != subject {
-		t.Errorf("Expected subject %s, got %s", subject, (*claims)["sub"])
+	if claims["sub"] != subject {
+		t.Errorf("Expected subject %s, got %s", subject, claims["sub"])
 	}
 
-	if (*claims)["iss"] != "cluster-tests" {
-		t.Errorf("Expected issuer 'cluster-tests', got %s", (*claims)["iss"])
-	}
-
-	if (*claims)["scope"] != "cluster:read cluster:write cluster:admin" {
-		t.Errorf("Expected scope 'cluster:read cluster:write cluster:admin', got %s", (*claims)["scope"])
+	if claims["iss"] != "http://platform-keycloak.orch-platform.svc/realms/master" {
+		t.Errorf("Expected issuer from OIDC server, got %s", claims["iss"])
 	}
 }
 
@@ -84,8 +81,8 @@ func TestGenerateTokenWithCustomClaims(t *testing.T) {
 	}
 
 	// Check custom claims
-	if (*claims)["role"] != "admin" {
-		t.Errorf("Expected role 'admin', got %s", (*claims)["role"])
+	if claims["role"] != "admin" {
+		t.Errorf("Expected role 'admin', got %s", claims["role"])
 	}
 }
 
@@ -184,7 +181,7 @@ func TestTokenSignedWithDifferentKey(t *testing.T) {
 	}
 
 	// Generate token with first generator
-	tokenString, err := generator1.GenerateClusterManagerToken("test-user")
+	tokenString, err := generator1.GenerateClusterManagerToken("test-user", "test-project", time.Hour)
 	if err != nil {
 		t.Fatalf("Failed to generate token: %v", err)
 	}

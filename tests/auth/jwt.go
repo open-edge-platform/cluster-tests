@@ -7,24 +7,168 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"math/big"
+	"os"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// TestJWTGenerator provides JWT token generation for testing purposes
+// Global variables for runtime-generated keys
+var (
+	dynamicPrivateKey *rsa.PrivateKey
+	dynamicPublicKey  *rsa.PublicKey
+	keyGenerationOnce sync.Once
+	keyGenerationErr  error
+)
+
+// keyFilePath returns the path where keys should be stored
+func keyFilePath() string {
+	return "/tmp/cluster-tests-dynamic-keys.pem"
+}
+
+// loadKeysFromFile attempts to load existing keys from file
+func loadKeysFromFile() (*rsa.PrivateKey, error) {
+	keyPath := keyFilePath()
+	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+		return nil, nil // File doesn't exist, will generate new keys
+	}
+
+	keyData, err := os.ReadFile(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read key file: %w", err)
+	}
+
+	block, _ := pem.Decode(keyData)
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block")
+	}
+
+	privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse private key: %w", err)
+	}
+
+	return privateKey, nil
+}
+
+// saveKeysToFile saves the generated keys to file for reuse
+func saveKeysToFile(privateKey *rsa.PrivateKey) error {
+	keyPath := keyFilePath()
+	privateKeyBytes := x509.MarshalPKCS1PrivateKey(privateKey)
+	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: privateKeyBytes,
+	})
+
+	return os.WriteFile(keyPath, privateKeyPEM, 0600)
+}
+
+// generateRuntimeKeys creates a new RSA key pair at runtime or loads existing ones
+func generateRuntimeKeys() {
+	// First try to load existing keys
+	if existingKey, err := loadKeysFromFile(); err == nil && existingKey != nil {
+		dynamicPrivateKey = existingKey
+		dynamicPublicKey = &existingKey.PublicKey
+		return
+	}
+
+	// Generate new 2048-bit RSA key pair
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		keyGenerationErr = fmt.Errorf("failed to generate RSA key pair: %w", err)
+		return
+	}
+
+	// Save keys to file for reuse
+	if saveErr := saveKeysToFile(privateKey); saveErr != nil {
+		keyGenerationErr = fmt.Errorf("failed to save keys to file: %w", saveErr)
+		return
+	}
+
+	dynamicPrivateKey = privateKey
+	dynamicPublicKey = &privateKey.PublicKey
+}
+
+// getOrGenerateKeys ensures we have a key pair, generating it if needed
+func getOrGenerateKeys() (*rsa.PrivateKey, *rsa.PublicKey, error) {
+	keyGenerationOnce.Do(generateRuntimeKeys)
+	if keyGenerationErr != nil {
+		return nil, nil, keyGenerationErr
+	}
+	return dynamicPrivateKey, dynamicPublicKey, nil
+}
+
+// encodeBase64URLBigInt encodes a big integer as a base64url string (for JWKS)
+func encodeBase64URLBigInt(i *big.Int) string {
+	return base64.RawURLEncoding.EncodeToString(i.Bytes())
+}
+
+// GetPublicKeyPEM returns the public key in PEM format for OIDC mock server
+func GetPublicKeyPEM() (string, error) {
+	_, publicKey, err := getOrGenerateKeys()
+	if err != nil {
+		return "", err
+	}
+
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal public key: %w", err)
+	}
+
+	pubKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: pubKeyBytes,
+	})
+
+	return string(pubKeyPEM), nil
+}
+
+// GetJWKS returns the public key in JWKS format for OIDC discovery
+func GetJWKS() (string, error) {
+	_, publicKey, err := getOrGenerateKeys()
+	if err != nil {
+		return "", err
+	}
+
+	jwks := map[string]interface{}{
+		"keys": []map[string]interface{}{
+			{
+				"kty": "RSA",
+				"use": "sig",
+				"kid": "cluster-tests-key",
+				"alg": "PS512",
+				"n":   encodeBase64URLBigInt(publicKey.N),
+				"e":   encodeBase64URLBigInt(big.NewInt(int64(publicKey.E))),
+			},
+		},
+	}
+
+	jwksBytes, err := json.Marshal(jwks)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal JWKS: %w", err)
+	}
+
+	return string(jwksBytes), nil
+}
+
+// TestJWTGenerator provides backward compatibility for tests
 type TestJWTGenerator struct {
 	privateKey *rsa.PrivateKey
 	publicKey  *rsa.PublicKey
 }
 
-// NewTestJWTGenerator creates a new JWT generator with a generated RSA key pair
+// NewTestJWTGenerator creates a new JWT generator with dynamic keys (backward compatibility)
 func NewTestJWTGenerator() (*TestJWTGenerator, error) {
+	// Generate unique keys for each generator instance (not shared)
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate RSA key: %w", err)
+		return nil, fmt.Errorf("failed to generate RSA key pair: %w", err)
 	}
 
 	return &TestJWTGenerator{
@@ -33,113 +177,257 @@ func NewTestJWTGenerator() (*TestJWTGenerator, error) {
 	}, nil
 }
 
-// GenerateClusterManagerToken generates a JWT token for cluster-manager API access
-func (g *TestJWTGenerator) GenerateClusterManagerToken(subject string) (string, error) {
+// GenerateClusterManagerToken generates a token for cluster-manager (backward compatibility)
+func (g *TestJWTGenerator) GenerateClusterManagerToken(subject, projectUUID string, expiry time.Duration) (string, error) {
+	// Set issuer and audience to match unit test expectations
 	now := time.Now()
+	clusterNamespace := "53cd37b9-66b2-4cc8-b080-3722ed7af64a" // Default namespace from cluster_utils.go
 	claims := jwt.MapClaims{
-		"sub":         subject,
-		"aud":         []string{"cluster-manager", "cluster-manager-api"},
-		"iss":         "cluster-tests",
-		"iat":         now.Unix(),
-		"exp":         now.Add(time.Hour).Unix(),
-		"nbf":         now.Add(-time.Minute).Unix(), // Allow for clock skew
-		"jti":         fmt.Sprintf("test-%d", now.UnixNano()),
-		"scope":       "cluster:read cluster:write cluster:admin",
-		"permissions": []string{"cluster:read", "cluster:write", "cluster:delete", "kubeconfig:read"},
-		"groups":      []string{"system:authenticated", "cluster-admins"},
-		"username":    subject,
-		"user_id":     fmt.Sprintf("user-%s", subject),
+		"sub":   subject,
+		"iss":   "http://platform-keycloak.orch-platform.svc/realms/master", // Match cluster-manager OIDC URL
+		"aud":   []string{"cluster-manager"},                                // Unit tests expect this audience
+		"scope": "openid email roles profile",                               // Match working JWT scope
+		"exp":   now.Add(expiry).Unix(),
+		"iat":   now.Unix(),
+		"typ":   "Bearer",        // Token type
+		"azp":   "system-client", // Authorized party
+		"realm_access": map[string]interface{}{ // Complete Keycloak-style roles structure
+			"roles": []string{
+				"account/view-profile",
+				clusterNamespace + "_cl-tpl-r",  // cluster template read
+				clusterNamespace + "_cl-tpl-rw", // cluster template read-write (needed for POST)
+				"default-roles-master",
+				clusterNamespace + "_im-r",
+				clusterNamespace + "_reg-r",
+				clusterNamespace + "_cat-r",
+				clusterNamespace + "_alrt-r",
+				clusterNamespace + "_tc-r",
+				clusterNamespace + "_ao-rw", // admin operations read-write
+				"offline_access",
+				"uma_authorization",
+				clusterNamespace + "_cl-r",  // cluster read
+				clusterNamespace + "_cl-rw", // cluster read-write (needed for cluster creation)
+				"account/manage-account",
+				"63764aaf-1527-46a0-b921-c5f32dba1ddb_" + clusterNamespace + "_m",
+			},
+		},
+		"resource_access": map[string]interface{}{ // Resource-specific roles
+			"cluster-manager": map[string]interface{}{
+				"roles": []string{"admin", "manager"},
+			},
+		},
+		"preferred_username": subject, // Username for display
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	// Add key ID to header for better JWT validation
-	token.Header["kid"] = "test-key-1"
+	// Create token using PS512 as required by cluster-manager v2.1.15
+	token := jwt.NewWithClaims(jwt.SigningMethodPS512, claims)
+	token.Header["kid"] = "cluster-tests-key" // Match the key ID
 
-	return token.SignedString(g.privateKey)
+	tokenString, err := token.SignedString(g.privateKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign JWT token: %w", err)
+	}
+
+	return tokenString, nil
 }
 
-// GenerateToken generates a JWT token with custom claims
+// GenerateClusterAgentToken generates a token for cluster-agent (backward compatibility)
+func (g *TestJWTGenerator) GenerateClusterAgentToken(subject string, expiry time.Duration) (string, error) {
+	return GenerateTokenJwtShFormat(subject)
+}
+
+// GenerateToken generates a general JWT token (backward compatibility)
 func (g *TestJWTGenerator) GenerateToken(subject string, audience []string, customClaims map[string]interface{}) (string, error) {
+	now := time.Now()
 	claims := jwt.MapClaims{
 		"sub": subject,
+		"iss": "http://platform-keycloak.orch-platform.svc/realms/master",
 		"aud": audience,
-		"iss": "cluster-tests",
-		"iat": time.Now().Unix(),
-		"exp": time.Now().Add(time.Hour).Unix(),
+		"exp": now.Add(time.Hour).Unix(),
+		"iat": now.Unix(),
+		"typ": "Bearer",
 	}
 
 	// Add custom claims
-	for key, value := range customClaims {
-		claims[key] = value
+	for k, v := range customClaims {
+		claims[k] = v
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	token := jwt.NewWithClaims(jwt.SigningMethodPS512, claims)
+	token.Header["kid"] = "cluster-tests-key"
+
 	return token.SignedString(g.privateKey)
 }
 
-// ValidateToken validates a JWT token and returns the claims
-func (g *TestJWTGenerator) ValidateToken(tokenString string) (*jwt.MapClaims, error) {
+// GenerateShortLivedToken generates a token with short expiry (backward compatibility)
+func (g *TestJWTGenerator) GenerateShortLivedToken(subject string, expiry time.Duration) (string, error) {
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"sub": subject,
+		"iss": "http://platform-keycloak.orch-platform.svc/realms/master",
+		"aud": []string{"cluster-manager"},
+		"exp": now.Add(expiry).Unix(),
+		"iat": now.Unix(),
+		"typ": "Bearer",
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodPS512, claims)
+	token.Header["kid"] = "cluster-tests-key"
+
+	return token.SignedString(g.privateKey)
+}
+
+// ValidateToken validates a JWT token (backward compatibility)
+func (g *TestJWTGenerator) ValidateToken(tokenString string) (jwt.MapClaims, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		// Validate the signing method
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+		if _, ok := token.Method.(*jwt.SigningMethodRSAPSS); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return g.publicKey, nil
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse token: %w", err)
+		return nil, err
 	}
 
-	if !token.Valid {
-		return nil, fmt.Errorf("token is invalid")
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		return claims, nil
 	}
 
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return nil, fmt.Errorf("failed to parse claims")
-	}
-
-	return &claims, nil
+	return nil, fmt.Errorf("invalid token")
 }
 
-// GetPublicKeyPEM returns the public key in PEM format for cluster-manager configuration
-func (g *TestJWTGenerator) GetPublicKeyPEM() ([]byte, error) {
-	publicKeyBytes, err := x509.MarshalPKIXPublicKey(g.publicKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal public key: %w", err)
-	}
-
-	publicKeyPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "PUBLIC KEY",
-		Bytes: publicKeyBytes,
-	})
-
-	return publicKeyPEM, nil
+// GetPublicKeyJWKS returns the public key in JWKS format (backward compatibility)
+func (g *TestJWTGenerator) GetPublicKeyJWKS() (string, error) {
+	return GetJWKS()
 }
 
-// GetPrivateKeyPEM returns the private key in PEM format (for testing purposes)
-func (g *TestJWTGenerator) GetPrivateKeyPEM() ([]byte, error) {
+// GetPublicKeyPEM returns the public key in PEM format (backward compatibility)
+func (g *TestJWTGenerator) GetPublicKeyPEM() (string, error) {
+	return GetPublicKeyPEM()
+}
+
+// GetPrivateKeyPEM returns the private key in PEM format (backward compatibility)
+func (g *TestJWTGenerator) GetPrivateKeyPEM() (string, error) {
 	privateKeyBytes := x509.MarshalPKCS1PrivateKey(g.privateKey)
 	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: privateKeyBytes,
 	})
-
-	return privateKeyPEM, nil
+	return string(privateKeyPEM), nil
 }
 
-// GenerateShortLivedToken generates a token with a custom expiration time
-func (g *TestJWTGenerator) GenerateShortLivedToken(subject string, duration time.Duration) (string, error) {
-	claims := jwt.MapClaims{
-		"sub":   subject,
-		"aud":   []string{"cluster-manager"},
-		"iss":   "cluster-tests",
-		"iat":   time.Now().Unix(),
-		"exp":   time.Now().Add(duration).Unix(),
-		"scope": "cluster:read cluster:write",
+// SetupTestAuthentication creates authentication context for the given username
+func SetupTestAuthentication(username string) (*TestAuthContext, error) {
+	token, err := GenerateTestJWT(username)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate test JWT: %w", err)
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	return token.SignedString(g.privateKey)
+	return &TestAuthContext{
+		Token:    token,
+		Subject:  username,
+		Issuer:   "cluster-tests",
+		Audience: []string{"cluster-manager"},
+	}, nil
+}
+
+// GenerateTestJWT creates a JWT token for testing with the given username using PS512
+func GenerateTestJWT(username string) (string, error) {
+	// Get the dynamically generated private key
+	privateKey, _, err := getOrGenerateKeys()
+	if err != nil {
+		return "", fmt.Errorf("failed to get private key: %w", err)
+	}
+
+	// Set issuer and audience to match unit test expectations
+	now := time.Now()
+	clusterNamespace := "53cd37b9-66b2-4cc8-b080-3722ed7af64a" // Default namespace from cluster_utils.go
+	claims := jwt.MapClaims{
+		"sub":   username,
+		"iss":   "http://platform-keycloak.orch-platform.svc/realms/master", // Match cluster-manager OIDC URL
+		"aud":   []string{"cluster-manager"},                                // Unit tests expect this audience
+		"scope": "openid email roles profile",                               // Match working JWT scope
+		"exp":   now.Add(time.Hour).Unix(),
+		"iat":   now.Unix(),
+		"typ":   "Bearer",        // Token type
+		"azp":   "system-client", // Authorized party
+		"realm_access": map[string]interface{}{ // Complete Keycloak-style roles structure
+			"roles": []string{
+				"account/view-profile",
+				clusterNamespace + "_cl-tpl-r",  // cluster template read
+				clusterNamespace + "_cl-tpl-rw", // cluster template read-write (needed for POST)
+				"default-roles-master",
+				clusterNamespace + "_im-r",
+				clusterNamespace + "_reg-r",
+				clusterNamespace + "_cat-r",
+				clusterNamespace + "_alrt-r",
+				clusterNamespace + "_tc-r",
+				clusterNamespace + "_ao-rw", // admin operations read-write
+				"offline_access",
+				"uma_authorization",
+				clusterNamespace + "_cl-r",  // cluster read
+				clusterNamespace + "_cl-rw", // cluster read-write (needed for cluster creation)
+				"account/manage-account",
+				"63764aaf-1527-46a0-b921-c5f32dba1ddb_" + clusterNamespace + "_m",
+			},
+		},
+		"resource_access": map[string]interface{}{ // Resource-specific roles
+			"cluster-manager": map[string]interface{}{
+				"roles": []string{"admin", "manager"},
+			},
+		},
+		"preferred_username": username, // Username for display
+	}
+
+	// Create token using PS512 as required by cluster-manager v2.1.15
+	token := jwt.NewWithClaims(jwt.SigningMethodPS512, claims)
+	token.Header["kid"] = "cluster-tests-key" // Match the key ID
+
+	tokenString, err := token.SignedString(privateKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign JWT token: %w", err)
+	}
+
+	return tokenString, nil
+}
+
+// GenerateTokenJwtShFormat creates a PS512 JWT token with the exact claims structure
+// from token-jwt.sh but using PS512 algorithm to match cluster-manager expectations
+func GenerateTokenJwtShFormat(username string) (string, error) {
+	// Get the dynamically generated private key
+	privateKey, _, err := getOrGenerateKeys()
+	if err != nil {
+		return "", fmt.Errorf("failed to get private key: %w", err)
+	}
+
+	// Use the EXACT issuer that cluster-manager expects (from OIDC_SERVER_URL)
+	issuer := "http://platform-keycloak.orch-platform.svc/realms/master"
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"exp": now.Add(10 * time.Minute).Unix(), // 10 minutes like token-jwt.sh
+		"iss": issuer,                           // EXACT issuer from cluster-manager config
+		"realm_access": map[string]interface{}{ // EXACT realm_access structure from token-jwt.sh
+			"roles": []string{
+				"clusters-write-role",
+				"clusters-read-role",
+				"node-agent-readwrite-role",
+				"cluster-agent",
+			},
+		},
+		"sub": username, // Subject (usually "cluster-agent")
+		"typ": "Bearer", // Type from token-jwt.sh
+	}
+
+	// Create token using PS512 (matches cluster-manager expectations)
+	token := jwt.NewWithClaims(jwt.SigningMethodPS512, claims)
+	token.Header["kid"] = "cluster-tests-key" // Match the OIDC mock key ID
+
+	tokenString, err := token.SignedString(privateKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign JWT token: %w", err)
+	}
+
+	return tokenString, nil
 }

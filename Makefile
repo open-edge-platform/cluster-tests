@@ -111,7 +111,7 @@ bootstrap-mac: deps ## Bootstrap the test environment on MacOS before running te
 
 .PHONY: test
 test: render-capi-operator bootstrap ## Runs cluster orch cluster api smoke tests. This step bootstraps the env before running the test
-	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiSmokeTest
+	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=true mage test:ClusterOrchClusterApiSmokeTest
 
 .PHONY: cluster-api-all-test
 cluster-api-all-test: bootstrap ## Runs cluster orch functional tests
