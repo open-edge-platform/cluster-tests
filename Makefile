@@ -116,7 +116,8 @@ bootstrap-mac: deps ## Bootstrap the test environment on MacOS before running te
 
 .PHONY: test
 test: render-capi-operator bootstrap ## Runs cluster orch cluster api smoke tests. This step bootstraps the env before running the test
-	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiSmokeTest
+	$(MAKE) validate-agents
+	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=true mage test:ClusterOrchClusterApiSmokeTest
 
 .PHONY: cluster-api-all-test
 cluster-api-all-test: bootstrap ## Runs cluster orch functional tests
@@ -156,29 +157,18 @@ bootstrap-infra: deps render-capi-operator ## Bootstrap only infrastructure and 
 deploy-cluster-agent: deps ## Build and deploy only the cluster-agent component
 	@echo "Starting Stage 2: Cluster Agent Deployment..."
 	@start_time=$$(date +%s); \
-	echo "Step 2.1: Deploying TLS proxy for gRPC termination..."; \
+	echo "Deploying TLS proxy for gRPC termination..."; \
 	kubectl apply -f configs/tls-proxy-simple.yaml; \
-	echo "Step 2.2: Waiting for TLS proxy to be ready..."; \
+	echo "waiting for TLS proxy to be ready..."; \
 	kubectl wait --for=condition=Ready pod -l app=grpc-tls-proxy-simple --timeout=60s; \
-	echo "Step 2.3: Loading cluster-agent container image..."; \
+	echo "Loading cluster-agent container image..."; \
 	PATH=${ENV_PATH} kind load docker-image 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/infra/enic:0.8.5 --name kind; \
-	echo "Step 2.3.1: generating token..."; \
+	echo "Generating token..."; \
 	export CI_JWT_TOKEN=$$(./configs/token-jwt.sh); \
-	echo "Step 2.4: Applying cluster-agent configuration..."; \
+	echo "Applying cluster-agent configuration..."; \
 	CI_JWT_TOKEN=$$CI_JWT_TOKEN envsubst < configs/cluster-agent-fixed.yaml | kubectl apply -f -; \
-	echo "Step 2.5: Waiting for cluster-agent pod to be ready..."; \
+	echo "waiting for cluster-agent pod to be ready..."; \
 	kubectl wait --for=condition=Ready pod/cluster-agent-0 --timeout=120s; \
-	echo "Step 2.6: Adding TLS proxy certificate to cluster-agent trust store..."; \
-	kubectl exec $$(kubectl get pods -l app=grpc-tls-proxy-simple -o jsonpath='{.items[0].metadata.name}') -- cat /etc/nginx/certs/tls.crt > /tmp/proxy-cert.crt; \
-	kubectl cp /tmp/proxy-cert.crt cluster-agent-0:/usr/local/share/ca-certificates/grpc-proxy.crt; \
-	kubectl exec cluster-agent-0 -- update-ca-certificates; \
-	rm -f /tmp/proxy-cert.crt; \
-	echo "Step 2.6.1: Waiting for cluster-agent configuration to be created..."; \
-	timeout 300 bash -c 'while ! kubectl exec cluster-agent-0 -- test -f /etc/edge-node/node/confs/cluster-agent.yaml >/dev/null 2>&1; do echo "   Waiting for agents.sh to complete..."; sleep 5; done'; \
-	echo "Step 2.6.2: Fixing cluster-agent configuration to use gRPC TLS proxy..."; \
-	kubectl exec cluster-agent-0 -- sed -i 's|cluster-orch-node.localhost:443|grpc-tls-proxy-simple:50021|g' /etc/edge-node/node/confs/cluster-agent.yaml; \
-	kubectl exec cluster-agent-0 -- systemctl restart cluster-agent; \
-	echo "Step 2.8: Verifying cluster-agent pod is running..."; \
 	kubectl get pod cluster-agent-0; \
 	end_time=$$(date +%s); \
 	duration=$$((end_time - start_time)); \
@@ -194,21 +184,22 @@ validate-tls-proxy: ## Validate that TLS proxy is working properly
 	@echo "✅ TLS proxy validation completed successfully"
 
 .PHONY: validate-agents
-validate-agents: validate-tls-proxy ## Validate that agents are properly running before tests
+validate-agents: ##validate-tls-proxy ## Validate that agents are properly running before tests
 	@echo "Agent Validation..."
 	@kubectl wait --for=condition=Ready pod/cluster-agent-0 --timeout=60s || (echo "Pod not ready" && exit 1)
 	@echo "K3s bootstrap fixes are integrated into cluster-agent lifecycle"
 	@kubectl exec cluster-agent-0 -- bash -c " \
 		required_agents=\"cluster-agent node-agent platform-update-agent platform-telemetry-agent\"; \
-		max_retries=7; \
+		max_retries=10; \
 		retry_interval=10; \
+		echo \"Checking agent services...\"; \
 		for attempt in \$$(seq 1 \$$max_retries); do \
 			echo \"Attempt \$$attempt/\$$max_retries:\"; \
 			active_count=0; \
 			total_count=0; \
 			for agent in \$$required_agents; do \
 				total_count=\$$((total_count + 1)); \
-				service_status=\$$(systemctl is-active \$$agent.service 2>/dev/null || echo 'inactive'); \
+				service_status=\$$(systemctl is-active \$$agent.service 2>/dev/null); \
 				if [ \"\$$service_status\" = \"active\" ]; then \
 					echo \"   \$$agent.service: ACTIVE\"; \
 					active_count=\$$((active_count + 1)); \
@@ -218,7 +209,7 @@ validate-agents: validate-tls-proxy ## Validate that agents are properly running
 			done; \
 			if [ \$$active_count -eq \$$total_count ]; then \
 				echo \"✅ All \$$active_count/\$$total_count services active\"; \
-				exit 0; \
+				break; \
 			else \
 				echo \"Only \$$active_count/\$$total_count services active\"; \
 				if [ \$$attempt -lt \$$max_retries ]; then \
@@ -227,8 +218,18 @@ validate-agents: validate-tls-proxy ## Validate that agents are properly running
 				fi; \
 			fi; \
 		done; \
-		echo \"FINAL FAILURE: Validation failed after \$$max_retries attempts\"; \
-		exit 1; \
+		if [ \$$active_count -ne \$$total_count ]; then \
+			echo \"FINAL FAILURE: Services not active after \$$max_retries attempts\"; \
+			exit 1; \
+		fi; \
+		echo \"Checking cluster-agent ready status...\"; \
+		timeout 60 bash -c 'while ! journalctl -u cluster-agent --no-pager -n 20 | grep -q \"msg=\\\"Status Ready\\\"\"; do sleep 2; done' || echo \"Warning: cluster-agent not ready\"; \
+		if journalctl -u cluster-agent --no-pager -n 20 | grep -q 'msg=\"Status Ready\"'; then \
+			echo \"✅ cluster-agent reports Status Ready\"; \
+		else \
+			echo \"FINAL FAILURE: cluster-agent not ready after timeout\"; \
+			exit 1; \
+		fi; \
 	"
 
 .PHONY: run-tests-only

@@ -107,19 +107,6 @@ components:
       - kubectl patch deployment intel-infra-provider-southbound -p '{"spec":{"template":{"spec":{"containers":[{"name":"intel-infra-provider-southbound","env":[{"name":"SHARED_SECRET_KEY","value":"randomSecretKey"}]}]}}}}'
       - kubectl patch deployment intel-infra-provider-southbound -p '{"spec":{"template":{"spec":{"containers":[{"name":"intel-infra-provider-southbound","env":[{"name":"ALLOW_MISSING_AUTH_CLIENTS","value":"cluster-agent"}]}]}}}}'
       - kubectl delete -f config/crd/deps/cluster.edge-orchestrator.intel.com_clusterconnects.yaml || true
-      # Create proxy ConfigMap for cluster-agent (needed for both traditional and staged workflows)
-      - |
-        HTTP_PROXY_VALUE=${HTTP_PROXY:-}
-        HTTPS_PROXY_VALUE=${HTTPS_PROXY:-}
-        NO_PROXY_VALUE=${NO_PROXY:-}
-        kubectl create configmap proxy-config \
-          --from-literal=HTTP_PROXY="$HTTP_PROXY_VALUE" \
-          --from-literal=HTTPS_PROXY="$HTTPS_PROXY_VALUE" \
-          --from-literal=NO_PROXY="$NO_PROXY_VALUE" \
-          --from-literal=http_proxy="$HTTP_PROXY_VALUE" \
-          --from-literal=https_proxy="$HTTPS_PROXY_VALUE" \
-          --from-literal=no_proxy="$NO_PROXY_VALUE" \
-          --dry-run=client -o yaml | kubectl apply -f -
 
   # Cluster Connect Gateway
   - name: cluster-connect-gateway
@@ -197,7 +184,20 @@ components:
   - name: cluster-agent
     skip-component: false
     skip-local-build: true  # We need 'false' to build locally if no helm chart exists
-    pre-install-commands: []
+    pre-install-commands: 
+        # Create proxy ConfigMap for cluster-agent (needed for both traditional and staged workflows)
+      - |
+        HTTP_PROXY_VALUE=${HTTP_PROXY:-}
+        HTTPS_PROXY_VALUE=${HTTPS_PROXY:-}
+        NO_PROXY_VALUE=${NO_PROXY:-}
+        kubectl create configmap proxy-config \
+          --from-literal=HTTP_PROXY="$HTTP_PROXY_VALUE" \
+          --from-literal=HTTPS_PROXY="$HTTPS_PROXY_VALUE" \
+          --from-literal=NO_PROXY="$NO_PROXY_VALUE" \
+          --from-literal=http_proxy="$HTTP_PROXY_VALUE" \
+          --from-literal=https_proxy="$HTTPS_PROXY_VALUE" \
+          --from-literal=no_proxy="$NO_PROXY_VALUE" \
+          --dry-run=client -o yaml | kubectl apply -f -
     helm-repo: []
     git-repo:
       url: https://github.com/open-edge-platform/virtual-edge-node.git

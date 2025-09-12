@@ -163,9 +163,6 @@ spec:
 
               systemctl daemon-reload
 
-              # Create symlink for CA certificate needed by onboard service
-              ln -sf /run/secrets/kubernetes.io/serviceaccount/ca.crt /usr/local/share/ca-certificates/ca.crt
-
               # Setup environment
               export _ORCH_FQDN_=localhost
               export _NODE_AGENT_VERSION_=1.7.3
@@ -292,9 +289,10 @@ spec:
                   fi
                   
                   # Double-check and fix cluster-agent configuration after installation
-                  sleep 5
-                  if [ -f /etc/edge-node/node/confs/cluster-agent.yaml ]; then
+                  timeout 60 bash -c 'while [ ! -f /etc/edge-node/node/confs/cluster-agent.yaml ] || ! grep -q "cluster-orch-node.localhost:443" /etc/edge-node/node/confs/cluster-agent.yaml; do sleep 2; done' || echo "Warning: Configuration not ready"
+                  if [ -f /etc/edge-node/node/confs/cluster-agent.yaml ] && grep -q 'cluster-orch-node.localhost:443' /etc/edge-node/node/confs/cluster-agent.yaml; then
                       sed -i 's|cluster-orch-node.localhost:443|grpc-tls-proxy-simple:50021|g' /etc/edge-node/node/confs/cluster-agent.yaml
+                      systemctl restart cluster-agent
                   fi
                   
                   # Add TLS proxy certificate to trust store
