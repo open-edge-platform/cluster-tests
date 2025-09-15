@@ -19,7 +19,13 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// Global variables for runtime-generated keys
+// Constants for JWT configuration
+const (
+	KeyID     = "cluster-tests-key"
+	IssuerURL = "http://platform-keycloak.orch-platform.svc/realms/master"
+)
+
+// runtime-generated keys
 var (
 	dynamicPrivateKey *rsa.PrivateKey
 	dynamicPublicKey  *rsa.PublicKey
@@ -85,7 +91,6 @@ func generateRuntimeKeys() {
 		return
 	}
 
-	// Save keys to file for reuse
 	if saveErr := saveKeysToFile(privateKey); saveErr != nil {
 		keyGenerationErr = fmt.Errorf("failed to save keys to file: %w", saveErr)
 		return
@@ -141,7 +146,7 @@ func GetJWKS() (string, error) {
 			{
 				"kty": "RSA",
 				"use": "sig",
-				"kid": "cluster-tests-key",
+				"kid": KeyID,
 				"alg": "PS512",
 				"n":   encodeBase64URLBigInt(publicKey.N),
 				"e":   encodeBase64URLBigInt(big.NewInt(int64(publicKey.E))),
@@ -158,9 +163,18 @@ func GetJWKS() (string, error) {
 }
 
 // TestJWTGenerator provides backward compatibility for tests
+// This struct maintains the interface used by legacy test code while
+// leveraging the new dynamic key generation system internally.
 type TestJWTGenerator struct {
 	privateKey *rsa.PrivateKey
 	publicKey  *rsa.PublicKey
+}
+
+// createToken is a helper function to reduce code duplication in token generation
+func (g *TestJWTGenerator) createToken(claims jwt.MapClaims) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodPS512, claims)
+	token.Header["kid"] = KeyID // Use constant instead of hardcoded value
+	return token.SignedString(g.privateKey)
 }
 
 // NewTestJWTGenerator creates a new JWT generator with dynamic keys (backward compatibility)
@@ -184,29 +198,29 @@ func (g *TestJWTGenerator) GenerateClusterManagerToken(subject, projectUUID stri
 	clusterNamespace := "53cd37b9-66b2-4cc8-b080-3722ed7af64a" // Default namespace from cluster_utils.go
 	claims := jwt.MapClaims{
 		"sub":   subject,
-		"iss":   "http://platform-keycloak.orch-platform.svc/realms/master", // Match cluster-manager OIDC URL
-		"aud":   []string{"cluster-manager"},                                // Unit tests expect this audience
-		"scope": "openid email roles profile",                               // Match working JWT scope
+		"iss":   IssuerURL,
+		"aud":   []string{"cluster-manager"},
+		"scope": "openid email roles profile", // Match working JWT scope
 		"exp":   now.Add(expiry).Unix(),
 		"iat":   now.Unix(),
-		"typ":   "Bearer",        // Token type
-		"azp":   "system-client", // Authorized party
+		"typ":   "Bearer",
+		"azp":   "system-client",
 		"realm_access": map[string]interface{}{ // Complete Keycloak-style roles structure
 			"roles": []string{
 				"account/view-profile",
-				clusterNamespace + "_cl-tpl-r",  // cluster template read
-				clusterNamespace + "_cl-tpl-rw", // cluster template read-write (needed for POST)
+				clusterNamespace + "_cl-tpl-r",
+				clusterNamespace + "_cl-tpl-rw",
 				"default-roles-master",
 				clusterNamespace + "_im-r",
 				clusterNamespace + "_reg-r",
 				clusterNamespace + "_cat-r",
 				clusterNamespace + "_alrt-r",
 				clusterNamespace + "_tc-r",
-				clusterNamespace + "_ao-rw", // admin operations read-write
+				clusterNamespace + "_ao-rw",
 				"offline_access",
 				"uma_authorization",
-				clusterNamespace + "_cl-r",  // cluster read
-				clusterNamespace + "_cl-rw", // cluster read-write (needed for cluster creation)
+				clusterNamespace + "_cl-r",
+				clusterNamespace + "_cl-rw",
 				"account/manage-account",
 				"63764aaf-1527-46a0-b921-c5f32dba1ddb_" + clusterNamespace + "_m",
 			},
@@ -216,24 +230,10 @@ func (g *TestJWTGenerator) GenerateClusterManagerToken(subject, projectUUID stri
 				"roles": []string{"admin", "manager"},
 			},
 		},
-		"preferred_username": subject, // Username for display
+		"preferred_username": subject,
 	}
 
-	// Create token using PS512 as required by cluster-manager v2.1.15
-	token := jwt.NewWithClaims(jwt.SigningMethodPS512, claims)
-	token.Header["kid"] = "cluster-tests-key" // Match the key ID
-
-	tokenString, err := token.SignedString(g.privateKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to sign JWT token: %w", err)
-	}
-
-	return tokenString, nil
-}
-
-// GenerateClusterAgentToken generates a token for cluster-agent (backward compatibility)
-func (g *TestJWTGenerator) GenerateClusterAgentToken(subject string, expiry time.Duration) (string, error) {
-	return GenerateTokenJwtShFormat(subject)
+	return g.createToken(claims)
 }
 
 // GenerateToken generates a general JWT token (backward compatibility)
@@ -241,7 +241,7 @@ func (g *TestJWTGenerator) GenerateToken(subject string, audience []string, cust
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"sub": subject,
-		"iss": "http://platform-keycloak.orch-platform.svc/realms/master",
+		"iss": IssuerURL,
 		"aud": audience,
 		"exp": now.Add(time.Hour).Unix(),
 		"iat": now.Unix(),
@@ -253,10 +253,7 @@ func (g *TestJWTGenerator) GenerateToken(subject string, audience []string, cust
 		claims[k] = v
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodPS512, claims)
-	token.Header["kid"] = "cluster-tests-key"
-
-	return token.SignedString(g.privateKey)
+	return g.createToken(claims)
 }
 
 // GenerateShortLivedToken generates a token with short expiry (backward compatibility)
@@ -264,17 +261,14 @@ func (g *TestJWTGenerator) GenerateShortLivedToken(subject string, expiry time.D
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"sub": subject,
-		"iss": "http://platform-keycloak.orch-platform.svc/realms/master",
+		"iss": IssuerURL,
 		"aud": []string{"cluster-manager"},
 		"exp": now.Add(expiry).Unix(),
 		"iat": now.Unix(),
 		"typ": "Bearer",
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodPS512, claims)
-	token.Header["kid"] = "cluster-tests-key"
-
-	return token.SignedString(g.privateKey)
+	return g.createToken(claims)
 }
 
 // ValidateToken validates a JWT token (backward compatibility)
@@ -345,29 +339,29 @@ func GenerateTestJWT(username string) (string, error) {
 	clusterNamespace := "53cd37b9-66b2-4cc8-b080-3722ed7af64a" // Default namespace from cluster_utils.go
 	claims := jwt.MapClaims{
 		"sub":   username,
-		"iss":   "http://platform-keycloak.orch-platform.svc/realms/master", // Match cluster-manager OIDC URL
-		"aud":   []string{"cluster-manager"},                                // Unit tests expect this audience
-		"scope": "openid email roles profile",                               // Match working JWT scope
+		"iss":   IssuerURL,                    // Use constant instead of hardcoded value
+		"aud":   []string{"cluster-manager"},  // Unit tests expect this audience
+		"scope": "openid email roles profile", // Match working JWT scope
 		"exp":   now.Add(time.Hour).Unix(),
 		"iat":   now.Unix(),
 		"typ":   "Bearer",        // Token type
 		"azp":   "system-client", // Authorized party
-		"realm_access": map[string]interface{}{ // Complete Keycloak-style roles structure
+		"realm_access": map[string]interface{}{
 			"roles": []string{
 				"account/view-profile",
-				clusterNamespace + "_cl-tpl-r",  // cluster template read
-				clusterNamespace + "_cl-tpl-rw", // cluster template read-write (needed for POST)
+				clusterNamespace + "_cl-tpl-r",
+				clusterNamespace + "_cl-tpl-rw",
 				"default-roles-master",
 				clusterNamespace + "_im-r",
 				clusterNamespace + "_reg-r",
 				clusterNamespace + "_cat-r",
 				clusterNamespace + "_alrt-r",
 				clusterNamespace + "_tc-r",
-				clusterNamespace + "_ao-rw", // admin operations read-write
+				clusterNamespace + "_ao-rw",
 				"offline_access",
 				"uma_authorization",
-				clusterNamespace + "_cl-r",  // cluster read
-				clusterNamespace + "_cl-rw", // cluster read-write (needed for cluster creation)
+				clusterNamespace + "_cl-r",
+				clusterNamespace + "_cl-rw",
 				"account/manage-account",
 				"63764aaf-1527-46a0-b921-c5f32dba1ddb_" + clusterNamespace + "_m",
 			},
@@ -377,52 +371,12 @@ func GenerateTestJWT(username string) (string, error) {
 				"roles": []string{"admin", "manager"},
 			},
 		},
-		"preferred_username": username, // Username for display
+		"preferred_username": username,
 	}
 
 	// Create token using PS512 as required by cluster-manager v2.1.15
 	token := jwt.NewWithClaims(jwt.SigningMethodPS512, claims)
-	token.Header["kid"] = "cluster-tests-key" // Match the key ID
-
-	tokenString, err := token.SignedString(privateKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to sign JWT token: %w", err)
-	}
-
-	return tokenString, nil
-}
-
-// GenerateTokenJwtShFormat creates a PS512 JWT token with the exact claims structure
-// from token-jwt.sh but using PS512 algorithm to match cluster-manager expectations
-func GenerateTokenJwtShFormat(username string) (string, error) {
-	// Get the dynamically generated private key
-	privateKey, _, err := getOrGenerateKeys()
-	if err != nil {
-		return "", fmt.Errorf("failed to get private key: %w", err)
-	}
-
-	// Use the EXACT issuer that cluster-manager expects (from OIDC_SERVER_URL)
-	issuer := "http://platform-keycloak.orch-platform.svc/realms/master"
-
-	now := time.Now()
-	claims := jwt.MapClaims{
-		"exp": now.Add(10 * time.Minute).Unix(), // 10 minutes like token-jwt.sh
-		"iss": issuer,                           // EXACT issuer from cluster-manager config
-		"realm_access": map[string]interface{}{ // EXACT realm_access structure from token-jwt.sh
-			"roles": []string{
-				"clusters-write-role",
-				"clusters-read-role",
-				"node-agent-readwrite-role",
-				"cluster-agent",
-			},
-		},
-		"sub": username, // Subject (usually "cluster-agent")
-		"typ": "Bearer", // Type from token-jwt.sh
-	}
-
-	// Create token using PS512 (matches cluster-manager expectations)
-	token := jwt.NewWithClaims(jwt.SigningMethodPS512, claims)
-	token.Header["kid"] = "cluster-tests-key" // Match the OIDC mock key ID
+	token.Header["kid"] = KeyID // Use constant instead of hardcoded value
 
 	tokenString, err := token.SignedString(privateKey)
 	if err != nil {
@@ -523,11 +477,11 @@ data:
         
         location /realms/master/.well-known/openid-configuration {
             return 200 '{
-                "issuer": "http://platform-keycloak.orch-platform.svc/realms/master",
-                "authorization_endpoint": "http://platform-keycloak.orch-platform.svc/realms/master/protocol/openid-connect/auth",
-                "token_endpoint": "http://platform-keycloak.orch-platform.svc/realms/master/protocol/openid-connect/token",
-                "jwks_uri": "http://platform-keycloak.orch-platform.svc/realms/master/keys",
-                "userinfo_endpoint": "http://platform-keycloak.orch-platform.svc/realms/master/protocol/openid-connect/userinfo",
+                "issuer": "` + IssuerURL + `",
+                "authorization_endpoint": "` + IssuerURL + `/protocol/openid-connect/auth",
+                "token_endpoint": "` + IssuerURL + `/protocol/openid-connect/token",
+                "jwks_uri": "` + IssuerURL + `/keys",
+                "userinfo_endpoint": "` + IssuerURL + `/protocol/openid-connect/userinfo",
                 "response_types_supported": ["code", "token", "id_token", "code token", "code id_token", "token id_token", "code token id_token"],
                 "subject_types_supported": ["public"],
                 "id_token_signing_alg_values_supported": ["PS512", "RS256"]

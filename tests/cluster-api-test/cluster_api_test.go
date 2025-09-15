@@ -21,13 +21,57 @@ import (
 	"github.com/open-edge-platform/cluster-tests/tests/utils"
 )
 
+// Constants for commonly used values
+const (
+	TempKubeconfigPattern    = "/tmp/%s-kubeconfig.yaml"
+	KubeconfigFileName       = "kubeconfig.yaml"
+	LocalGatewayURL          = "http://127.0.0.1:8081/"
+	ClusterReadinessTimeout  = 10 * time.Minute
+	ClusterReadinessInterval = 10 * time.Second
+	PodReadinessTimeout      = 5 * time.Minute
+	PodReadinessInterval     = 10 * time.Second
+	PortForwardTimeout       = 1 * time.Minute
+	PortForwardInterval      = 5 * time.Second
+	PortForwardDelay         = 5 * time.Second
+)
+
+// function to check if cluster components are ready
+func checkClusterComponentsReady(namespace string) bool {
+	cmd := exec.Command("clusterctl", "describe", "cluster", utils.ClusterName, "-n", namespace)
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	fmt.Printf("Cluster components status:\n%s\n", string(output))
+	return utils.CheckAllComponentsReady(string(output))
+}
+
+// function to wait for Intel machines to exist
+func waitForIntelMachines(namespace string) {
+	By("Waiting for IntelMachine to exist")
+	Eventually(func() bool {
+		cmd := exec.Command("sh", "-c", fmt.Sprintf("kubectl -n %s get intelmachine -o yaml | yq '.items | length'", namespace))
+		output, err := cmd.Output()
+		if err != nil {
+			return false
+		}
+		return string(output) > "0"
+	}, PortForwardTimeout, PortForwardInterval).Should(BeTrue())
+}
+
+// function to wait for cluster components to be ready
+func waitForClusterComponentsReady(namespace string) {
+	By("Waiting for all components to be ready")
+	Eventually(func() bool {
+		return checkClusterComponentsReady(namespace)
+	}, ClusterReadinessTimeout, ClusterReadinessInterval).Should(BeTrue())
+}
+
 func TestClusterApiTest(t *testing.T) {
 	RegisterFailHandler(Fail)
 	_, _ = fmt.Fprintf(GinkgoWriter, "Starting cluster orch api tests\n")
 	RunSpecs(t, "cluster orch api test suite")
 }
-
-// Helper functions to reduce code duplication
 
 // setupPortForwarding sets up port forwarding for any service
 func setupPortForwarding(serviceName, serviceIdentifier, localPort, remotePort string) (*exec.Cmd, error) {
@@ -38,7 +82,7 @@ func setupPortForwarding(serviceName, serviceIdentifier, localPort, remotePort s
 	if err != nil {
 		return nil, err
 	}
-	time.Sleep(5 * time.Second)
+	time.Sleep(PortForwardDelay)
 	return portForwardCmd, nil
 }
 
@@ -168,7 +212,7 @@ func testKubeconfigRetrieval(authContext *auth.TestAuthContext, namespace string
 // fallbackKubeconfigValidation provides direct kubeconfig access validation
 func fallbackKubeconfigValidation(namespace string) {
 	By("Falling back to direct kubeconfig validation")
-	kubeConfigName := fmt.Sprintf("/tmp/%s-kubeconfig.yaml", utils.ClusterName)
+	kubeConfigName := fmt.Sprintf(TempKubeconfigPattern, utils.ClusterName)
 	cmd := exec.Command("kubectl", "get", "secret", fmt.Sprintf("%s-kubeconfig", utils.ClusterName), "-o", "jsonpath={.data.value}", "-n", namespace)
 	output, err := cmd.Output()
 	if err != nil {
@@ -243,26 +287,8 @@ func processSuccessfulKubeconfigResponse(resp *http.Response) {
 
 // waitForClusterReady performs common cluster readiness validation
 func waitForClusterReady(namespace string, clusterCreateStartTime time.Time) time.Time {
-	By("Waiting for IntelMachine to exist")
-	Eventually(func() bool {
-		cmd := exec.Command("sh", "-c", fmt.Sprintf("kubectl -n %s get intelmachine -o yaml | yq '.items | length'", namespace))
-		output, err := cmd.Output()
-		if err != nil {
-			return false
-		}
-		return string(output) > "0"
-	}, 1*time.Minute, 5*time.Second).Should(BeTrue())
-
-	By("Waiting for all components to be ready")
-	Eventually(func() bool {
-		cmd := exec.Command("clusterctl", "describe", "cluster", utils.ClusterName, "-n", namespace)
-		output, err := cmd.Output()
-		if err != nil {
-			return false
-		}
-		fmt.Printf("Cluster components status:\n%s\n", string(output))
-		return utils.CheckAllComponentsReady(string(output))
-	}, 10*time.Minute, 10*time.Second).Should(BeTrue())
+	waitForIntelMachines(namespace)
+	waitForClusterComponentsReady(namespace)
 
 	By("Checking that connect agent metric shows a successful connection")
 	metrics, err := utils.FetchMetrics()
@@ -286,12 +312,12 @@ func validateKubeconfigAndClusterAccess() {
 	output, err := cmd.Output()
 	Expect(err).NotTo(HaveOccurred())
 
-	kubeConfigName := "kubeconfig.yaml"
+	kubeConfigName := KubeconfigFileName
 	err = os.WriteFile(kubeConfigName, output, 0644)
 	Expect(err).NotTo(HaveOccurred())
 
 	By("Setting in kubeconfig server to cluster connect gateway")
-	cmd = exec.Command("sed", "-i", "s|http://[[:alnum:].-]*:8080/|http://127.0.0.1:8081/|", kubeConfigName)
+	cmd = exec.Command("sed", "-i", fmt.Sprintf("s|http://[[:alnum:].-]*:8080/|%s|", LocalGatewayURL), kubeConfigName)
 	_, err = cmd.Output()
 	Expect(err).NotTo(HaveOccurred())
 
@@ -321,7 +347,7 @@ func validateKubeconfigAndClusterAccess() {
 			}
 		}
 		return true
-	}, 5*time.Minute, 10*time.Second).Should(BeTrue(), "Not all pods are in Running or Completed state")
+	}, PodReadinessTimeout, PodReadinessInterval).Should(BeTrue(), "Not all pods are in Running or Completed state")
 
 	By("Getting the local-path-provisioner pod name")
 	cmd = exec.Command("kubectl", "get", "pods", "-n", "kube-system", "-l", "app=local-path-provisioner",
@@ -369,7 +395,7 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 				Expect(authContext.Token).NotTo(BeEmpty())
 			} else {
 				By("Authentication disabled - skipping JWT setup")
-				fmt.Printf("⚠️  Authentication disabled (DISABLE_AUTH=true)\n")
+				fmt.Printf("  Authentication disabled (DISABLE_AUTH=true)\n")
 			}
 
 			By("Ensuring the namespace exists")
@@ -418,7 +444,7 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 					cmd := exec.Command("kubectl", "-n", namespace, "get", "cluster", utils.ClusterName)
 					err := cmd.Run()
 					return err != nil
-				}, 1*time.Minute, 5*time.Second).Should(BeTrue())
+				}, PortForwardTimeout, PortForwardInterval).Should(BeTrue())
 			}
 		})
 
@@ -473,14 +499,14 @@ var _ = Describe("Single Node RKE2 Cluster Create and Delete using Cluster Manag
 				fmt.Sprintf("%s:%s", utils.PortForwardLocalPort, utils.PortForwardRemotePort), "--address", utils.PortForwardAddress)
 			err = portForwardCmd.Start()
 			Expect(err).NotTo(HaveOccurred())
-			time.Sleep(5 * time.Second) // Give some time for port-forwarding to establish
+			time.Sleep(PortForwardDelay) // Give some time for port-forwarding to establish
 
 			By("Port forwarding to the cluster gateway service")
 			gatewayPortForward = exec.Command("kubectl", "port-forward", utils.PortForwardGatewayService,
 				fmt.Sprintf("%s:%s", utils.PortForwardGatewayLocalPort, utils.PortForwardGatewayRemotePort), "--address", utils.PortForwardAddress)
 			err = gatewayPortForward.Start()
 			Expect(err).NotTo(HaveOccurred())
-			time.Sleep(5 * time.Second) // Give some time for port-forwarding to establish
+			time.Sleep(PortForwardDelay) // Give some time for port-forwarding to establish
 
 		})
 
@@ -504,7 +530,7 @@ var _ = Describe("Single Node RKE2 Cluster Create and Delete using Cluster Manag
 					cmd := exec.Command("kubectl", "-n", namespace, "get", "cluster", utils.ClusterName)
 					err := cmd.Run()
 					return err != nil
-				}, 1*time.Minute, 5*time.Second).Should(BeTrue())
+				}, PortForwardTimeout, PortForwardInterval).Should(BeTrue())
 			}
 		})
 
@@ -537,7 +563,7 @@ var _ = Describe("Single Node RKE2 Cluster Create and Delete using Cluster Manag
 					return false
 				}
 				return string(output) > "0"
-			}, 1*time.Minute, 5*time.Second).Should(BeTrue())
+			}, PortForwardTimeout, PortForwardInterval).Should(BeTrue())
 
 			By("Waiting for all components to be ready")
 			Eventually(func() bool {
@@ -548,7 +574,7 @@ var _ = Describe("Single Node RKE2 Cluster Create and Delete using Cluster Manag
 				}
 				fmt.Printf("Cluster components status:\n%s\n", string(output))
 				return utils.CheckAllComponentsReady(string(output))
-			}, 10*time.Minute, 10*time.Second).Should(BeTrue())
+			}, ClusterReadinessTimeout, ClusterReadinessInterval).Should(BeTrue())
 			// Record the end time after the cluster is fully active
 			clusterCreateEndTime = time.Now()
 
@@ -583,23 +609,23 @@ var _ = Describe("Single Node RKE2 Cluster Create and Delete using Cluster Manag
 			output, err := cmd.Output()
 			Expect(err).NotTo(HaveOccurred())
 
-			kubeConfigName := "kubeconfig.yaml"
+			kubeConfigName := KubeconfigFileName
 			err = os.WriteFile(kubeConfigName, output, 0644)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Setting in kubeconfig server to cluster connect gateway")
-			cmd = exec.Command("sed", "-i", "s|http://[[:alnum:].-]*:8080/|http://127.0.0.1:8081/|", "kubeconfig.yaml")
+			cmd = exec.Command("sed", "-i", fmt.Sprintf("s|http://[[:alnum:].-]*:8080/|%s|", LocalGatewayURL), KubeconfigFileName)
 			_, err = cmd.Output()
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Getting list of pods")
-			cmd = exec.Command("kubectl", "--kubeconfig", "kubeconfig.yaml", "get", "pods")
+			cmd = exec.Command("kubectl", "--kubeconfig", KubeconfigFileName, "get", "pods")
 			_, err = cmd.Output()
 			Expect(err).NotTo(HaveOccurred())
 
 			// Exec into one of the pods in the kube-system namespace on the edge node cluster
 			By("Executing command in kube-scheduler-cluster-agent-0 pod")
-			cmd = exec.Command("kubectl", "exec", "--kubeconfig", "kubeconfig.yaml", "-it", "-n",
+			cmd = exec.Command("kubectl", "exec", "--kubeconfig", KubeconfigFileName, "-it", "-n",
 				"kube-system", "kube-scheduler-cluster-agent-0", "--", "ls")
 			output, err = cmd.Output()
 			Expect(err).NotTo(HaveOccurred())

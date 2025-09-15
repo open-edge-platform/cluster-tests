@@ -18,6 +18,16 @@ import (
 	"github.com/open-edge-platform/cluster-tests/tests/auth"
 )
 
+// Constants for downstream cluster access
+const (
+	LocalGatewayAddress           = "http://localhost:8081"
+	ConnectGatewayInternalAddress = "https://connect-gateway.kind.internal:443"
+	TempKubeconfigPattern         = "kubeconfig-*.yaml"
+	LocalKubeconfigPattern        = "kubeconfig-local-*.yaml"
+	ConnectGatewayPort            = 8081
+	PortForwardStartupDelay       = 2 * time.Second
+)
+
 // SetupTestAuthentication initializes JWT generation and returns auth context
 func SetupTestAuthentication(subject string) (*auth.TestAuthContext, error) {
 	// Use the simple SetupTestAuthentication from auth package
@@ -28,7 +38,7 @@ func SetupTestAuthentication(subject string) (*auth.TestAuthContext, error) {
 func RefreshAuthToken(authContext *auth.TestAuthContext) error {
 	// Add a small delay to ensure different iat (issued at) timestamps
 	time.Sleep(1 * time.Second)
-	
+
 	token, err := auth.GenerateTestJWT(authContext.Subject)
 	if err != nil {
 		return fmt.Errorf("failed to refresh token: %w", err)
@@ -36,12 +46,6 @@ func RefreshAuthToken(authContext *auth.TestAuthContext) error {
 
 	authContext.Token = token
 	return nil
-}
-
-// SetupTestAuthenticationWithExpiry creates auth context with custom token expiry
-func SetupTestAuthenticationWithExpiry(subject string, expiry time.Duration) (*auth.TestAuthContext, error) {
-	// For now, use the same simple JWT generation - expiry customization can be added later if needed
-	return auth.SetupTestAuthentication(subject)
 }
 
 // AuthenticatedHTTPClient creates an HTTP client with JWT authentication
@@ -141,7 +145,7 @@ func TestClusterManagerAuthentication(authContext *auth.TestAuthContext) error {
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		fmt.Println("✅ JWT authentication successful")
+		fmt.Println(" JWT authentication successful")
 		return nil
 	case http.StatusUnauthorized:
 		return fmt.Errorf("JWT authentication failed: token invalid or expired")
@@ -263,7 +267,7 @@ func CreateClusterAuthenticated(authContext *auth.TestAuthContext, namespace, no
 // TestDownstreamClusterAccess tests accessing the downstream cluster using the provided kubeconfig
 func TestDownstreamClusterAccess(kubeconfigContent string) error {
 	// Write kubeconfig to a temporary file
-	tmpFile, err := os.CreateTemp("", "kubeconfig-*.yaml")
+	tmpFile, err := os.CreateTemp("", TempKubeconfigPattern)
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
@@ -275,11 +279,11 @@ func TestDownstreamClusterAccess(kubeconfigContent string) error {
 	tmpFile.Close()
 
 	// Modify kubeconfig to use local port-forward for connect-gateway
-	modifiedKubeconfig := strings.ReplaceAll(kubeconfigContent, 
-		"https://connect-gateway.kind.internal:443",
-		"http://localhost:8081")
-	
-	tmpFileModified, err := os.CreateTemp("", "kubeconfig-local-*.yaml")
+	modifiedKubeconfig := strings.ReplaceAll(kubeconfigContent,
+		ConnectGatewayInternalAddress,
+		LocalGatewayAddress)
+
+	tmpFileModified, err := os.CreateTemp("", LocalKubeconfigPattern)
 	if err != nil {
 		return fmt.Errorf("failed to create modified temp file: %w", err)
 	}
@@ -291,14 +295,14 @@ func TestDownstreamClusterAccess(kubeconfigContent string) error {
 	tmpFileModified.Close()
 
 	// Set up port-forward to connect-gateway if not already running
-	if !isPortForwardRunning(8081) {
-		cmd := exec.Command("kubectl", "port-forward", "svc/cluster-connect-gateway", "8081:8080")
+	if !isPortForwardRunning(ConnectGatewayPort) {
+		cmd := exec.Command("kubectl", "port-forward", "svc/cluster-connect-gateway", fmt.Sprintf("%d:8080", ConnectGatewayPort))
 		err := cmd.Start()
 		if err != nil {
 			return fmt.Errorf("failed to start port-forward to connect-gateway: %w", err)
 		}
 		// Give port-forward a moment to establish
-		time.Sleep(2 * time.Second)
+		time.Sleep(PortForwardStartupDelay)
 	}
 
 	// Test accessing the downstream cluster - get nodes
@@ -325,7 +329,7 @@ func TestDownstreamClusterAccess(kubeconfigContent string) error {
 	fmt.Printf("NODES:\n%s\n", string(nodeOutput))
 	fmt.Printf("PODS (ALL NAMESPACES):\n%s\n", string(podOutput))
 	fmt.Printf("==========================================\n")
-	
+
 	return nil
 }
 

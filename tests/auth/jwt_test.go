@@ -51,8 +51,8 @@ func TestGenerateClusterManagerToken(t *testing.T) {
 		t.Errorf("Expected subject %s, got %s", subject, claims["sub"])
 	}
 
-	if claims["iss"] != "http://platform-keycloak.orch-platform.svc/realms/master" {
-		t.Errorf("Expected issuer from OIDC server, got %s", claims["iss"])
+	if claims["iss"] != IssuerURL {
+		t.Errorf("Expected issuer %s, got %s", IssuerURL, claims["iss"])
 	}
 }
 
@@ -83,6 +83,14 @@ func TestGenerateTokenWithCustomClaims(t *testing.T) {
 	// Check custom claims
 	if claims["role"] != "admin" {
 		t.Errorf("Expected role 'admin', got %s", claims["role"])
+	}
+
+	// Check permissions claim
+	perms, ok := claims["permissions"].([]interface{})
+	if !ok {
+		t.Errorf("Expected permissions to be []interface{}, got %T", claims["permissions"])
+	} else if len(perms) != 2 || perms[0] != "read" || perms[1] != "write" {
+		t.Errorf("Expected permissions ['read', 'write'], got %v", claims["permissions"])
 	}
 }
 
@@ -156,16 +164,25 @@ func TestInvalidTokenValidation(t *testing.T) {
 		t.Fatalf("Failed to create JWT generator: %v", err)
 	}
 
-	// Test with invalid token string
-	_, err = generator.ValidateToken("invalid.token.string")
-	if err == nil {
-		t.Error("Expected validation to fail for invalid token")
+	// Test cases for invalid tokens
+	testCases := []struct {
+		name  string
+		token string
+	}{
+		{"invalid token string", "invalid.token.string"},
+		{"malformed JWT", "header.payload.signature"},
+		{"empty token", ""},
+		{"incomplete JWT", "header.payload"},
+		{"random string", "not-a-jwt-at-all"},
 	}
 
-	// Test with malformed JWT
-	_, err = generator.ValidateToken("header.payload.signature")
-	if err == nil {
-		t.Error("Expected validation to fail for malformed JWT")
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := generator.ValidateToken(tc.token)
+			if err == nil {
+				t.Errorf("Expected validation to fail for %s: %q", tc.name, tc.token)
+			}
+		})
 	}
 }
 
