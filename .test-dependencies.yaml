@@ -154,7 +154,7 @@ components:
         namespace: "default"
         version: ""  # Use the latest version when nil
         use-devel: false # Use development version of the chart
-        overrides: "--set clusterManager.extraArgs.disable-mt=true --set clusterManager.extraArgs.disable-inventory=true --set clusterManager.extraArgs.disable-auth=${DISABLE_AUTH:-false} --set templateController.extraArgs[0]='--webhook-enabled=true' --set webhookService.enabled=true"
+        overrides: "--set clusterManager.extraArgs.disable-mt=true --set clusterManager.extraArgs.disable-auth=true --set clusterManager.extraArgs.disable-inventory=true --set templateController.extraArgs[0]='--webhook-enabled=true' --set webhookService.enabled=true"
       - url: "oci://registry-rs.edgeorchestration.intel.com"
         release-name: "cluster-template-crd"
         package: "edge-orch/cluster/charts/cluster-template-crd"
@@ -170,16 +170,16 @@ components:
       - HELM_VERSION=v0.0.0
       - KIND_CLUSTER=kind
       - DISABLE_MT=true  # Enable this flag to disable the multi-tenancy feature. This is required for the test environment where no MT controllers are installed
-      - DISABLE_AUTH=${DISABLE_AUTH:-false}  # Use environment variable, default to false
+      - DISABLE_AUTH=true  # Should be true for CO subsystem integration tests if keycloak is not deployed
       - DISABLE_INV=true  # Should be true for CO subsystem integration tests if inventory is not deployed
     make-targets:
       - helm-install
     make-directory: ""
     post-install-commands: []
 
-  # OIDC Mock Server for JWT Authentication Testing
+  # OIDC Mock Server for JWT Authentication Testing (conditionally deployed via Makefile)
   - name: oidc-mock-server
-    skip-component: false  # Will be conditionally controlled by DISABLE_AUTH environment variable
+    skip-component: true  # Controlled by Makefile environment variables
     skip-local-build: true
     pre-install-commands: []
     helm-repo: []
@@ -189,19 +189,7 @@ components:
     make-directory: ""
     make-variables: []
     make-targets: []
-    post-install-commands:
-      - |
-        if [ "${DISABLE_AUTH:-false}" = "true" ]; then
-          echo "  Authentication disabled (DISABLE_AUTH=true) - skipping OIDC Mock Server deployment"
-          exit 0
-        fi
-        echo "Deploying OIDC Mock Server with dynamic keys for JWT authentication testing"
-        kubectl create namespace orch-platform --dry-run=client -o yaml | kubectl apply -f -
-        echo "Generating dynamic OIDC configuration with Go..."
-        cd ../.. && printf 'package main\nimport "github.com/open-edge-platform/cluster-tests/tests/utils"\nfunc main() { utils.GenerateOIDCConfigFile("configs/oidc-mock-dynamic.yaml") }' > /tmp/gen-oidc.go && go run /tmp/gen-oidc.go && rm /tmp/gen-oidc.go
-        kubectl apply -f configs/oidc-mock-dynamic.yaml
-        echo "Waiting for OIDC Mock Server to be ready..."
-        kubectl wait --for=condition=Available deployment/oidc-mock --timeout=120s
+    post-install-commands: []
 
   # Cluster Agent on LW-ENiC
   - name: cluster-agent

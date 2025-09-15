@@ -92,7 +92,7 @@ render-capi-operator:
 
 .PHONY: bootstrap
 bootstrap: deps ## Bootstrap the test environment before running tests
-	PATH=${ENV_PATH} mage test:bootstrap
+	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} mage test:bootstrap
 	kubectl get pods -A -o wide
 	kubectl get deployments -A -o wide
 	kubectl get svc -A -o wide
@@ -111,23 +111,23 @@ bootstrap-mac: deps ## Bootstrap the test environment on MacOS before running te
 
 .PHONY: test
 test: render-capi-operator bootstrap ## Runs cluster orch cluster api smoke tests. This step bootstraps the env before running the test
-	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiSmokeTest
+	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiSmokeTest
 
 .PHONY: cluster-api-all-test
 cluster-api-all-test: bootstrap ## Runs cluster orch functional tests
-	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiAllTest
+	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiAllTest
 
 .PHONY: template-api-smoke-test
 template-api-smoke-test: ## Runs cluster orch template API smoke tests
-	PATH=${ENV_PATH} mage test:ClusterOrchTemplateApiSmoleTest
+	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} mage test:ClusterOrchTemplateApiSmoleTest
 
 .PHONY: template-api-all-test
 template-api-all-test: ## Runs cluster orch template API all tests
-	PATH=${ENV_PATH} mage test:ClusterOrchTemplateApiAllTest
+	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} mage test:ClusterOrchTemplateApiAllTest
   
 .PHONY: robustness-test
 robustness-test: bootstrap ## Runs cluster orch robustness tests
-	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchRobustness
+	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchRobustness
 
 .PHONY: help
 help: ## Display this help.
