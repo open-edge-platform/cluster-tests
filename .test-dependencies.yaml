@@ -154,7 +154,7 @@ components:
         namespace: "default"
         version: ""  # Use the latest version when nil
         use-devel: false # Use development version of the chart
-        overrides: "--set clusterManager.extraArgs.disable-mt=true --set clusterManager.extraArgs.disable-inventory=true --set templateController.extraArgs[0]='--webhook-enabled=true' --set webhookService.enabled=true"
+        overrides: "--set clusterManager.extraArgs.disable-mt=true --set clusterManager.extraArgs.disable-inventory=true --set clusterManager.extraArgs.disable-auth=${DISABLE_AUTH:-false} --set templateController.extraArgs[0]='--webhook-enabled=true' --set webhookService.enabled=true"
       - url: "oci://registry-rs.edgeorchestration.intel.com"
         release-name: "cluster-template-crd"
         package: "edge-orch/cluster/charts/cluster-template-crd"
@@ -170,7 +170,7 @@ components:
       - HELM_VERSION=v0.0.0
       - KIND_CLUSTER=kind
       - DISABLE_MT=true  # Enable this flag to disable the multi-tenancy feature. This is required for the test environment where no MT controllers are installed
-      - DISABLE_AUTH=false  # Changed from true to false to enable authentication
+      - DISABLE_AUTH=${DISABLE_AUTH:-false}  # Use environment variable, default to false
       - DISABLE_INV=true  # Should be true for CO subsystem integration tests if inventory is not deployed
     make-targets:
       - helm-install
@@ -195,13 +195,13 @@ components:
           echo "⚠️  Authentication disabled (DISABLE_AUTH=true) - skipping OIDC Mock Server deployment"
           exit 0
         fi
-      - echo "Deploying OIDC Mock Server with dynamic keys for JWT authentication testing"
-      - kubectl create namespace orch-platform --dry-run=client -o yaml | kubectl apply -f -
-      - echo "Generating dynamic OIDC configuration with Go..."
-      - cd ../.. && printf 'package main\nimport "github.com/open-edge-platform/cluster-tests/tests/utils"\nfunc main() { utils.GenerateOIDCConfigFile("configs/oidc-mock-dynamic.yaml") }' > /tmp/gen-oidc.go && go run /tmp/gen-oidc.go && rm /tmp/gen-oidc.go
-      - kubectl apply -f ../../configs/oidc-mock-dynamic.yaml
-      - echo "Waiting for OIDC Mock Server to be ready..."
-      - kubectl wait --for=condition=Available deployment/oidc-mock --timeout=120s
+        echo "Deploying OIDC Mock Server with dynamic keys for JWT authentication testing"
+        kubectl create namespace orch-platform --dry-run=client -o yaml | kubectl apply -f -
+        echo "Generating dynamic OIDC configuration with Go..."
+        cd ../.. && printf 'package main\nimport "github.com/open-edge-platform/cluster-tests/tests/utils"\nfunc main() { utils.GenerateOIDCConfigFile("configs/oidc-mock-dynamic.yaml") }' > /tmp/gen-oidc.go && go run /tmp/gen-oidc.go && rm /tmp/gen-oidc.go
+        kubectl apply -f configs/oidc-mock-dynamic.yaml
+        echo "Waiting for OIDC Mock Server to be ready..."
+        kubectl wait --for=condition=Available deployment/oidc-mock --timeout=120s
 
   # Cluster Agent on LW-ENiC
   - name: cluster-agent
