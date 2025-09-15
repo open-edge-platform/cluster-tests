@@ -27,6 +27,320 @@ func TestClusterApiTest(t *testing.T) {
 	RunSpecs(t, "cluster orch api test suite")
 }
 
+// Helper functions to reduce code duplication
+
+// setupPortForwarding sets up port forwarding for any service
+func setupPortForwarding(serviceName, serviceIdentifier, localPort, remotePort string) (*exec.Cmd, error) {
+	By(fmt.Sprintf("Port forwarding to the %s service", serviceName))
+	portForwardCmd := exec.Command("kubectl", "port-forward", serviceIdentifier,
+		fmt.Sprintf("%s:%s", localPort, remotePort), "--address", utils.PortForwardAddress)
+	err := portForwardCmd.Start()
+	if err != nil {
+		return nil, err
+	}
+	time.Sleep(5 * time.Second)
+	return portForwardCmd, nil
+}
+
+// cleanupPortForwarding safely kills port forwarding processes
+func cleanupPortForwarding(portForwardCmd, gatewayPortForward *exec.Cmd) {
+	if portForwardCmd != nil && portForwardCmd.Process != nil {
+		portForwardCmd.Process.Kill()
+	}
+	if gatewayPortForward != nil && gatewayPortForward.Process != nil {
+		gatewayPortForward.Process.Kill()
+	}
+}
+
+// performClusterOperation executes a cluster operation with conditional authentication
+func performClusterOperation(operationType string, authDisabled bool, authContext *auth.TestAuthContext,
+	namespace, nodeGUID, templateName string) error {
+
+	switch operationType {
+	case "import":
+		By("Importing the cluster template")
+	case "create":
+		By("Creating the k3s cluster")
+	case "delete":
+		By("Deleting the cluster")
+	default:
+		return fmt.Errorf("unknown operation type: %s", operationType)
+	}
+
+	if !authDisabled {
+		fmt.Printf(" Using JWT authentication for cluster %s\n", operationType)
+		switch operationType {
+		case "import":
+			return utils.ImportClusterTemplateAuthenticated(authContext, namespace, templateName)
+		case "create":
+			return utils.CreateClusterAuthenticated(authContext, namespace, nodeGUID, templateName)
+		case "delete":
+			return utils.DeleteClusterAuthenticated(authContext, namespace)
+		}
+	} else {
+		fmt.Printf(" Using non-authenticated cluster %s\n", operationType)
+		switch operationType {
+		case "import":
+			return utils.ImportClusterTemplate(namespace, templateName)
+		case "create":
+			return utils.CreateCluster(namespace, nodeGUID, templateName)
+		case "delete":
+			return utils.DeleteCluster(namespace)
+		}
+	}
+	return nil
+}
+
+// validateJWTWorkflow performs comprehensive JWT authentication validation
+func validateJWTWorkflow(authContext *auth.TestAuthContext, namespace string) {
+	By("Testing JWT-authenticated kubeconfig API endpoint")
+	Expect(authContext).NotTo(BeNil())
+
+	By("Confirming JWT authentication usage for cluster operations")
+	fmt.Printf(" JWT Token confirmed for cluster operations: %s...\n"+
+		" JWT authentication confirmed for:\n"+
+		"   - Cluster template import\n"+
+		"   - Cluster creation\n"+
+		"   - Cluster management APIs\n"+
+		"   - Kubeconfig retrieval\n"+
+		"   - Cluster deletion (in AfterEach)\n", authContext.Token[:20])
+
+	By("Verifying JWT token structure and claims")
+	// Token should be a JWT with header.payload.signature format
+	parts := strings.Split(authContext.Token, ".")
+	Expect(parts).To(HaveLen(3), "JWT should have 3 parts separated by dots")
+
+	// Check auth context claims
+	Expect(authContext.Subject).To(Equal("test-user"))
+	Expect(authContext.Issuer).To(Equal("cluster-tests"))
+	Expect(authContext.Audience).To(ContainElement("cluster-manager"))
+
+	By("Testing cluster-manager API authentication")
+	err := utils.TestClusterManagerAuthentication(authContext)
+	if err != nil {
+		fmt.Printf("  Authentication test result: %v\n", err)
+		testConnectivity()
+	} else {
+		fmt.Println(" JWT authentication successful")
+	}
+
+	By("Testing kubeconfig retrieval")
+	testKubeconfigRetrieval(authContext, namespace)
+}
+
+// testConnectivity performs basic connectivity diagnostics
+func testConnectivity() {
+	By("Attempting basic connectivity test")
+	endpoint := fmt.Sprintf("%s/v2/healthz", utils.GetClusterManagerEndpoint())
+	resp, connErr := http.Get(endpoint)
+	if connErr != nil {
+		fmt.Printf("  Cluster-manager API not accessible: %v\n", connErr)
+		return
+	}
+	if resp != nil {
+		defer resp.Body.Close()
+		switch resp.StatusCode {
+		case http.StatusOK:
+			fmt.Println(" Cluster-manager API is accessible without authentication")
+		case http.StatusUnauthorized:
+			fmt.Println(" Cluster-manager API requires authentication (expected)")
+		default:
+			fmt.Printf("  Unexpected response from cluster-manager: %d\n", resp.StatusCode)
+		}
+	}
+}
+
+// testKubeconfigRetrieval tests kubeconfig API endpoint with fallback
+func testKubeconfigRetrieval(authContext *auth.TestAuthContext, namespace string) {
+	resp, err := utils.GetClusterKubeconfigFromAPI(authContext, namespace, utils.ClusterName)
+	if err != nil {
+		fmt.Printf("  Kubeconfig API call failed: %v\n", err)
+		fallbackKubeconfigValidation(namespace)
+		return
+	}
+
+	if resp != nil {
+		defer resp.Body.Close()
+		handleKubeconfigResponse(resp, namespace)
+	}
+}
+
+// fallbackKubeconfigValidation provides direct kubeconfig access validation
+func fallbackKubeconfigValidation(namespace string) {
+	By("Falling back to direct kubeconfig validation")
+	kubeConfigName := fmt.Sprintf("/tmp/%s-kubeconfig.yaml", utils.ClusterName)
+	cmd := exec.Command("kubectl", "get", "secret", fmt.Sprintf("%s-kubeconfig", utils.ClusterName), "-o", "jsonpath={.data.value}", "-n", namespace)
+	output, err := cmd.Output()
+	if err != nil {
+		fmt.Printf("  Direct kubeconfig access also failed: %v\n", err)
+		return
+	}
+
+	decodedKubeconfig, err := base64.StdEncoding.DecodeString(string(output))
+	if err != nil {
+		fmt.Printf("  Failed to decode kubeconfig: %v\n", err)
+		return
+	}
+
+	err = os.WriteFile(kubeConfigName, decodedKubeconfig, 0600)
+	if err != nil {
+		fmt.Printf("  Failed to write kubeconfig file: %v\n", err)
+		return
+	}
+
+	By("Validating the kubeconfig content")
+	fmt.Printf(" Successfully retrieved kubeconfig via direct method\n")
+
+	By("Testing downstream cluster access with retrieved kubeconfig")
+	err = utils.TestDownstreamClusterAccess(string(decodedKubeconfig))
+	if err != nil {
+		fmt.Printf("  Downstream cluster access failed: %v\n", err)
+	} else {
+		fmt.Printf("DIRECT KUBECONFIG ACCESS SUCCESSFUL: Kubernetes Secret → Downstream K3s Cluster Access\n")
+		fmt.Printf("Note: This bypassed cluster-manager API and JWT authentication\n")
+	}
+}
+
+// handleKubeconfigResponse processes the kubeconfig API response
+func handleKubeconfigResponse(resp *http.Response, namespace string) {
+	switch resp.StatusCode {
+	case http.StatusOK:
+		fmt.Println(" Successfully retrieved kubeconfig via cluster-manager API")
+		processSuccessfulKubeconfigResponse(resp)
+	case http.StatusNotFound:
+		fmt.Printf("  Cluster '%s' not found in namespace '%s'\n", utils.ClusterName, namespace)
+	case http.StatusUnauthorized:
+		Fail("JWT authentication failed for kubeconfig endpoint")
+	case http.StatusForbidden:
+		Fail("JWT token lacks permissions for kubeconfig endpoint")
+	default:
+		fmt.Printf("  Unexpected response from kubeconfig API: %d\n", resp.StatusCode)
+	}
+}
+
+// processSuccessfulKubeconfigResponse handles successful kubeconfig retrieval
+func processSuccessfulKubeconfigResponse(resp *http.Response) {
+	By("Validating the kubeconfig content")
+	body, err := io.ReadAll(resp.Body)
+	Expect(err).NotTo(HaveOccurred())
+
+	var kubeconfigResponse map[string]interface{}
+	err = json.Unmarshal(body, &kubeconfigResponse)
+	Expect(err).NotTo(HaveOccurred())
+
+	kubeconfig, exists := kubeconfigResponse["kubeconfig"]
+	Expect(exists).To(BeTrue(), "Response should contain kubeconfig field")
+	Expect(kubeconfig).NotTo(BeEmpty(), "Kubeconfig should not be empty")
+
+	By("Testing downstream cluster access with retrieved kubeconfig")
+	err = utils.TestDownstreamClusterAccess(kubeconfig.(string))
+	if err != nil {
+		fmt.Printf("  Downstream cluster access failed: %v\n", err)
+	} else {
+		fmt.Printf("COMPLETE JWT WORKFLOW SUCCESSFUL: Token → API → Kubeconfig → Downstream K3s Cluster Access\n")
+	}
+}
+
+// waitForClusterReady performs common cluster readiness validation
+func waitForClusterReady(namespace string, clusterCreateStartTime time.Time) time.Time {
+	By("Waiting for IntelMachine to exist")
+	Eventually(func() bool {
+		cmd := exec.Command("sh", "-c", fmt.Sprintf("kubectl -n %s get intelmachine -o yaml | yq '.items | length'", namespace))
+		output, err := cmd.Output()
+		if err != nil {
+			return false
+		}
+		return string(output) > "0"
+	}, 1*time.Minute, 5*time.Second).Should(BeTrue())
+
+	By("Waiting for all components to be ready")
+	Eventually(func() bool {
+		cmd := exec.Command("clusterctl", "describe", "cluster", utils.ClusterName, "-n", namespace)
+		output, err := cmd.Output()
+		if err != nil {
+			return false
+		}
+		fmt.Printf("Cluster components status:\n%s\n", string(output))
+		return utils.CheckAllComponentsReady(string(output))
+	}, 10*time.Minute, 10*time.Second).Should(BeTrue())
+
+	By("Checking that connect agent metric shows a successful connection")
+	metrics, err := utils.FetchMetrics()
+	Expect(err).NotTo(HaveOccurred())
+	defer metrics.Close()
+	connectionSucceeded, err := utils.ParseMetrics(metrics)
+	Expect(err).NotTo(HaveOccurred())
+	Eventually(connectionSucceeded).Should(BeTrue())
+
+	clusterCreateEndTime := time.Now()
+	totalTime := clusterCreateEndTime.Sub(clusterCreateStartTime)
+	fmt.Printf("\033[32mTotal time from cluster creation to fully active: %v 🚀 ✅\033[0m\n", totalTime)
+
+	return clusterCreateEndTime
+}
+
+// validateKubeconfigAndClusterAccess performs kubeconfig validation and cluster access testing
+func validateKubeconfigAndClusterAccess() {
+	By("Getting kubeconfig")
+	cmd := exec.Command("clusterctl", "get", "kubeconfig", utils.ClusterName, "--namespace", utils.DefaultNamespace)
+	output, err := cmd.Output()
+	Expect(err).NotTo(HaveOccurred())
+
+	kubeConfigName := "kubeconfig.yaml"
+	err = os.WriteFile(kubeConfigName, output, 0644)
+	Expect(err).NotTo(HaveOccurred())
+
+	By("Setting in kubeconfig server to cluster connect gateway")
+	cmd = exec.Command("sed", "-i", "s|http://[[:alnum:].-]*:8080/|http://127.0.0.1:8081/|", kubeConfigName)
+	_, err = cmd.Output()
+	Expect(err).NotTo(HaveOccurred())
+
+	By("Getting list of pods")
+	cmd = exec.Command("kubectl", "--kubeconfig", kubeConfigName, "get", "pods")
+	_, err = cmd.Output()
+	Expect(err).NotTo(HaveOccurred())
+
+	By("Dumping kubectl client and server version")
+	cmd = exec.Command("kubectl", "version", "--kubeconfig", kubeConfigName)
+	output, err = cmd.Output()
+	Expect(err).NotTo(HaveOccurred())
+	fmt.Printf("kubectl client and server version:\n%s\n", string(output))
+
+	// Wait for all pods to be running
+	By("Waiting for all pods to be running")
+	Eventually(func() bool {
+		cmd := exec.Command("kubectl", "--kubeconfig", kubeConfigName, "get", "pods", "-A", "-o", "jsonpath={.items[*].status.phase}")
+		output, err := cmd.Output()
+		if err != nil {
+			return false
+		}
+		podStatuses := strings.Fields(string(output))
+		for _, status := range podStatuses {
+			if status != "Running" && status != "Completed" && status != "Succeeded" {
+				return false
+			}
+		}
+		return true
+	}, 5*time.Minute, 10*time.Second).Should(BeTrue(), "Not all pods are in Running or Completed state")
+
+	By("Getting the local-path-provisioner pod name")
+	cmd = exec.Command("kubectl", "get", "pods", "-n", "kube-system", "-l", "app=local-path-provisioner",
+		"-o", "jsonpath={.items[0].metadata.name}", "--kubeconfig", kubeConfigName)
+	output, err = cmd.Output()
+	Expect(err).NotTo(HaveOccurred(), "Failed to get the local-path-provisioner pod name")
+	fmt.Printf("Local-path-provisioner pod name: %s\n", string(output))
+
+	podName := strings.TrimSpace(string(output))
+	Expect(podName).NotTo(BeEmpty(), "Pod name should not be empty")
+
+	By("Executing the `ls` command in the local-path-provisioner pod")
+	cmd = exec.Command("kubectl", "exec", "-it", podName, "-n", "kube-system", "--kubeconfig", kubeConfigName, "--", "ls")
+	output, err = cmd.Output()
+	Expect(err).NotTo(HaveOccurred(), "Failed to execute the `ls` command in the pod")
+
+	fmt.Printf("Output of `ls` command:\n%s\n", string(output))
+}
+
 var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manager APIs with baseline template",
 	Ordered, Label(utils.ClusterOrchClusterApiSmokeTest, utils.ClusterOrchClusterApiAllTest), func() {
 		var (
@@ -36,7 +350,6 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 			nodeGUID               string
 			portForwardCmd         *exec.Cmd
 			clusterCreateStartTime time.Time
-			clusterCreateEndTime   time.Time
 			authDisabled           bool
 		)
 
@@ -64,21 +377,13 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 			err = utils.EnsureNamespaceExists(namespace)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Port forwarding to the cluster manager service")
-			portForwardCmd = exec.Command("kubectl", "port-forward", utils.PortForwardService,
-				fmt.Sprintf("%s:%s", utils.PortForwardLocalPort, utils.PortForwardRemotePort), "--address", utils.PortForwardAddress)
-			err = portForwardCmd.Start()
+			// Setup port forwarding using helper function
+			portForwardCmd, err = setupPortForwarding("cluster manager", utils.PortForwardService,
+				utils.PortForwardLocalPort, utils.PortForwardRemotePort)
 			Expect(err).NotTo(HaveOccurred())
-			time.Sleep(5 * time.Second)
 
-			By("Importing the cluster template")
-			if !authDisabled {
-				fmt.Printf("✅ Using JWT authentication for cluster template import\n")
-				err = utils.ImportClusterTemplateAuthenticated(authContext, namespace, utils.TemplateTypeK3sBaseline)
-			} else {
-				fmt.Printf("✅ Using non-authenticated cluster template import\n")
-				err = utils.ImportClusterTemplate(namespace, utils.TemplateTypeK3sBaseline)
-			}
+			// Import cluster template using helper function
+			err = performClusterOperation("import", authDisabled, authContext, namespace, "", utils.TemplateTypeK3sBaseline)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Waiting for the cluster template to be ready")
@@ -88,44 +393,24 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 
 			clusterCreateStartTime = time.Now()
 
-			By("Creating the k3s cluster")
-			if !authDisabled {
-				fmt.Printf("✅ Using JWT authentication for cluster creation\n")
-				err = utils.CreateClusterAuthenticated(authContext, namespace, nodeGUID, utils.K3sTemplateName)
-			} else {
-				fmt.Printf("✅ Using non-authenticated cluster creation\n")
-				err = utils.CreateCluster(namespace, nodeGUID, utils.K3sTemplateName)
-			}
+			// Create cluster using helper function
+			err = performClusterOperation("create", authDisabled, authContext, namespace, nodeGUID, utils.K3sTemplateName)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Port forwarding to the cluster gateway service")
-			gatewayPortForward = exec.Command("kubectl", "port-forward", utils.PortForwardGatewayService,
-				fmt.Sprintf("%s:%s", utils.PortForwardGatewayLocalPort, utils.PortForwardGatewayRemotePort), "--address", utils.PortForwardAddress)
-			err = gatewayPortForward.Start()
+			// Setup gateway port forwarding using helper function
+			gatewayPortForward, err = setupPortForwarding("cluster gateway", utils.PortForwardGatewayService,
+				utils.PortForwardGatewayLocalPort, utils.PortForwardGatewayRemotePort)
 			Expect(err).NotTo(HaveOccurred())
-			time.Sleep(5 * time.Second)
 		})
 
 		AfterEach(func() {
-			defer func() {
-				if portForwardCmd != nil && portForwardCmd.Process != nil {
-					portForwardCmd.Process.Kill()
-				}
-				if gatewayPortForward != nil && gatewayPortForward.Process != nil {
-					gatewayPortForward.Process.Kill()
-				}
-			}()
+			// Cleanup port forwarding using helper function
+			defer cleanupPortForwarding(portForwardCmd, gatewayPortForward)
 
 			if !utils.SkipDeleteCluster {
-				By("Deleting the cluster")
+				// Delete cluster using helper function
 				var err error
-				if !authDisabled {
-					fmt.Printf("✅ Using JWT authentication for cluster deletion\n")
-					err = utils.DeleteClusterAuthenticated(authContext, namespace)
-				} else {
-					fmt.Printf("✅ Using non-authenticated cluster deletion\n")
-					err = utils.DeleteCluster(namespace)
-				}
+				err = performClusterOperation("delete", authDisabled, authContext, namespace, "", "")
 				Expect(err).NotTo(HaveOccurred())
 
 				By("Verifying that the cluster is deleted")
@@ -138,233 +423,18 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 		})
 
 		It("should verify that the cluster is fully active", func() {
-			By("Waiting for IntelMachine to exist")
-			Eventually(func() bool {
-				cmd := exec.Command("sh", "-c", fmt.Sprintf("kubectl -n %s get intelmachine -o yaml | yq '.items | length'", namespace))
-				output, err := cmd.Output()
-				if err != nil {
-					return false
-				}
-				return string(output) > "0"
-			}, 1*time.Minute, 5*time.Second).Should(BeTrue())
+			// Wait for cluster to be ready using helper function
+			waitForClusterReady(namespace, clusterCreateStartTime)
 
-			By("Waiting for all components to be ready")
-			Eventually(func() bool {
-				cmd := exec.Command("clusterctl", "describe", "cluster", utils.ClusterName, "-n", namespace)
-				output, err := cmd.Output()
-				if err != nil {
-					return false
-				}
-				fmt.Printf("Cluster components status:\n%s\n", string(output))
-				return utils.CheckAllComponentsReady(string(output))
-			}, 10*time.Minute, 10*time.Second).Should(BeTrue())
-
-			By("Checking that connect agent metric shows a successful connection")
-			metrics, err := utils.FetchMetrics()
-			Expect(err).NotTo(HaveOccurred())
-			defer metrics.Close()
-			connectionSucceeded, err := utils.ParseMetrics(metrics)
-			Expect(err).NotTo(HaveOccurred())
-			Eventually(connectionSucceeded).Should(BeTrue())
-
-			clusterCreateEndTime = time.Now()
-			totalTime := clusterCreateEndTime.Sub(clusterCreateStartTime)
-			fmt.Printf("\033[32mTotal time from cluster creation to fully active: %v 🚀 ✅\033[0m\n", totalTime)
-
-			By("Getting kubeconfig")
-			cmd := exec.Command("clusterctl", "get", "kubeconfig", utils.ClusterName, "--namespace", utils.DefaultNamespace)
-			output, err := cmd.Output()
-			Expect(err).NotTo(HaveOccurred())
-
-			kubeConfigName := "kubeconfig.yaml"
-			err = os.WriteFile(kubeConfigName, output, 0644)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Setting in kubeconfig server to cluster connect gateway")
-			cmd = exec.Command("sed", "-i", "s|http://[[:alnum:].-]*:8080/|http://127.0.0.1:8081/|", kubeConfigName)
-			_, err = cmd.Output()
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Getting list of pods")
-			cmd = exec.Command("kubectl", "--kubeconfig", kubeConfigName, "get", "pods")
-			_, err = cmd.Output()
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Dumping kubectl client and server version")
-			cmd = exec.Command("kubectl", "version", "--kubeconfig", kubeConfigName)
-			output, err = cmd.Output()
-			Expect(err).NotTo(HaveOccurred())
-			fmt.Printf("kubectl client and server version:\n%s\n", string(output))
-
-			// Wait for all pods to be running
-			By("Waiting for all pods to be running")
-			Eventually(func() bool {
-				cmd := exec.Command("kubectl", "--kubeconfig", kubeConfigName, "get", "pods", "-A", "-o", "jsonpath={.items[*].status.phase}")
-				output, err := cmd.Output()
-				if err != nil {
-					return false
-				}
-				podStatuses := strings.Fields(string(output))
-				for _, status := range podStatuses {
-					if status != "Running" && status != "Completed" && status != "Succeeded" {
-						return false
-					}
-				}
-				return true
-			}, 5*time.Minute, 10*time.Second).Should(BeTrue(), "Not all pods are in Running or Completed state")
-
-			By("Getting the local-path-provisioner pod name")
-			cmd = exec.Command("kubectl", "get", "pods", "-n", "kube-system", "-l", "app=local-path-provisioner",
-				"-o", "jsonpath={.items[0].metadata.name}", "--kubeconfig", kubeConfigName)
-			output, err = cmd.Output()
-			Expect(err).NotTo(HaveOccurred(), "Failed to get the local-path-provisioner pod name")
-			fmt.Printf("Local-path-provisioner pod name: %s\n", string(output))
-
-			podName := strings.TrimSpace(string(output))
-			Expect(podName).NotTo(BeEmpty(), "Pod name should not be empty")
-
-			By("Executing the `ls` command in the local-path-provisioner pod")
-			cmd = exec.Command("kubectl", "exec", "-it", podName, "-n", "kube-system", "--kubeconfig", kubeConfigName, "--", "ls")
-			output, err = cmd.Output()
-			Expect(err).NotTo(HaveOccurred(), "Failed to execute the `ls` command in the pod")
-
-			fmt.Printf("Output of `ls` command:\n%s\n", string(output))
+			// Validate kubeconfig and cluster access using helper function
+			validateKubeconfigAndClusterAccess()
 
 			// JWT Kubeconfig API Test - integrated after cluster is ready
 			if !authDisabled {
-				By("Testing JWT-authenticated kubeconfig API endpoint")
-				// Re-use the authContext from BeforeEach, no need to create a new one
-				Expect(authContext).NotTo(BeNil())
-
-				By("Confirming JWT authentication usage for cluster operations")
-				fmt.Printf("✅ JWT Token confirmed for cluster operations: %s...\n", authContext.Token[:20])
-				fmt.Printf("✅ JWT authentication confirmed for:\n")
-				fmt.Printf("   • Cluster template import\n")
-				fmt.Printf("   • Cluster creation\n") 
-				fmt.Printf("   • Cluster management APIs\n")
-				fmt.Printf("   • Kubeconfig retrieval\n")
-				fmt.Printf("   • Cluster deletion (in AfterEach)\n")
-
-				By("Verifying JWT token structure and claims")
-				// Token should be a JWT with header.payload.signature format
-				parts := strings.Split(authContext.Token, ".")
-				Expect(parts).To(HaveLen(3), "JWT should have 3 parts separated by dots")
-				
-				// Check auth context claims
-				Expect(authContext.Subject).To(Equal("test-user"))
-				Expect(authContext.Issuer).To(Equal("cluster-tests"))
-				Expect(authContext.Audience).To(ContainElement("cluster-manager"))
-
-				By("Testing cluster-manager API authentication")
-				err = utils.TestClusterManagerAuthentication(authContext)
-				if err != nil {
-					// If authentication fails, it might be because:
-					// 1. Cluster-manager is not running with auth enabled
-					// 2. The JWT configuration is not set up properly
-					// 3. The API endpoint is not accessible
-					fmt.Printf("⚠️  Authentication test result: %v\n", err)
-
-					// Let's try to diagnose the issue
-					By("Attempting basic connectivity test")
-					endpoint := fmt.Sprintf("%s/v2/healthz", utils.GetClusterManagerEndpoint())
-					resp, connErr := http.Get(endpoint)
-					if connErr != nil {
-						fmt.Printf("⚠️  Cluster-manager API not accessible: %v\n", connErr)
-					} else {
-						defer resp.Body.Close()
-						switch resp.StatusCode {
-						case http.StatusOK:
-							fmt.Println("✅ Cluster-manager API is accessible without authentication")
-					case http.StatusUnauthorized:
-						fmt.Println("✅ Cluster-manager API requires authentication (expected)")
-						fmt.Printf("⚠️  JWT authentication failed: %v\n", err)
-					default:
-						fmt.Printf("⚠️  Unexpected response from cluster-manager: %d\n", resp.StatusCode)
-					}
-				}
-			} else {
-				fmt.Println("✅ JWT authentication successful")
-			}
-
-			By("Testing kubeconfig retrieval")
-			namespace := utils.GetEnv(utils.NamespaceEnvVar, utils.DefaultNamespace)
-			
-			if !authDisabled {
-				resp, err := utils.GetClusterKubeconfigFromAPI(authContext, namespace, utils.ClusterName)
-				
-				if err != nil {
-					fmt.Printf("⚠️  Kubeconfig API call failed: %v\n", err)
-					// Even if API call fails, let's try direct kubeconfig access for validation
-					By("Falling back to direct kubeconfig validation")
-					kubeConfigName := fmt.Sprintf("/tmp/%s-kubeconfig.yaml", utils.ClusterName)
-					cmd := exec.Command("kubectl", "get", "secret", fmt.Sprintf("%s-kubeconfig", utils.ClusterName), "-o", "jsonpath={.data.value}", "-n", namespace)
-					output, err := cmd.Output()
-					if err == nil {
-						decodedKubeconfig, err := base64.StdEncoding.DecodeString(string(output))
-						if err == nil {
-							err = os.WriteFile(kubeConfigName, decodedKubeconfig, 0600)
-							if err == nil {
-								By("Validating the kubeconfig content")
-								fmt.Printf("✅ Successfully retrieved kubeconfig via direct method\n")
-								
-								By("Testing downstream cluster access with retrieved kubeconfig")
-								err = utils.TestDownstreamClusterAccess(string(decodedKubeconfig))
-								if err != nil {
-									fmt.Printf("⚠️  Downstream cluster access failed: %v\n", err)
-								} else {
-									fmt.Printf("✅ DOWNSTREAM K3S CLUSTER ACCESS SUCCESSFUL!\n")
-									fmt.Printf("==========================================\n")
-									fmt.Printf("✅ COMPLETE JWT WORKFLOW SUCCESSFUL: Token → API → Kubeconfig → Downstream K3s Cluster Access\n")
-								}
-							}
-						}
-					}
-					if err != nil {
-						fmt.Printf("⚠️  Direct kubeconfig access also failed: %v\n", err)
-					}
-				} else if resp != nil {
-					defer resp.Body.Close()
-					
-					switch resp.StatusCode {
-					case http.StatusOK:
-						fmt.Println("✅ Successfully retrieved kubeconfig via cluster-manager API")
-						
-						By("Validating the kubeconfig content")
-						body, err := io.ReadAll(resp.Body)
-						Expect(err).NotTo(HaveOccurred())
-						
-						var kubeconfigResponse map[string]interface{}
-						err = json.Unmarshal(body, &kubeconfigResponse)
-						Expect(err).NotTo(HaveOccurred())
-						
-						kubeconfig, exists := kubeconfigResponse["kubeconfig"]
-						Expect(exists).To(BeTrue(), "Response should contain kubeconfig field")
-						Expect(kubeconfig).NotTo(BeEmpty(), "Kubeconfig should not be empty")
-						
-						By("Testing downstream cluster access with retrieved kubeconfig")
-						err = utils.TestDownstreamClusterAccess(kubeconfig.(string))
-						if err != nil {
-							fmt.Printf("⚠️  Downstream cluster access failed: %v\n", err)
-						} else {
-							fmt.Printf("✅ DOWNSTREAM K3S CLUSTER ACCESS SUCCESSFUL!\n")
-							fmt.Printf("==========================================\n")
-							fmt.Printf("✅ COMPLETE JWT WORKFLOW SUCCESSFUL: Token → API → Kubeconfig → Downstream K3s Cluster Access\n")
-						}
-						
-					case http.StatusNotFound:
-						fmt.Printf("⚠️  Cluster '%s' not found in namespace '%s'\n", utils.ClusterName, namespace)
-					case http.StatusUnauthorized:
-						Fail("JWT authentication failed for kubeconfig endpoint")
-					case http.StatusForbidden:
-						Fail("JWT token lacks permissions for kubeconfig endpoint")
-					default:
-						fmt.Printf("⚠️  Unexpected response from kubeconfig API: %d\n", resp.StatusCode)
-					}
-				}
+				validateJWTWorkflow(authContext, namespace)
 			} else {
 				By("Authentication disabled - skipping JWT-specific tests")
-				fmt.Printf("⚠️  DISABLE_AUTH=true - JWT kubeconfig API test skipped\n")
-			}
+				fmt.Printf("  DISABLE_AUTH=true - JWT kubeconfig API test skipped\n")
 			}
 		})
 
@@ -418,6 +488,9 @@ var _ = Describe("Single Node RKE2 Cluster Create and Delete using Cluster Manag
 			defer func() {
 				if portForwardCmd != nil && portForwardCmd.Process != nil {
 					portForwardCmd.Process.Kill()
+				}
+				if gatewayPortForward != nil && gatewayPortForward.Process != nil {
+					gatewayPortForward.Process.Kill()
 				}
 			}()
 

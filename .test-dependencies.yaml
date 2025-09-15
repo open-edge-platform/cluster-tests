@@ -192,7 +192,7 @@ components:
     post-install-commands:
       - |
         if [ "${DISABLE_AUTH:-false}" = "true" ]; then
-          echo "⚠️  Authentication disabled (DISABLE_AUTH=true) - skipping OIDC Mock Server deployment"
+          echo "  Authentication disabled (DISABLE_AUTH=true) - skipping OIDC Mock Server deployment"
           exit 0
         fi
         echo "Deploying OIDC Mock Server with dynamic keys for JWT authentication testing"
