@@ -16,6 +16,7 @@ import (
 	"text/template"
 
 	"github.com/open-edge-platform/cluster-manager/v2/pkg/api"
+	"github.com/open-edge-platform/cluster-tests/tests/auth"
 )
 
 const (
@@ -436,6 +437,35 @@ func DeleteCluster(namespace string) error {
 	if resp.StatusCode != http.StatusNoContent {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("failed to delete cluster: %s", string(body))
+	}
+
+	return nil
+}
+
+// DeleteClusterAuthenticated deletes a cluster by name using JWT authentication.
+func DeleteClusterAuthenticated(authContext *auth.TestAuthContext, namespace string) error {
+	url := fmt.Sprintf("%s/%s", ClusterCreateURL, ClusterName)
+
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Activeprojectid", namespace)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", authContext.Token))
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to delete cluster with JWT authentication: %s", string(body))
 	}
 
 	return nil

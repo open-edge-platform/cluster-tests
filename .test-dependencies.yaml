@@ -179,7 +179,7 @@ components:
 
   # OIDC Mock Server for JWT Authentication Testing
   - name: oidc-mock-server
-    skip-component: false
+    skip-component: false  # Will be conditionally controlled by DISABLE_AUTH environment variable
     skip-local-build: true
     pre-install-commands: []
     helm-repo: []
@@ -190,13 +190,18 @@ components:
     make-variables: []
     make-targets: []
     post-install-commands:
+      - |
+        if [ "${DISABLE_AUTH:-false}" = "true" ]; then
+          echo "⚠️  Authentication disabled (DISABLE_AUTH=true) - skipping OIDC Mock Server deployment"
+          exit 0
+        fi
       - echo "Deploying OIDC Mock Server with dynamic keys for JWT authentication testing"
       - kubectl create namespace orch-platform --dry-run=client -o yaml | kubectl apply -f -
-      - echo "Generating dynamic OIDC configuration..."
-      - ../../generate-dynamic-oidc-config.sh ../../configs/oidc-mock-dynamic.yaml
+      - echo "Generating dynamic OIDC configuration with Go..."
+      - cd ../.. && printf 'package main\nimport "github.com/open-edge-platform/cluster-tests/tests/utils"\nfunc main() { utils.GenerateOIDCConfigFile("configs/oidc-mock-dynamic.yaml") }' > /tmp/gen-oidc.go && go run /tmp/gen-oidc.go && rm /tmp/gen-oidc.go
       - kubectl apply -f ../../configs/oidc-mock-dynamic.yaml
       - echo "Waiting for OIDC Mock Server to be ready..."
-      - kubectl wait --for=condition=Ready pod/oidc-mock --timeout=120s
+      - kubectl wait --for=condition=Available deployment/oidc-mock --timeout=120s
 
   # Cluster Agent on LW-ENiC
   - name: cluster-agent
