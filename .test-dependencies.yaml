@@ -202,7 +202,7 @@ components:
         package: ""
         namespace: ""
         version: ""
-        use-devel:  false # Use development version of the chart
+        use-devel: false  # Use development version of the chart
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/edge-node-agents.git

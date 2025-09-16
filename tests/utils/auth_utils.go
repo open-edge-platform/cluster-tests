@@ -34,20 +34,6 @@ func SetupTestAuthentication(subject string) (*auth.TestAuthContext, error) {
 	return auth.SetupTestAuthentication(subject)
 }
 
-// refreshAuthToken generates a new token with the same generator
-func refreshAuthToken(authContext *auth.TestAuthContext) error {
-	// Add a small delay to ensure different iat (issued at) timestamps
-	time.Sleep(1 * time.Second)
-
-	token, err := auth.GenerateTestJWT(authContext.Subject)
-	if err != nil {
-		return fmt.Errorf("failed to refresh token: %w", err)
-	}
-
-	authContext.Token = token
-	return nil
-}
-
 // AuthenticatedHTTPClient creates an HTTP client with JWT authentication
 func AuthenticatedHTTPClient(authContext *auth.TestAuthContext) *http.Client {
 	client := &http.Client{
