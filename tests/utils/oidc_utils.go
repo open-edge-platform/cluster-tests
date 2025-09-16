@@ -15,8 +15,8 @@ const (
 	DefaultOIDCConfigFile = "oidc-mock-config-dynamic.yaml"
 )
 
-// GenerateOIDCConfigFile generates OIDC mock configuration and writes it to a file
-func GenerateOIDCConfigFile(outputFile string) error {
+// generateOIDCConfigFile generates OIDC mock configuration and writes it to a file
+func generateOIDCConfigFile(outputFile string) error {
 	if outputFile == "" {
 		outputFile = DefaultOIDCConfigFile
 	}

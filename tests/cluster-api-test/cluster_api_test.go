@@ -4,7 +4,6 @@
 package cluster_api_test_test
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -137,7 +136,7 @@ func performClusterOperation(operationType string, authDisabled bool, authContex
 
 // validateJWTWorkflow performs comprehensive JWT authentication validation
 func validateJWTWorkflow(authContext *auth.TestAuthContext, namespace string) {
-	By("Testing JWT-authenticated kubeconfig API endpoint")
+	By("Testing JWT-authenticated kubeconfig API endpoint (primary workflow validation)")
 	Expect(authContext).NotTo(BeNil())
 
 	By("Confirming JWT authentication usage for cluster operations")
@@ -168,7 +167,7 @@ func validateJWTWorkflow(authContext *auth.TestAuthContext, namespace string) {
 		fmt.Println(" JWT authentication successful")
 	}
 
-	By("Testing kubeconfig retrieval")
+	By("Testing kubeconfig retrieval via JWT workflow (no fallback)")
 	testKubeconfigRetrieval(authContext, namespace)
 }
 
@@ -194,55 +193,14 @@ func testConnectivity() {
 	}
 }
 
-// testKubeconfigRetrieval tests kubeconfig API endpoint with fallback
+// testKubeconfigRetrieval tests kubeconfig API endpoint (JWT workflow validation)
 func testKubeconfigRetrieval(authContext *auth.TestAuthContext, namespace string) {
 	resp, err := utils.GetClusterKubeconfigFromAPI(authContext, namespace, utils.ClusterName)
-	if err != nil {
-		fmt.Printf("  Kubeconfig API call failed: %v\n", err)
-		fallbackKubeconfigValidation(namespace)
-		return
-	}
+	Expect(err).NotTo(HaveOccurred(), "Kubeconfig API call should succeed for JWT workflow validation")
 
-	if resp != nil {
-		defer resp.Body.Close()
-		handleKubeconfigResponse(resp, namespace)
-	}
-}
-
-// fallbackKubeconfigValidation provides direct kubeconfig access validation
-func fallbackKubeconfigValidation(namespace string) {
-	By("Falling back to direct kubeconfig validation")
-	kubeConfigName := fmt.Sprintf(TempKubeconfigPattern, utils.ClusterName)
-	cmd := exec.Command("kubectl", "get", "secret", fmt.Sprintf("%s-kubeconfig", utils.ClusterName), "-o", "jsonpath={.data.value}", "-n", namespace)
-	output, err := cmd.Output()
-	if err != nil {
-		fmt.Printf("  Direct kubeconfig access also failed: %v\n", err)
-		return
-	}
-
-	decodedKubeconfig, err := base64.StdEncoding.DecodeString(string(output))
-	if err != nil {
-		fmt.Printf("  Failed to decode kubeconfig: %v\n", err)
-		return
-	}
-
-	err = os.WriteFile(kubeConfigName, decodedKubeconfig, 0600)
-	if err != nil {
-		fmt.Printf("  Failed to write kubeconfig file: %v\n", err)
-		return
-	}
-
-	By("Validating the kubeconfig content")
-	fmt.Printf(" Successfully retrieved kubeconfig via direct method\n")
-
-	By("Testing downstream cluster access with retrieved kubeconfig")
-	err = utils.TestDownstreamClusterAccess(string(decodedKubeconfig))
-	if err != nil {
-		fmt.Printf("  Downstream cluster access failed: %v\n", err)
-	} else {
-		fmt.Printf("DIRECT KUBECONFIG ACCESS SUCCESSFUL: Kubernetes Secret → Downstream K3s Cluster Access\n")
-		fmt.Printf("Note: This bypassed cluster-manager API and JWT authentication\n")
-	}
+	Expect(resp).NotTo(BeNil(), "API response should not be nil")
+	defer resp.Body.Close()
+	handleKubeconfigResponse(resp, namespace)
 }
 
 // handleKubeconfigResponse processes the kubeconfig API response
@@ -252,13 +210,13 @@ func handleKubeconfigResponse(resp *http.Response, namespace string) {
 		fmt.Println(" Successfully retrieved kubeconfig via cluster-manager API")
 		processSuccessfulKubeconfigResponse(resp)
 	case http.StatusNotFound:
-		fmt.Printf("  Cluster '%s' not found in namespace '%s'\n", utils.ClusterName, namespace)
+		Fail(fmt.Sprintf("Cluster '%s' not found in namespace '%s' - JWT workflow validation failed", utils.ClusterName, namespace))
 	case http.StatusUnauthorized:
 		Fail("JWT authentication failed for kubeconfig endpoint")
 	case http.StatusForbidden:
 		Fail("JWT token lacks permissions for kubeconfig endpoint")
 	default:
-		fmt.Printf("  Unexpected response from kubeconfig API: %d\n", resp.StatusCode)
+		Fail(fmt.Sprintf("Unexpected response from kubeconfig API: %d - JWT workflow validation failed", resp.StatusCode))
 	}
 }
 
@@ -278,11 +236,9 @@ func processSuccessfulKubeconfigResponse(resp *http.Response) {
 
 	By("Testing downstream cluster access with retrieved kubeconfig")
 	err = utils.TestDownstreamClusterAccess(kubeconfig.(string))
-	if err != nil {
-		fmt.Printf("  Downstream cluster access failed: %v\n", err)
-	} else {
-		fmt.Printf("COMPLETE JWT WORKFLOW SUCCESSFUL: Token → API → Kubeconfig → Downstream K3s Cluster Access\n")
-	}
+	Expect(err).NotTo(HaveOccurred(), "Downstream cluster access should work with JWT-retrieved kubeconfig")
+
+	fmt.Printf("COMPLETE JWT WORKFLOW SUCCESSFUL: Token → API → Kubeconfig → Downstream K3s Cluster Access\n")
 }
 
 // waitForClusterReady performs common cluster readiness validation

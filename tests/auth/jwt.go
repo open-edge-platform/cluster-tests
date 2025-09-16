@@ -114,8 +114,8 @@ func encodeBase64URLBigInt(i *big.Int) string {
 	return base64.RawURLEncoding.EncodeToString(i.Bytes())
 }
 
-// GetPublicKeyPEM returns the public key in PEM format for OIDC mock server
-func GetPublicKeyPEM() (string, error) {
+// getPublicKeyPEM returns the public key in PEM format for OIDC mock server
+func getPublicKeyPEM() (string, error) {
 	_, publicKey, err := getOrGenerateKeys()
 	if err != nil {
 		return "", err
@@ -134,8 +134,8 @@ func GetPublicKeyPEM() (string, error) {
 	return string(pubKeyPEM), nil
 }
 
-// GetJWKS returns the public key in JWKS format for OIDC discovery
-func GetJWKS() (string, error) {
+// getJWKS returns the public key in JWKS format for OIDC discovery
+func getJWKS() (string, error) {
 	_, publicKey, err := getOrGenerateKeys()
 	if err != nil {
 		return "", err
@@ -293,12 +293,12 @@ func (g *TestJWTGenerator) ValidateToken(tokenString string) (jwt.MapClaims, err
 
 // GetPublicKeyJWKS returns the public key in JWKS format (backward compatibility)
 func (g *TestJWTGenerator) GetPublicKeyJWKS() (string, error) {
-	return GetJWKS()
+	return getJWKS()
 }
 
 // GetPublicKeyPEM returns the public key in PEM format (backward compatibility)
 func (g *TestJWTGenerator) GetPublicKeyPEM() (string, error) {
-	return GetPublicKeyPEM()
+	return getPublicKeyPEM()
 }
 
 // GetPrivateKeyPEM returns the private key in PEM format (backward compatibility)
@@ -390,7 +390,7 @@ func GenerateTestJWT(username string) (string, error) {
 // with runtime-generated JWKS, replacing the bash script implementation
 func GenerateOIDCMockConfig() (string, error) {
 	// Generate dynamic JWKS using the same auth package as JWT tests
-	jwks, err := GetJWKS()
+	jwks, err := getJWKS()
 	if err != nil {
 		return "", fmt.Errorf("failed to generate JWKS: %w", err)
 	}

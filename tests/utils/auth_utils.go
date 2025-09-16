@@ -34,8 +34,8 @@ func SetupTestAuthentication(subject string) (*auth.TestAuthContext, error) {
 	return auth.SetupTestAuthentication(subject)
 }
 
-// RefreshAuthToken generates a new token with the same generator
-func RefreshAuthToken(authContext *auth.TestAuthContext) error {
+// refreshAuthToken generates a new token with the same generator
+func refreshAuthToken(authContext *auth.TestAuthContext) error {
 	// Add a small delay to ensure different iat (issued at) timestamps
 	time.Sleep(1 * time.Second)
 
