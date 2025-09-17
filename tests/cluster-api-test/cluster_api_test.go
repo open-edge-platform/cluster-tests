@@ -99,39 +99,37 @@ func cleanupPortForwarding(portForwardCmd, gatewayPortForward *exec.Cmd) {
 func performClusterOperation(operationType string, authDisabled bool, authContext *auth.TestAuthContext,
 	namespace, nodeGUID, templateName string) error {
 
-	switch operationType {
-	case "import":
-		By("Importing the cluster template")
-	case "create":
-		By("Creating the k3s cluster")
-	case "delete":
-		By("Deleting the cluster")
-	default:
-		return fmt.Errorf("unknown operation type: %s", operationType)
-	}
-
 	if !authDisabled {
 		fmt.Printf(" Using JWT authentication for cluster %s\n", operationType)
 		switch operationType {
 		case "import":
+			By("Importing the cluster template")
 			return utils.ImportClusterTemplateAuthenticated(authContext, namespace, templateName)
 		case "create":
+			By("Creating the k3s cluster")
 			return utils.CreateClusterAuthenticated(authContext, namespace, nodeGUID, templateName)
 		case "delete":
+			By("Deleting the cluster")
 			return utils.DeleteClusterAuthenticated(authContext, namespace)
+		default:
+			return fmt.Errorf("unknown operation type: %s", operationType)
 		}
 	} else {
 		fmt.Printf(" Using non-authenticated cluster %s\n", operationType)
 		switch operationType {
 		case "import":
+			By("Importing the cluster template")
 			return utils.ImportClusterTemplate(namespace, templateName)
 		case "create":
+			By("Creating the k3s cluster")
 			return utils.CreateCluster(namespace, nodeGUID, templateName)
 		case "delete":
+			By("Deleting the cluster")
 			return utils.DeleteCluster(namespace)
+		default:
+			return fmt.Errorf("unknown operation type: %s", operationType)
 		}
 	}
-	return nil
 }
 
 // validateJWTWorkflow performs comprehensive JWT authentication validation
