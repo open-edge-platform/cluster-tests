@@ -56,8 +56,8 @@ github.com/onsi/ginkgo/v2 v2.23.4 h1:ktYTpKJAVZnDT4VjxSbiBenUjmlL/5QkBEocaWXiQus
 github.com/onsi/ginkgo/v2 v2.23.4/go.mod h1:Bt66ApGPBFzHyR+JO10Zbt0Gsp4uWxu5mIOTusL46e8=
 github.com/onsi/gomega v1.37.0 h1:CdEG8g0S133B4OswTDC/5XPSzE1OeP29QOioj2PID2Y=
 github.com/onsi/gomega v1.37.0/go.mod h1:8D9+Txp43QWKhM24yyOBEdpkzN8FvJyAwecBgsU4KU0=
-github.com/open-edge-platform/cluster-manager/v2 v2.1.3 h1:dvHnQtrm2K+h6EHVr4GVTVYaszCch9y2uXLEp/5UQ38=
-github.com/open-edge-platform/cluster-manager/v2 v2.1.3/go.mod h1:uX2Op2SieO/xqL06+QUFkBOrHQEAKO6yl+8jG7gCwpY=
+github.com/open-edge-platform/cluster-manager/v2 v2.1.15 h1:24ag+PNjT58CcMBmRYfRE4HTLm5RGI/NDLuEkJUFLqQ=
+github.com/open-edge-platform/cluster-manager/v2 v2.1.15/go.mod h1:S6AL41ApnSn4hXm1WHvjOtdKhB0R+85EkMy3zUteUXk=
 github.com/perimeterx/marshmallow v1.1.5 h1:a2LALqQ1BlHM8PZblsDdidgv1mWi1DgC2UmX50IvK2s=
 github.com/perimeterx/marshmallow v1.1.5/go.mod h1:dsXbUu8CRzfYP5a87xpp0xq9S3u0Vchtcl8we9tYaXw=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
