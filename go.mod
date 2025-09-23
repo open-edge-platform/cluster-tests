@@ -8,7 +8,7 @@ require (
 	github.com/magefile/mage v1.15.0
 	github.com/onsi/ginkgo/v2 v2.23.4
 	github.com/onsi/gomega v1.37.0
-	github.com/open-edge-platform/cluster-manager/v2 v2.1.3
+	github.com/open-edge-platform/cluster-manager/v2 v2.1.16
 	gopkg.in/yaml.v3 v3.0.1
 )
 
