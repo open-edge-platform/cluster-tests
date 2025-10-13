@@ -18,7 +18,14 @@ tests/**/*.test
 ci
 
 # Test artifact
+tests/**/.kube/
 tests/smoke-test/kubeconfig.yaml
 tests/functional-test/kubeconfig.yaml
 tests/cluster-api-test/kubeconfig.yaml
 tests/robustness-test/kubeconfig.yaml
+
+# Generated OIDC mock configuration (created at runtime)
+configs/oidc-mock-dynamic.yaml
+
+# Dynamic JWT keys (generated at runtime)
+/tmp/cluster-tests-dynamic-keys.pem
