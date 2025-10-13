@@ -153,8 +153,8 @@ components:
         package: "edge-orch/cluster/charts/cluster-manager"
         namespace: "default"
         version: ""  # Use the latest version when nil
-        use-devel: false  # Use development version of the chart
-        overrides: "--set clusterManager.extraArgs.disable-mt=true --set clusterManager.extraArgs.disable-auth=true --set clusterManager.extraArgs.disable-inventory=true --set templateController.extraArgs[0]='--webhook-enabled=true' --set webhookService.enabled=true"
+        use-devel: false # Use development version of the chart
+        overrides: "--set clusterManager.extraArgs.disable-multi-tenancy=true --set clusterManager.extraArgs.disable-auth=true --set clusterManager.extraArgs.disable-inventory=true --set templateController.extraArgs[0]='--webhook-enabled=true' --set webhookService.enabled=true"
       - url: "oci://registry-rs.edgeorchestration.intel.com"
         release-name: "cluster-template-crd"
         package: "edge-orch/cluster/charts/cluster-template-crd"
