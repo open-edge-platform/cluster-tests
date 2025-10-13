@@ -1,13 +1,14 @@
 module github.com/open-edge-platform/cluster-tests
 
-go 1.24.1
+go 1.24.8
 
 require (
 	github.com/bitfield/script v0.24.1
+	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/magefile/mage v1.15.0
-	github.com/onsi/ginkgo/v2 v2.25.1
+	github.com/onsi/ginkgo/v2 v2.25.3
 	github.com/onsi/gomega v1.38.2
-	github.com/open-edge-platform/cluster-manager/v2 v2.1.3
+	github.com/open-edge-platform/cluster-manager/v2 v2.2.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
