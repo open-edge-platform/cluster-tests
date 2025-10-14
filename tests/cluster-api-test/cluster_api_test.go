@@ -432,6 +432,7 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 			Expect(err).NotTo(HaveOccurred())
 			Eventually(connectionSucceeded).Should(BeTrue())
 
+			var clusterCreateEndTime time.Time
 			clusterCreateEndTime = time.Now()
 			totalTime := clusterCreateEndTime.Sub(clusterCreateStartTime)
 			fmt.Printf("\033[32mTotal time from cluster creation to fully active: %v 🚀 ✅\033[0m\n", totalTime)
