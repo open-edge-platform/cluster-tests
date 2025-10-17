@@ -38,6 +38,11 @@ jobs:
           token: ${{ secrets.SYS_ORCH_GITHUB }}
           persist-credentials: false
 
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.24.8'
+
       - name: Bootstrap CI environment
         uses: ./ci/.github/actions/bootstrap
         with:
