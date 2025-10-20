@@ -1,6 +1,6 @@
 module github.com/open-edge-platform/cluster-tests
 
-go 1.24.4
+go 1.24.8
 
 require (
 	github.com/bitfield/script v0.24.1
@@ -8,7 +8,7 @@ require (
 	github.com/magefile/mage v1.15.0
 	github.com/onsi/ginkgo/v2 v2.26.0
 	github.com/onsi/gomega v1.38.2
-	github.com/open-edge-platform/cluster-manager/v2 v2.2.0
+	github.com/open-edge-platform/cluster-manager/v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 
