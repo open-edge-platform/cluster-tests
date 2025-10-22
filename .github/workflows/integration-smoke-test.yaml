@@ -34,7 +34,7 @@ jobs:
         with:
           repository: open-edge-platform/cluster-tests
           path: cluster-tests
-          ref: ${{ github.head_ref }} # Checkout the branch that triggered the workflow to avoid detached HEAD
+          ref: ${{ github.head_ref }}  # Checkout the branch that triggered the workflow to avoid detached HEAD
           token: ${{ secrets.SYS_ORCH_GITHUB }}
           persist-credentials: false
 
