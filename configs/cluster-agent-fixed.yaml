@@ -1,0 +1,339 @@
+# SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Cluster Agent Pod Configuration
+# This cluster-agent is configured to connect to the CAPIntel Infrastructure Provider
+# through a TLS termination proxy (grpc-tls-proxy-simple:50021).
+# IMPORTANT: Deploy configs/tls-proxy-simple.yaml BEFORE deploying this cluster-agent!
+# The postStart hook fixes the source configuration and sets up proper tokens
+# for CI testing environment.
+
+# TODO Versions are hardcoded for CI testing purposes - replace with dynamic values as needed
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cluster-agent-0
+  namespace: default
+  labels:
+    app: cluster-agent
+spec:
+  securityContext:
+    runAsNonRoot: false  # Required for systemd operation
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+  - name: cluster-agent
+    image: 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/infra/enic:0.8.5
+    imagePullPolicy: IfNotPresent
+    envFrom:
+    - configMapRef:
+        name: proxy-config
+    env:
+    - name: NODE_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: spec.nodeName
+    - name: SYSTEM_UUID_OVERRIDE
+      value: "12345678-1234-1234-1234-123456789012"
+    - name: ALLOW_MISSING_AUTH_CLIENTS
+      value: "cluster-agent"
+    - name: DISABLE_AUTH
+      value: "true"
+    - name: OIDC_TLS_INSECURE_SKIP_VERIFY
+      value: "true"
+    - name: _ORCH_FQDN_
+      value: "localhost"
+    - name: _ORCH_USER_
+      value: "test-user"
+    - name: _ORCH_PASS_
+      value: "test-pass"
+    - name: _ORCH_PROJECT_
+      value: "53cd37b9-66b2-4cc8-b080-3722ed7af64a"
+    - name: _OAM_SERVER_ADDRESS_
+      value: "localhost:5991"
+    - name: _CADDY_VERSION_
+      value: "2.7.6"
+    - name: _NODE_AGENT_VERSION_
+      value: "1.7.3"
+    - name: _CLUSTER_AGENT_VERSION_
+      value: "1.7.4"
+    - name: _PLATFORM_UPDATE_AGENT_VERSION_
+      value: "1.5.2"
+    - name: _PLATFORM_TELEMETRY_AGENT_VERSION_
+      value: "1.4.0"
+    - name: _HDA_AGENT_VERSION_
+      value: "1.7.1"
+    - name: _POA_AGENT_VERSION_
+      value: "1.9.0"
+    - name: _TRTL_VERSION_
+      value: "4.2.8.6-1"
+    - name: _INBM_CLOUDADAPTER_AGENT_VERSION_
+      value: "4.2.8.6-1"
+    - name: _INBM_DISPATCHER_AGENT_VERSION_
+      value: "4.2.8.6-1"
+    - name: _INBM_CONFIGURATION_AGENT_VERSION_
+      value: "4.2.8.6-1"
+    - name: _INBM_TELEMETRY_AGENT_VERSION_
+      value: "4.2.8.6-1"
+    - name: _INBM_DIAGNOSTIC_AGENT_VERSION_
+      value: "4.2.8.6-1"
+    - name: _INBC_PROGRAM_VERSION_
+      value: "4.2.8.6-1"
+    - name: _MQTT_VERSION_
+      value: "4.2.8.6-1"
+    - name: _TPM_PROVISION_VERSION_
+      value: "4.2.8.6-1"
+    - name: DEVICE_GUID
+      value: "12345678-1234-1234-1234-123456789012"
+    # JWT token for authentication (generated dynamically at deployment time)
+    - name: CI_JWT_TOKEN
+      value: "$CI_JWT_TOKEN"
+    # Environment variables for gRPC client metadata
+    - name: GRPC_CLIENT_ID
+      value: "cluster-agent"
+    - name: CLIENT_ID
+      value: "cluster-agent"
+    - name: CLIENT_NAME
+      value: "cluster-agent"
+    ports:
+    - containerPort: 8080
+    - containerPort: 5991
+    securityContext:
+      # WARNING: privileged: true is required for:
+      # 1. systemd operation within container
+      # 2. K3s cluster deployment and management
+      # 3. Edge agent installation and configuration
+      # This container acts as a Virtual Edge Node requiring host-level access
+      # This is used ONLY for test purpose
+      privileged: true
+      # Note: allowPrivilegeEscalation cannot be set to false when privileged=true
+      # Note: Temporary workaround for VEN-ENiC requiring writable /etc
+      # This is needed because the agents.sh script writes proxy config to /etc/environment
+      # This is used ONLY for test purpose
+      # TODO: Make this more granular once we identify all required writable paths
+      readOnlyRootFilesystem: false
+      capabilities:
+        drop:
+        - ALL
+      seccompProfile:
+        type: RuntimeDefault
+    resources:
+      limits:
+        cpu: "2"
+        memory: "4Gi"
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+
+    lifecycle:
+      postStart:
+        exec:
+          command:
+          - /bin/bash
+          - -c
+          - |
+            (
+              sleep 5
+              # Create PUA proxy files with GitLeaks-safe dummy PGP key
+              mkdir -p /opt/files-edge-orch
+              echo '-----BEGIN PGP PUBLIC KEY BLOCK-----' > /opt/files-edge-orch/edge-node.asc
+              echo '' >> /opt/files-edge-orch/edge-node.asc
+              # Generate dummy base64 content to avoid GitLeaks detection
+              echo "$(echo 'DUMMY-TEST-PGP-KEY-CONTENT-FOR-CI-TESTING-ONLY' | base64)" >> /opt/files-edge-orch/edge-node.asc
+              echo 'TEST EDGE NODE PUBLIC KEY FOR TESTING PURPOSES ONLY' >> /opt/files-edge-orch/edge-node.asc
+              echo '-----END PGP PUBLIC KEY BLOCK-----' >> /opt/files-edge-orch/edge-node.asc
+
+              # Configure Caddy for local file serving
+              echo ':60444 {' > /etc/caddy/pua.caddy
+              echo '    bind 127.0.0.1' >> /etc/caddy/pua.caddy
+              echo '    root * /opt' >> /etc/caddy/pua.caddy
+              echo '    file_server' >> /etc/caddy/pua.caddy
+              echo '}' >> /etc/caddy/pua.caddy
+
+              echo 'import /etc/caddy/*.caddy' > /etc/caddy/Caddyfile
+
+              # Fix Caddy service configuration
+              cp /lib/systemd/system/caddy.service /lib/systemd/system/caddy.service.backup
+              sed -i 's|ExecStart=/usr/bin/caddy run --environ --config /etc/caddy/Caddyfile|ExecStart=/usr/bin/caddy run --environ --config /etc/caddy/Caddyfile --adapter caddyfile|' /lib/systemd/system/caddy.service
+              sed -i 's|ExecReload=/usr/bin/caddy reload --config /etc/caddy/Caddyfile --force|ExecReload=/usr/bin/caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile --force|' /lib/systemd/system/caddy.service
+
+              # Fix file permissions
+              chown -R caddy:caddy /etc/caddy/
+              chmod 755 /etc/caddy/
+              chmod 644 /etc/caddy/*
+
+              systemctl daemon-reload
+
+              # Setup environment
+              export _ORCH_FQDN_=localhost
+              export _NODE_AGENT_VERSION_=1.7.3
+              export _CLUSTER_AGENT_VERSION_=1.7.4
+              export _HDA_AGENT_VERSION_=1.7.1
+              export _POA_AGENT_VERSION_=1.9.0
+              export _TRTL_VERSION_=4.2.8.6-1
+              export _INBM_CLOUDADAPTER_AGENT_VERSION_=4.2.8.6-1
+              export _INBM_DISPATCHER_AGENT_VERSION_=4.2.8.6-1
+              export _INBM_CONFIGURATION_AGENT_VERSION_=4.2.8.6-1
+              export _INBM_TELEMETRY_AGENT_VERSION_=4.2.8.6-1
+              export _INBM_DIAGNOSTIC_AGENT_VERSION_=4.2.8.6-1
+              export _INBC_PROGRAM_VERSION_=4.2.8.6-1
+              export _MQTT_VERSION_=4.2.8.6-1
+              export _TPM_PROVISION_VERSION_=4.2.8.6-1
+              export _PLATFORM_UPDATE_AGENT_VERSION_=1.5.2
+              export _PLATFORM_TELEMETRY_AGENT_VERSION_=1.4.0
+              export _CADDY_VERSION_=2.7.6
+
+              envsubst < /etc/agents_env.tpl > /opt/enic/bin/agents_env.sh
+
+              # Fix Intel certificate download issue by creating dummy certificate file
+              mkdir -p /usr/local/share/ca-certificates
+              touch /usr/local/share/ca-certificates/IntelSHA256RootCA-base64.crt
+
+              # Create directories and tokens
+              mkdir -p /etc/intel_edge_node/client-credentials
+              mkdir -p /etc/intel_edge_node/tokens/cluster-agent
+              mkdir -p /etc/intel_edge_node/tokens/node-agent
+              mkdir -p etc/intel_edge_node/client-credentials
+
+              echo 'mock_client_secret_for_testing' > /etc/intel_edge_node/client-credentials/client_secret
+              # Note: JWT_TOKEN will be created after agents.sh completes
+              touch etc/intel_edge_node/client-credentials/dummy
+              chmod 600 /etc/intel_edge_node/client-credentials/client_secret
+              chmod 600 /etc/intel_edge_node/tokens/cluster-agent/access_token
+              chmod 600 /etc/intel_edge_node/tokens/node-agent/access_token
+              chmod 600 etc/intel_edge_node/client-credentials/dummy
+
+              # Fix agents.sh
+              if [ -f /opt/enic/bin/agents.sh ]; then
+                  cp /opt/enic/bin/agents.sh /opt/enic/bin/agents.sh.backup
+                  sed -i 's|caddy_\${CADDY_VERSION}_linux_amd64.deb|caddy_2.7.6_linux_amd64.deb|g' /opt/enic/bin/agents.sh
+                  sed -i 's|node-agent_\${NODE_AGENT_VERSION}_amd64.deb|node-agent_1.7.3_amd64.deb|g' /opt/enic/bin/agents.sh
+                  sed -i 's|cluster-agent_\${CLUSTER_AGENT_VERSION}_amd64.deb|cluster-agent_1.7.4_amd64.deb|g' /opt/enic/bin/agents.sh
+                  sed -i 's|hardware-discovery-agent_\${HDA_AGENT_VERSION}_amd64.deb|hardware-discovery-agent_1.7.1_amd64.deb|g' /opt/enic/bin/agents.sh
+                  sed -i 's|platform-observability-agent_\${POA_AGENT_VERSION}_amd64.deb|platform-observability-agent_1.9.0_amd64.deb|g' /opt/enic/bin/agents.sh
+                  sed -i 's|platform-update-agent_\${PLATFORM_UPDATE_AGENT_VERSION}_amd64.deb|platform-update-agent_1.5.2_amd64.deb|g' /opt/enic/bin/agents.sh
+                  sed -i 's|platform-telemetry-agent_\${PLATFORM_TELEMETRY_AGENT_VERSION}_amd64.deb|platform-telemetry-agent_1.4.0_amd64.deb|g' /opt/enic/bin/agents.sh
+                  sed -i 's|trtl-\${TRTL_VERSION}.EVAL.deb|trtl-4.2.8.6-1.EVAL.deb|g' /opt/enic/bin/agents.sh
+                  sed -i 's|inbm-cloudadapter-agent-\${INBM_CLOUDADAPTER_AGENT_VERSION}.EVAL.deb|inbm-cloudadapter-agent-4.2.8.6-1.EVAL.deb|g' /opt/enic/bin/agents.sh
+                  sed -i 's|inbm-dispatcher-agent-\${INBM_DISPATCHER_AGENT_VERSION}.EVAL.deb|inbm-dispatcher-agent-4.2.8.6-1.EVAL.deb|g' /opt/enic/bin/agents.sh
+                  sed -i 's|inbm-configuration-agent-\${INBM_CONFIGURATION_AGENT_VERSION}.EVAL.deb|inbm-configuration-agent-4.2.8.6-1.EVAL.deb|g' /opt/enic/bin/agents.sh
+                  sed -i 's|inbm-telemetry-agent-\${INBM_TELEMETRY_AGENT_VERSION}.EVAL.deb|inbm-telemetry-agent-4.2.8.6-1.EVAL.deb|g' /opt/enic/bin/agents.sh
+                  sed -i 's|inbm-diagnostic-agent-\${INBM_DIAGNOSTIC_AGENT_VERSION}.EVAL.deb|inbm-diagnostic-agent-4.2.8.6-1.EVAL.deb|g' /opt/enic/bin/agents.sh
+                  sed -i 's|inbc-program-\${INBC_PROGRAM_VERSION}.EVAL.deb|inbc-program-4.2.8.6-1.EVAL.deb|g' /opt/enic/bin/agents.sh
+                  sed -i 's|mqtt-\${MQTT_VERSION}.deb|mqtt-4.2.8.6-1.deb|g' /opt/enic/bin/agents.sh
+                  sed -i 's|tpm-provision-\${TPM_PROVISION_VERSION}.deb|tpm-provision-4.2.8.6-1.deb|g' /opt/enic/bin/agents.sh
+
+                  sed -i '293s/.*/    sed -i \"s|GUID: '\''.*'\''|GUID: '\''12345678-1234-1234-1234-123456789012'\''|\" \/etc\/edge-node\/node\/confs\/platform-update-agent.yaml/' /opt/enic/bin/agents.sh
+                  sed -i '323s/.*/    sed -i \"s|GUID: '\''.*'\''|GUID: '\''12345678-1234-1234-1234-123456789012'\''|\" \/etc\/edge-node\/node\/confs\/cluster-agent.yaml/' /opt/enic/bin/agents.sh
+                  sed -i '335s/.*/    sed -i \"s|GUID: '\''.*'\''|GUID: '\''12345678-1234-1234-1234-123456789012'\''|\" \/etc\/edge-node\/node\/confs\/node-agent.yaml/' /opt/enic/bin/agents.sh
+                  sed -i '301s/.*/  sed -i \"s|nodeid: .*|nodeid: 12345678-1234-1234-1234-123456789012|\" \/etc\/edge-node\/node\/confs\/platform-telemetry-agent.yaml/' /opt/enic/bin/agents.sh
+
+                  # Add K3s bootstrap fixes to agents.sh
+                  echo '' >> /opt/enic/bin/agents.sh
+                  echo '# K3s Bootstrap Fixes for containerized environment' >> /opt/enic/bin/agents.sh
+                  echo 'echo "Applying K3s bootstrap fixes..."' >> /opt/enic/bin/agents.sh
+                  echo '' >> /opt/enic/bin/agents.sh
+                  echo '# Fix AppArmor permissions for K3s bootstrap script' >> /opt/enic/bin/agents.sh
+                  echo 'sed -i "/owner \/run\/systemd\/private rw,/a \  \/opt\/install.sh rwix," /etc/apparmor.d/opt.edge-node.bin.cluster-agent' >> /opt/enic/bin/agents.sh
+                  echo 'apparmor_parser -r /etc/apparmor.d/opt.edge-node.bin.cluster-agent' >> /opt/enic/bin/agents.sh
+                  echo '' >> /opt/enic/bin/agents.sh
+                  echo '# Setup K3s native snapshotter configuration hook' >> /opt/enic/bin/agents.sh
+                  echo 'mkdir -p /etc/systemd/system/k3s.service.d' >> /opt/enic/bin/agents.sh
+                  echo 'cat > /etc/systemd/system/k3s.service.d/snapshotter-fix.conf << EOF' >> /opt/enic/bin/agents.sh
+                  echo '[Service]' >> /opt/enic/bin/agents.sh
+                  echo 'ExecStartPre=/bin/bash -c "if [ -f /etc/rancher/k3s/config.yaml ] && ! grep -q snapshotter: /etc/rancher/k3s/config.yaml; then echo snapshotter: native >> /etc/rancher/k3s/config.yaml; fi"' >> /opt/enic/bin/agents.sh
+                  echo 'EOF' >> /opt/enic/bin/agents.sh
+                  echo 'systemctl daemon-reload' >> /opt/enic/bin/agents.sh
+                  sed -i '311s/.*/  sed -i \"s|EdgeNodeID .*|EdgeNodeID 12345678-1234-1234-1234-123456789012|\" \/etc\/fluent-bit\/fluent-bit.conf/' /opt/enic/bin/agents.sh
+                  
+                  # Update cluster-agent to use gRPC TLS proxy endpoint in agents.sh
+                  sed -i 's|cluster-orch-node.localhost:443|grpc-tls-proxy-simple:50021|g' /opt/enic/bin/agents.sh
+                  
+                  # Pre-download K3s components before running agents.sh
+                  echo "Pre-downloading K3s components..."
+                  mkdir -p /var/lib/rancher/k3s/agent/images/
+                  curl -L -o /var/lib/rancher/k3s/agent/images/k3s-airgap-images-amd64.tar.zst "https://github.com/k3s-io/k3s/releases/download/v1.32.0+k3s1/k3s-airgap-images-amd64.tar.zst" || echo "Warning: K3s airgap images download failed"
+                  curl -L -o /usr/local/bin/k3s https://github.com/k3s-io/k3s/releases/download/v1.32.0+k3s1/k3s || echo "Warning: K3s binary download failed"
+                  chmod +x /usr/local/bin/k3s || true
+                  curl -L -o /opt/install.sh https://get.k3s.io || echo "Warning: K3s install script download failed"
+                  chmod +x /opt/install.sh || true
+                  echo "K3s components pre-download completed"
+                  
+                  # Run the agents installation
+                  cd /opt/enic/bin && bash agents.sh
+                  
+                  # Create JWT token files after agents.sh completes
+                  echo "Creating JWT token files..."
+                  mkdir -p /etc/intel_edge_node/tokens/cluster-agent
+                  mkdir -p /etc/intel_edge_node/tokens/node-agent
+                  echo "$CI_JWT_TOKEN" > /etc/intel_edge_node/tokens/cluster-agent/access_token
+                  echo "$CI_JWT_TOKEN" > /etc/intel_edge_node/tokens/node-agent/access_token
+                  chmod 600 /etc/intel_edge_node/tokens/cluster-agent/access_token
+                  chmod 600 /etc/intel_edge_node/tokens/node-agent/access_token
+                  chown node-agent:bm-agents /etc/intel_edge_node/tokens/cluster-agent/access_token
+                  chown node-agent:bm-agents /etc/intel_edge_node/tokens/node-agent/access_token
+                  echo "JWT token files created successfully"
+                  
+                  # Fix K3s snapshotter for container environment compatibility
+                  echo "Fixing K3s snapshotter configuration for container environment..."
+                  if [ -f /etc/systemd/system/k3s.service ]; then
+                      # Stop K3s service if running
+                      systemctl stop k3s 2>/dev/null || true
+                      
+                      # Update K3s service to use native snapshotter
+                      sed -i 's|ExecStart=/usr/local/bin/k3s.*server.*|ExecStart=/usr/local/bin/k3s server --snapshotter=native|g' /etc/systemd/system/k3s.service
+                      
+                      # Reload systemd and restart K3s
+                      systemctl daemon-reload
+                      systemctl start k3s || true
+                      echo "K3s snapshotter fixed to use native driver"
+                  fi
+                  
+                  # Double-check and fix cluster-agent configuration after installation
+                  timeout 60 bash -c 'while [ ! -f /etc/edge-node/node/confs/cluster-agent.yaml ] || ! grep -q "cluster-orch-node.localhost:443" /etc/edge-node/node/confs/cluster-agent.yaml; do sleep 2; done' || echo "Warning: Configuration not ready"
+                  if [ -f /etc/edge-node/node/confs/cluster-agent.yaml ] && grep -q 'cluster-orch-node.localhost:443' /etc/edge-node/node/confs/cluster-agent.yaml; then
+                      sed -i 's|cluster-orch-node.localhost:443|grpc-tls-proxy-simple:50021|g' /etc/edge-node/node/confs/cluster-agent.yaml
+                      systemctl restart cluster-agent
+                  fi
+                  
+                  # Add TLS proxy certificate to trust store
+                  echo "Adding TLS proxy certificate to trust store..."
+                  timeout 30 bash -c 'while ! nc -z grpc-tls-proxy-simple 50021; do sleep 1; done' || echo "Warning: TLS proxy not reachable"
+                  if timeout 10 bash -c 'openssl s_client -connect grpc-tls-proxy-simple:50021 -servername grpc-tls-proxy-simple < /dev/null 2>/dev/null | openssl x509 > /usr/local/share/ca-certificates/grpc-proxy.crt'; then
+                      update-ca-certificates
+                      echo "TLS proxy certificate added successfully"
+                  else
+                      echo "Warning: Failed to obtain TLS proxy certificate"
+                  fi
+                  
+                  # Restart cluster-agent to pick up new token and certificate
+                  systemctl restart cluster-agent || true
+                  echo "Cluster-agent restarted with new JWT token and TLS certificate"
+              fi
+
+              echo "Setup complete"
+            ) > /tmp/async_setup.log 2>&1 &
+  restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cluster-agent
+  namespace: default
+  labels:
+    app: cluster-agent
+spec:
+  selector:
+    app: cluster-agent
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  - name: oam
+    port: 5991
+    targetPort: 5991
+    protocol: TCP
+  type: ClusterIP

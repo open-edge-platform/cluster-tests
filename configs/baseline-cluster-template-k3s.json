@@ -33,9 +33,12 @@
             },
             "preK3sCommands": [
               "mkdir -p /etc/systemd/system/k3s-server.service.d",
-              "echo '[Service]\nEnvironmentFile=/etc/environment' > /etc/systemd/system/k3s-server.service.d/override.conf"
+              "echo '[Service]\nEnvironmentFile=/etc/environment' > /etc/systemd/system/k3s-server.service.d/override.conf",
+              "export INSTALL_K3S_BIN_DIR_READ_ONLY=true"
             ],
-            "postK3sCommands": [],
+            "postK3sCommands": [
+              "mkdir -p /run/cluster-api && echo success > /run/cluster-api/bootstrap-success.complete"
+            ],
             "serverConfig": {
               "kubeApiServerArg": [
                 "--tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
