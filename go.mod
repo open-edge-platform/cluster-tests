@@ -6,7 +6,7 @@ require (
 	github.com/bitfield/script v0.24.1
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/magefile/mage v1.15.0
-	github.com/onsi/ginkgo/v2 v2.26.0
+	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
 	github.com/open-edge-platform/cluster-manager/v2 v2.2.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -33,7 +33,6 @@ require (
 	github.com/oasdiff/yaml3 v0.0.0-20250309153720-d2182401db90 // indirect
 	github.com/perimeterx/marshmallow v1.1.5 // indirect
 	github.com/woodsbury/decimal128 v1.3.0 // indirect
-	go.uber.org/automaxprocs v1.6.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/mod v0.28.0 // indirect
 	golang.org/x/net v0.44.0 // indirect
