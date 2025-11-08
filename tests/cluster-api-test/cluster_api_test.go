@@ -421,9 +421,9 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 		JustAfterEach(func() {
 			if CurrentSpecReport().Failed() {
 				utils.LogCommandOutput("kubectl", []string{"exec", "cluster-agent-0", "--",
-					"/usr/local/bin/kubectl", "--kubeconfig", "/etc/rancher/k3s/k3s.yaml", "get", "pods", "-A"})
+					"/usr/local/bin/k3s", "kubectl", "--kubeconfig", "/etc/rancher/k3s/k3s.yaml", "get", "pods", "-A"})
 				utils.LogCommandOutput("kubectl", []string{"exec", "cluster-agent-0", "--",
-					"/usr/local/bin/kubectl", "--kubeconfig", "/etc/rancher/k3s/k3s.yaml", "describe", "pod", "-n", "kube-system", "connect-agent-cluster-agent-0"})
+					"/usr/local/bin/k3s", "kubectl", "--kubeconfig", "/etc/rancher/k3s/k3s.yaml", "describe", "pod", "-n", "kube-system", "connect-agent-cluster-agent-0"})
 			}
 		})
 	})
