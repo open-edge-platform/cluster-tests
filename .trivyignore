@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: 2025 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Privileged Container Exception for VEN-ENiC Virtual Edge Node
+# File: configs/cluster-agent-fixed.yaml
+# Rule: KSV017 - Container should set 'securityContext.privileged' to false
+# The cluster-agent container requires privileged mode for:
+#   1. systemd operation within the container
+#   2. K3s cluster deployment and management  
+#   3. Edge agent installation and configuration
+#   4. Host-level access for Virtual Edge Node functionality
+# Mitigation: Container has other security hardening
+KSV017
+
+# Read-Only Root Filesystem Exception for VEN-ENiC Virtual Edge Node  
+# File: configs/cluster-agent-fixed.yaml  
+# Rule: KSV014 - Container should set 'securityContext.readOnlyRootFilesystem' to true
+# Justification: The cluster-agent container requires writable filesystem for:
+#   1. VEN-ENiC agents.sh script writing proxy config to /etc/environment
+#   2. K3s cluster deployment requiring filesystem modifications
+#   3. Edge agent installation and configuration requiring writable paths
+# Mitigation: Container is isolated and has other security hardening
+KSV014
