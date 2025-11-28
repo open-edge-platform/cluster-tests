@@ -27,7 +27,7 @@ jobs:
           repository: open-edge-platform/orch-ci
           path: ci
           ref: "main"
-          token: ${{ secrets.SYS_ORCH_GITHUB }}
+          token: ${{ secrets.SYS_EMF_GH_TOKEN || github.token }}
           persist-credentials: false
 
       - name: Checkout cluster-tests
@@ -36,13 +36,13 @@ jobs:
           repository: open-edge-platform/cluster-tests
           path: cluster-tests
           ref: ${{ github.head_ref }}  # Checkout the branch that triggered the workflow to avoid detached HEAD
-          token: ${{ secrets.SYS_ORCH_GITHUB }}
+          token: ${{ secrets.SYS_EMF_GH_TOKEN || github.token }}
           persist-credentials: false
 
       - name: Bootstrap CI environment
         uses: ./ci/.github/actions/bootstrap
         with:
-          gh_token: ${{ secrets.SYS_ORCH_GITHUB }}
+          gh_token: ${{ secrets.SYS_EMF_GH_TOKEN || github.token }}
 
       - name: Run make test with additional config
         run: |
