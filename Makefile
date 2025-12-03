@@ -13,6 +13,9 @@ CAPI_K3S_FORK_REPO_URL ?=
 CAPI_K3S_VERSION ?= v0.3.0
 CAPI_OPERATOR_HELM_VERSION ?= 0.23.0
 
+# K3s runtime version for cluster deployment
+K3S_RUNTIME_VERSION ?= v1.32.0+k3s1
+
 # Providers versions/URLs as needed
 export CAPI_CORE_VERSION="v1.10.7"
 export CAPI_RKE2_VERSION="v0.14.0"
@@ -39,8 +42,6 @@ CAPI_K3S_CONTROLPLANE_URL = $(if $(CAPI_K3S_FORK_REPO_URL),$(CAPI_K3S_FORK_REPO_
 # Set the default target
 .DEFAULT_GOAL := all
 
-.PHONY: all
-all: help
 
 ##@ General
 
@@ -78,6 +79,10 @@ deps: ## Install dependencies
 		echo "asdf not found, installing..."; \
 		go install github.com/asdf-vm/asdf/cmd/asdf@v0.16.3; \
 	fi
+	@if ! command -v oras &> /dev/null || [ "$$(oras version 2>/dev/null | grep -o 'Version: 1.1.0')" != "Version: 1.1.0" ]; then \
+		echo "oras not found or incorrect version, installing..."; \
+		wget -qO- https://github.com/oras-project/oras/releases/download/v1.1.0/oras_1.1.0_linux_amd64.tar.gz | tar -xzf - -C /tmp && sudo mv /tmp/oras /usr/local/bin/; \
+	fi	
 	mage asdfPlugins
 
 .PHONY: lint
@@ -111,7 +116,8 @@ bootstrap-mac: deps ## Bootstrap the test environment on MacOS before running te
 
 .PHONY: test
 test: render-capi-operator bootstrap ## Runs cluster orch cluster api smoke tests. This step bootstraps the env before running the test
-	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiSmokeTest
+	$(MAKE) validate-agents
+	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=true mage test:ClusterOrchClusterApiSmokeTest
 
 .PHONY: cluster-api-all-test
 cluster-api-all-test: bootstrap ## Runs cluster orch functional tests
@@ -128,6 +134,140 @@ template-api-all-test: ## Runs cluster orch template API all tests
 .PHONY: robustness-test
 robustness-test: bootstrap ## Runs cluster orch robustness tests
 	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchRobustness
+
+##@ Staged Testing Workflow
+
+.PHONY: bootstrap-infra
+bootstrap-infra: deps render-capi-operator ## Bootstrap only infrastructure and providers (without cluster-agent)
+	@echo "Starting Stage 1: Infrastructure Bootstrap..."
+	@start_time=$$(date +%s); \
+	PATH=${ENV_PATH} SKIP_COMPONENTS=cluster-agent mage test:bootstrap; \
+	echo "Creating proxy ConfigMap for cluster-agent..."; \
+	HTTP_PROXY_VALUE=$${HTTP_PROXY:-}; \
+	HTTPS_PROXY_VALUE=$${HTTPS_PROXY:-}; \
+	NO_PROXY_VALUE=$${NO_PROXY:-}; \
+	kubectl create configmap proxy-config \
+		--from-literal=HTTP_PROXY="$$HTTP_PROXY_VALUE" \
+		--from-literal=HTTPS_PROXY="$$HTTPS_PROXY_VALUE" \
+		--from-literal=NO_PROXY="$$NO_PROXY_VALUE" \
+		--from-literal=http_proxy="$$HTTP_PROXY_VALUE" \
+		--from-literal=https_proxy="$$HTTPS_PROXY_VALUE" \
+		--from-literal=no_proxy="$$NO_PROXY_VALUE" \
+		--dry-run=client -o yaml | kubectl apply -f -; \
+	kubectl get pods -A -o wide; \
+	kubectl get deployments -A -o wide; \
+	kubectl get svc -A -o wide; \
+	kubectl get bootstrapproviders -A; \
+	kubectl get controlplaneproviders -A; \
+	kubectl get coreproviders -A; \
+	kubectl get node -o wide; \
+	end_time=$$(date +%s); \
+	duration=$$((end_time - start_time)); \
+	echo "Stage 1 completed in $${duration}s (Infrastructure Bootstrap)"
+
+.PHONY: deploy-cluster-agent
+deploy-cluster-agent: deps ## Build and deploy only the cluster-agent component
+	@echo "Starting Stage 2: Cluster Agent Deployment..."
+	@start_time=$$(date +%s); \
+	echo "Deploying TLS proxy for gRPC termination..."; \
+	kubectl apply -f configs/tls-proxy-simple.yaml; \
+	echo "waiting for TLS proxy to be ready..."; \
+	kubectl wait --for=condition=Ready pod -l app=grpc-tls-proxy-simple --timeout=60s; \
+	echo "Loading cluster-agent container image..."; \
+	PATH=${ENV_PATH} kind load docker-image 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/infra/enic:0.8.5 --name kind; \
+	echo "Generating token..."; \
+	export CI_JWT_TOKEN=$$(./configs/token-jwt.sh); \
+	echo "Applying cluster-agent configuration..."; \
+	CI_JWT_TOKEN=$$CI_JWT_TOKEN envsubst < configs/cluster-agent-fixed.yaml | kubectl apply -f -; \
+	echo "waiting for cluster-agent pod to be ready..."; \
+	kubectl wait --for=condition=Ready pod/cluster-agent-0 --timeout=120s; \
+	kubectl get pod cluster-agent-0; \
+	end_time=$$(date +%s); \
+	duration=$$((end_time - start_time)); \
+	echo "Stage 2 completed in $${duration}s (Cluster Agent Deployment with TLS Proxy and K3s Fixes)"
+
+.PHONY: validate-agents
+validate-agents: ## Validate that agents are properly running before tests
+	@echo "Agent Validation..."
+	@kubectl wait --for=condition=Ready pod/cluster-agent-0 --timeout=60s || (echo "Pod not ready" && exit 1)
+	@echo "K3s bootstrap fixes are integrated into cluster-agent lifecycle"
+	@kubectl exec cluster-agent-0 -- bash -c " \
+		required_agents=\"cluster-agent node-agent platform-update-agent platform-telemetry-agent\"; \
+		max_retries=10; \
+		retry_interval=10; \
+		echo \"Checking agent services...\"; \
+		for attempt in \$$(seq 1 \$$max_retries); do \
+			echo \"Attempt \$$attempt/\$$max_retries:\"; \
+			active_count=0; \
+			total_count=0; \
+			for agent in \$$required_agents; do \
+				total_count=\$$((total_count + 1)); \
+				service_status=\$$(systemctl is-active \$$agent.service 2>/dev/null); \
+				if [ \"\$$service_status\" = \"active\" ]; then \
+					echo \"   \$$agent.service: ACTIVE\"; \
+					active_count=\$$((active_count + 1)); \
+				else \
+					echo \"   \$$agent.service: \$$service_status\"; \
+				fi; \
+			done; \
+			if [ \$$active_count -eq \$$total_count ]; then \
+				echo \"All \$$active_count/\$$total_count services active\"; \
+				break; \
+			else \
+				echo \"Only \$$active_count/\$$total_count services active\"; \
+				if [ \$$attempt -lt \$$max_retries ]; then \
+					echo \"Retrying in \$$retry_interval seconds...\"; \
+					sleep \$$retry_interval; \
+				fi; \
+			fi; \
+		done; \
+		if [ \$$active_count -ne \$$total_count ]; then \
+			echo \"FINAL FAILURE: Services not active after \$$max_retries attempts\"; \
+			exit 1; \
+		fi; \
+		echo \"Checking cluster-agent ready status...\"; \
+		timeout 60 bash -c 'while ! journalctl -u cluster-agent --no-pager -n 20 | grep -q \"msg=\\\"Status Ready\\\"\"; do sleep 2; done' || echo \"Warning: cluster-agent not ready\"; \
+		if journalctl -u cluster-agent --no-pager -n 20 | grep -q 'msg=\"Status Ready\"'; then \
+			echo \"cluster-agent reports Status Ready\"; \
+		else \
+			echo \"FINAL FAILURE: cluster-agent not ready after timeout\"; \
+			exit 1; \
+		fi; \
+	"
+
+.PHONY: run-tests-only
+run-tests-only: ## Run only the tests without bootstrapping
+	@echo "Starting Stage 3: Test Execution..."
+	@start_time=$$(date +%s); \
+	PATH=${ENV_PATH} SKIP_DELETE_CLUSTER=true mage test:ClusterOrchClusterApiSmokeTest; \
+	end_time=$$(date +%s); \
+	duration=$$((end_time - start_time)); \
+	echo "Stage 3 completed in $${duration}s (Test Execution)"
+
+.PHONY: test-staged
+test-staged: ## Run test in stages for easier debugging
+	@echo "Starting Staged Testing Workflow..."
+	@overall_start=$$(date +%s); \
+	$(MAKE) bootstrap-infra; \
+	$(MAKE) deploy-cluster-agent; \
+	$(MAKE) validate-agents; \
+	$(MAKE) run-tests-only; \
+	overall_end=$$(date +%s); \
+	total_duration=$$((overall_end - overall_start)); \
+	echo ""; \
+	echo "Staged Testing Workflow Summary:"; \
+	echo "   Total Time: $${total_duration}s"; \
+	echo "   Infrastructure can be reused for subsequent runs"; \
+	echo "   Use 'make cleanup-infra' when finished"
+
+.PHONY: cleanup-infra
+cleanup-infra: ## Clean up the kind cluster and test infrastructure
+	@echo "Cleaning up test infrastructure..."
+	@start_time=$$(date +%s); \
+	PATH=${ENV_PATH} mage test:cleanup; \
+	end_time=$$(date +%s); \
+	duration=$$((end_time - start_time)); \
+	echo "Cleanup completed in $${duration}s"
 
 .PHONY: help
 help: ## Display this help.
