@@ -6,7 +6,7 @@ require (
 	github.com/bitfield/script v0.24.1
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/magefile/mage v1.15.0
-	github.com/onsi/ginkgo/v2 v2.27.3
+	github.com/onsi/ginkgo/v2 v2.27.4
 	github.com/onsi/gomega v1.38.3
 	github.com/open-edge-platform/cluster-manager/v2 v2.2.6
 	gopkg.in/yaml.v3 v3.0.1
