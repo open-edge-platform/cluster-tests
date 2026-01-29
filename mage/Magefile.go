@@ -49,6 +49,11 @@ func (t Test) Bootstrap() error {
 	return t.bootstrap()
 }
 
+// DeployComponents Deploys only specified components without creating cluster
+func (t Test) DeployComponents() error {
+	return t.deployComponents()
+}
+
 // ClusterOrchClusterApiSmokeTest Runs cluster orch cluster api smoke test
 func (t Test) ClusterOrchClusterApiSmokeTest() error {
 	return t.clusterOrchClusterApiSmokeTest()
