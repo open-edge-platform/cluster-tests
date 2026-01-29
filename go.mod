@@ -4,7 +4,7 @@ go 1.24.9
 
 require (
 	github.com/bitfield/script v0.24.1
-	github.com/golang-jwt/jwt/v5 v5.3.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/magefile/mage v1.15.0
 	github.com/onsi/ginkgo/v2 v2.27.5
 	github.com/onsi/gomega v1.39.0
