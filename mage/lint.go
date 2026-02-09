@@ -8,7 +8,7 @@ import (
 )
 
 func (Lint) golang() error {
-	return sh.RunV("golangci-lint", "run", "-v", "--timeout", "5m0s")
+	return sh.RunV("$HOME/.asdf/shims/golangci-lint", "run", "-v", "--timeout", "5m0s")
 }
 
 func (Lint) yaml() error {
