@@ -46,8 +46,7 @@ components:
         namespace: "default"
         version: ""  # Use the latest version when nil
         use-devel: false  # Use development version of the chart
-        overrides: "--set metrics.serviceMonitor.enabled=false --set manager.extraArgs.use-inv-stub=true
-        --set southboundApi.extraArgs.useGrpcStubMiddleware=true"
+        overrides: "--set metrics.serviceMonitor.enabled=false --set manager.extraArgs.use-inv-stub=true --set southboundApi.extraArgs.useGrpcStubMiddleware=true"
       - url: "oci://registry-rs.edgeorchestration.intel.com"
         release-name: "intel-infra-provider-crds"
         package: "edge-orch/cluster/charts/intel-infra-provider-crds"
@@ -103,6 +102,10 @@ components:
       ##################################################################################
       # Install the CAPI operator and default control plane and infra providers -- end
       ##################################################################################
+      # Wait for Intel Infrastructure Provider to be ready and patch with SHARED_SECRET_KEY
+      - until kubectl get deployment intel-infra-provider-southbound >/dev/null 2>&1; do sleep 1; done && kubectl wait --for=condition=Available --timeout=300s deployment/intel-infra-provider-southbound
+      - kubectl patch deployment intel-infra-provider-southbound -p '{"spec":{"template":{"spec":{"containers":[{"name":"intel-infra-provider-southbound","env":[{"name":"SHARED_SECRET_KEY","value":"randomSecretKey"}]}]}}}}'
+      - kubectl patch deployment intel-infra-provider-southbound -p '{"spec":{"template":{"spec":{"containers":[{"name":"intel-infra-provider-southbound","env":[{"name":"ALLOW_MISSING_AUTH_CLIENTS","value":"cluster-agent"}]}]}}}}'
       - kubectl delete -f config/crd/deps/cluster.edge-orchestrator.intel.com_clusterconnects.yaml || true
 
   # Cluster Connect Gateway
@@ -177,40 +180,41 @@ components:
     make-directory: ""
     post-install-commands: []
 
-  # OIDC Mock Server for JWT Authentication Testing (conditionally deployed via Makefile)
-  - name: oidc-mock-server
-    skip-component: true  # Controlled by Makefile environment variables
-    skip-local-build: true
-    pre-install-commands: []
-    helm-repo: []
-    git-repo:
-      url: ""
-      version: ""
-    make-directory: ""
-    make-variables: []
-    make-targets: []
-    post-install-commands: []
-
-  # Cluster Agent on LW-ENiC
+  # Cluster Agent in the virtual EN
   - name: cluster-agent
     skip-component: false
-    skip-local-build: false
-    pre-install-commands: []
-    helm-repo:
-      - url: ""
-        release-name: ""
-        package: ""
-        namespace: ""
-        version: ""
-        use-devel: false  # Use development version of the chart
-        overrides: ""
+    skip-local-build: false  # We need 'false' to build locally if no helm chart exists
+    pre-install-commands:
+      # Create proxy ConfigMap for cluster-agent (needed for both traditional and staged workflows)
+      - |
+        HTTP_PROXY_VALUE=${HTTP_PROXY:-}
+        HTTPS_PROXY_VALUE=${HTTPS_PROXY:-}
+        NO_PROXY_VALUE=${NO_PROXY:-}
+        kubectl create configmap proxy-config \
+          --from-literal=HTTP_PROXY="$HTTP_PROXY_VALUE" \
+          --from-literal=HTTPS_PROXY="$HTTPS_PROXY_VALUE" \
+          --from-literal=NO_PROXY="$NO_PROXY_VALUE" \
+          --from-literal=http_proxy="$HTTP_PROXY_VALUE" \
+          --from-literal=https_proxy="$HTTPS_PROXY_VALUE" \
+          --from-literal=no_proxy="$NO_PROXY_VALUE" \
+          --dry-run=client -o yaml | kubectl apply -f -
+    helm-repo: []
     git-repo:
-      url: https://github.com/open-edge-platform/edge-node-agents.git
-      version: lw-enic
-    make-directory: "cluster-agent/enic/"
-    make-variables: []
+      url: https://github.com/open-edge-platform/virtual-edge-node.git
+      version: edge-node-container/v0.8.5
+    make-directory: "edge-node-container/"
+    make-variables:
+      - SHELL=/bin/bash
+      - PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     make-targets:
-      - build-enic-docker      # Enable this if you want to build the enic docker image. This usually is a time-consuming process
-      - load-enic-docker       # Enable this if you want to load the enic docker image that you build to the kind cluster
-      - run-enic-pod
-    post-install-commands: []
+      - bma_packages         # Download BMA packages
+      - docker-build-enic    # Build ENiC Docker image locally
+    post-install-commands:
+      # Deploy TLS proxy for gRPC termination (required by cluster-agent-fixed.yaml)
+      - kubectl apply -f ../../configs/tls-proxy-simple.yaml
+      # Wait for TLS proxy to be ready
+      - kubectl wait --for=condition=Ready pod -l app=grpc-tls-proxy-simple --timeout=60s
+      # Load ENiC image into kind cluster
+      - kind load docker-image 080137407410.dkr.ecr.us-west-2.amazonaws.com/edge-orch/infra/enic:0.8.5 --name kind
+      # Generate JWT token and deploy cluster-agent (the pod handles all other setup internally)
+      - CI_JWT_TOKEN=$(../../configs/token-jwt.sh) envsubst < ../../configs/cluster-agent-fixed.yaml | kubectl apply -f -
