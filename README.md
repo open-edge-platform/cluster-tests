@@ -43,6 +43,31 @@ configured in `.test-dependencies.yaml` file before running the tests.
 
 Refer the `test-plan/test-plan.md` for the detailed test plan.
 
+#### vEN mode (Virtual Edge Node)
+
+By default, tests run against the in-kind ENiC edge node (`EDGE_NODE_PROVIDER` defaults to `enic`).
+
+To run against a vEN reachable over SSH, set:
+
+- `EDGE_NODE_PROVIDER=ven`
+- `NODEGUID` (or `VEN_NODEGUID`) to the onboarded host GUID
+- SSH connection info:
+	- `VEN_SSH_HOST`
+	- `VEN_SSH_KEY` (path to private key)
+	- optional: `VEN_SSH_USER` (default: `root`), `VEN_SSH_PORT` (default: `22`)
+
+You can either export these variables directly, or use a bootstrap command that writes `.ven.env`
+which is automatically sourced by `make test` targets:
+
+```shell
+EDGE_NODE_PROVIDER=ven \
+VEN_BOOTSTRAP_CMD=./scripts/ven/bootstrap.sh \
+NODEGUID=<host-guid> \
+VEN_SSH_HOST=<ven-ip-or-hostname> \
+VEN_SSH_KEY=$HOME/.ssh/id_rsa \
+make test
+```
+
 #### Configuring test dependencies
 
 While there is a default configuration to bootstrap the test environment, it is also possible for you to configure the
