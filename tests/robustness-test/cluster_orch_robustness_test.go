@@ -33,7 +33,99 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 		gatewayPortForward     *exec.Cmd
 		clusterCreateStartTime time.Time
 		clusterCreateEndTime   time.Time
+		downstreamKubeconfig   string
+		connectAgentKind       string
+		connectAgentNamespace  string
+		connectAgentName       string
+		connectAgentImage      string
 	)
+
+	getConnectAgentWorkload := func(kubeconfigPath string) (kind, ns, name string, err error) {
+		// Prefer a DaemonSet if present, otherwise fall back to a Deployment.
+		// We avoid hard-coding namespace/name because they can vary by environment.
+		list := func(resource string) ([]string, error) {
+			cmd := exec.Command(
+				"kubectl",
+				"--kubeconfig", kubeconfigPath,
+				"get", resource,
+				"-A",
+				"-o", "jsonpath={range .items[*]}{.metadata.namespace}{\"/\"}{.metadata.name}{\"\\n\"}{end}",
+			)
+			out, err := cmd.Output()
+			if err != nil {
+				return nil, err
+			}
+			lines := []string{}
+			for _, line := range strings.Split(string(out), "\n") {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					lines = append(lines, line)
+				}
+			}
+			return lines, nil
+		}
+
+		pick := func(lines []string) (string, string, bool) {
+			for _, line := range lines {
+				// line format: namespace/name
+				if strings.Contains(line, "connect-agent") {
+					parts := strings.SplitN(line, "/", 2)
+					if len(parts) == 2 {
+						return parts[0], parts[1], true
+					}
+				}
+			}
+			return "", "", false
+		}
+
+		if lines, e := list("daemonset"); e == nil {
+			if ns, name, ok := pick(lines); ok {
+				return "daemonset", ns, name, nil
+			}
+		}
+		if lines, e := list("deployment"); e == nil {
+			if ns, name, ok := pick(lines); ok {
+				return "deployment", ns, name, nil
+			}
+		}
+
+		return "", "", "", fmt.Errorf("connect-agent workload not found in downstream cluster")
+	}
+
+	getWorkloadImage := func(kubeconfigPath, kind, ns, name string) (string, error) {
+		cmd := exec.Command(
+			"kubectl",
+			"--kubeconfig", kubeconfigPath,
+			"-n", ns,
+			"get", kind, name,
+			"-o", "jsonpath={.spec.template.spec.containers[0].image}",
+		)
+		out, err := cmd.Output()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(out)), nil
+	}
+
+	setWorkloadImage := func(kubeconfigPath, kind, ns, name, image string) error {
+		cmd := exec.Command(
+			"kubectl",
+			"--kubeconfig", kubeconfigPath,
+			"-n", ns,
+			"set", "image",
+			fmt.Sprintf("%s/%s", kind, name),
+			"*="+image,
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			trim := strings.TrimSpace(string(out))
+			if trim == "" {
+				return err
+			}
+			return fmt.Errorf("%w: %s", err, trim)
+		}
+		return nil
+	}
 
 	BeforeAll(func() {
 		namespace = utils.GetEnv(utils.NamespaceEnvVar, utils.DefaultNamespace)
@@ -157,6 +249,7 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 		kubeConfigName := "kubeconfig.yaml"
 		err = os.WriteFile(kubeConfigName, output, 0644)
 		Expect(err).NotTo(HaveOccurred())
+		downstreamKubeconfig = kubeConfigName
 
 		By("Setting in kubeconfig server to cluster connect gateway")
 		cmd = exec.Command("sed", "-i", "s|http://[[:alnum:].-]*:8080/|http://127.0.0.1:8081/|", "kubeconfig.yaml")
@@ -213,8 +306,15 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 	})
 
 	It("Should verify that a cluster shows connection lost status when connect agent stops working", func() {
-		By("Breaking the connect agent by changing its image name in the pod manifest")
-		_, err := utils.ExecOnEdgeNode("sed -i 's/connect-agent/connectx-agent/g' /var/lib/rancher/k3s/agent/pod-manifests/connect-agent.yaml")
+		By("Breaking the connect agent via downstream Kubernetes (patch workload image)")
+		Expect(downstreamKubeconfig).NotTo(BeEmpty(), "downstream kubeconfig should be available")
+		var err error
+		connectAgentKind, connectAgentNamespace, connectAgentName, err = getConnectAgentWorkload(downstreamKubeconfig)
+		Expect(err).NotTo(HaveOccurred())
+		connectAgentImage, err = getWorkloadImage(downstreamKubeconfig, connectAgentKind, connectAgentNamespace, connectAgentName)
+		Expect(err).NotTo(HaveOccurred())
+		// Set a clearly invalid image to force the workload to fail pulling/starting.
+		err = setWorkloadImage(downstreamKubeconfig, connectAgentKind, connectAgentNamespace, connectAgentName, "invalid.invalid/connect-agent:does-not-exist")
 		Expect(err).NotTo(HaveOccurred())
 		connectionLostStartTime := time.Now()
 
@@ -256,8 +356,13 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 	})
 
 	It("Should verify that cluster mark infrastructure as ready when connect-agent is fixed", func() {
-		By("Fixing the connect agent by changing its image name in the pod manifest to the right one")
-		_, err := utils.ExecOnEdgeNode("sed -i 's/connectx-agent/connect-agent/g' /var/lib/rancher/k3s/agent/pod-manifests/connect-agent.yaml")
+		By("Fixing the connect agent by restoring its workload image")
+		Expect(downstreamKubeconfig).NotTo(BeEmpty(), "downstream kubeconfig should be available")
+		Expect(connectAgentKind).NotTo(BeEmpty(), "connect-agent workload kind should be known")
+		Expect(connectAgentNamespace).NotTo(BeEmpty(), "connect-agent workload namespace should be known")
+		Expect(connectAgentName).NotTo(BeEmpty(), "connect-agent workload name should be known")
+		Expect(connectAgentImage).NotTo(BeEmpty(), "connect-agent original image should be known")
+		err := setWorkloadImage(downstreamKubeconfig, connectAgentKind, connectAgentNamespace, connectAgentName, connectAgentImage)
 		Expect(err).NotTo(HaveOccurred())
 		connectionRecoveredStartTime := time.Now()
 

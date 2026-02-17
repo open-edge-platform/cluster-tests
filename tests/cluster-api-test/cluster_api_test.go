@@ -410,13 +410,20 @@ var _ = Describe("Single Node K3s Cluster Create and Delete using Cluster Manage
 
 		JustAfterEach(func() {
 			if CurrentSpecReport().Failed() {
-				// Note: the edge node may have been reset as part of test hygiene; in that case
-				// /etc/rancher/k3s/k3s.yaml might not exist yet. Make diagnostics best-effort.
-				if out, err := utils.ExecOnEdgeNode("test -f /etc/rancher/k3s/k3s.yaml && /usr/local/bin/k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get pods -A || true"); err == nil {
-					fmt.Printf("Edge node pods snapshot:\n%s\n", string(out))
-				}
-				if out, err := utils.ExecOnEdgeNode("test -f /etc/rancher/k3s/k3s.yaml && /usr/local/bin/k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml describe pod -n kube-system connect-agent-cluster-agent-0 || true"); err == nil {
-					fmt.Printf("connect-agent describe:\n%s\n", string(out))
+				// Provider-agnostic diagnostics: use the downstream kubeconfig (via connect-gateway)
+				// rather than exec'ing into an edge node implementation detail.
+				if _, statErr := os.Stat(KubeconfigFileName); statErr == nil {
+					if out, err := exec.Command("kubectl", "--kubeconfig", KubeconfigFileName, "get", "pods", "-A", "-o", "wide").CombinedOutput(); err == nil {
+						fmt.Printf("Downstream pods snapshot:\n%s\n", string(out))
+					}
+					if out, err := exec.Command("kubectl", "--kubeconfig", KubeconfigFileName, "get", "pods", "-A").CombinedOutput(); err == nil {
+						// Quick visibility for connect-agent without assuming a fixed pod name/namespace.
+						for _, line := range strings.Split(string(out), "\n") {
+							if strings.Contains(line, "connect-agent") {
+								fmt.Printf("connect-agent pod line: %s\n", line)
+							}
+						}
+					}
 				}
 			}
 		})
