@@ -27,6 +27,12 @@ const (
 // This is a test-only hygiene step to ensure the embedded k3s datastore/token
 // starts clean for each run.
 func ResetClusterAgent() error {
+	// Only the ENiC provider has an in-kind `cluster-agent` StatefulSet that we can reset.
+	// For vEN, the edge node lifecycle/state reset is handled by the provisioning flow.
+	if GetEdgeNodeProvider() != EdgeNodeProviderENiC {
+		return nil
+	}
+
 	// Behavior controlled by SKIP_CLUSTER_AGENT_RESET:
 	//   - "true"  -> never reset (historical behavior)
 	//   - "false" -> always reset
@@ -124,6 +130,10 @@ func ResetClusterAgent() error {
 }
 
 func shouldResetClusterAgent(namespace string) (bool, error) {
+	if GetEdgeNodeProvider() != EdgeNodeProviderENiC {
+		return false, nil
+	}
+
 	// We only reset if we detect that CAPK/KThrees has previously written a k3s config.
 	// On repeated runs, reusing this persisted state can cause k3s to crash-loop with:
 	//   "bootstrap data already found and encrypted with different token"

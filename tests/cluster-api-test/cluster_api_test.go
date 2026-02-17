@@ -410,12 +410,14 @@ var _ = Describe("Single Node K3s Cluster Create and Delete using Cluster Manage
 
 		JustAfterEach(func() {
 			if CurrentSpecReport().Failed() {
-				// Note: the cluster-agent may be reset as part of test hygiene; in that case
+				// Note: the edge node may have been reset as part of test hygiene; in that case
 				// /etc/rancher/k3s/k3s.yaml might not exist yet. Make diagnostics best-effort.
-				utils.LogCommandOutput("kubectl", []string{"exec", "cluster-agent-0", "--",
-					"sh", "-lc", "test -f /etc/rancher/k3s/k3s.yaml && /usr/local/bin/k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get pods -A || true"})
-				utils.LogCommandOutput("kubectl", []string{"exec", "cluster-agent-0", "--",
-					"sh", "-lc", "test -f /etc/rancher/k3s/k3s.yaml && /usr/local/bin/k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml describe pod -n kube-system connect-agent-cluster-agent-0 || true"})
+				if out, err := utils.ExecOnEdgeNode("test -f /etc/rancher/k3s/k3s.yaml && /usr/local/bin/k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get pods -A || true"); err == nil {
+					fmt.Printf("Edge node pods snapshot:\n%s\n", string(out))
+				}
+				if out, err := utils.ExecOnEdgeNode("test -f /etc/rancher/k3s/k3s.yaml && /usr/local/bin/k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml describe pod -n kube-system connect-agent-cluster-agent-0 || true"); err == nil {
+					fmt.Printf("connect-agent describe:\n%s\n", string(out))
+				}
 			}
 		})
 	})
