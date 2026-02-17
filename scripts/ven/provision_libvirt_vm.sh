@@ -11,6 +11,11 @@ set -euo pipefail
 #   2) Extracts the VM SMBIOS UUID and writes it as NODEGUID into `.ven.env`
 #   3) Optionally discovers the VM IP via `virsh domifaddr --source agent` and writes VEN_SSH_HOST
 #
+# Important note:
+#   The upstream `pico-vm-libvirt` module expects a Tinkerbell/iPXE boot environment.
+#   In cluster-tests we currently do NOT deploy Tinkerbell, so Terraform will fail unless
+#   you point it at a working Tinkerbell HAProxy endpoint.
+#
 # What it does NOT do (yet):
 #   - Onboard the vEN into cluster-orch / connect-gateway
 #   - Guarantee connect-gateway reachability from the VM network
@@ -98,6 +103,21 @@ smbios_uuid            = "${VEN_SMBIOS_UUID}"
 EOF
 
 echo "Terraform workdir: $module_workdir" >&2
+
+if [[ -z "$VEN_TINKERBELL_HAPROXY_DOMAIN" ]]; then
+  cat >&2 <<'EOM'
+ERROR: VEN_TINKERBELL_HAPROXY_DOMAIN is not set.
+
+The upstream virtual-edge-node Terraform module (pico-vm-libvirt) generates a UEFI boot
+image that downloads a signed iPXE binary from:
+  https://${tinkerbell_haproxy_domain}/tink-stack/signed_ipxe.efi
+
+cluster-tests does not deploy Tinkerbell today, so you must either:
+  1) Provide a working Tinkerbell HAProxy domain via VEN_TINKERBELL_HAPROXY_DOMAIN, or
+  2) Use an alternate provisioning approach (e.g., a cloud-image + cloud-init libvirt VM).
+EOM
+  exit 2
+fi
 
 # Basic libvirt sanity check
 if ! virsh list --all >/dev/null 2>&1; then
