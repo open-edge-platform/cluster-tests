@@ -5,12 +5,13 @@ package template_api_test
 
 import (
 	"fmt"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	"github.com/open-edge-platform/cluster-tests/tests/utils"
 	"os/exec"
 	"testing"
 	"time"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	"github.com/open-edge-platform/cluster-tests/tests/utils"
 )
 
 func TestTemplateApiTests(t *testing.T) {
@@ -55,17 +56,8 @@ var _ = Describe("Template API Tests", Ordered, func() {
 	})
 
 	It("should validate the template import success", Label(utils.ClusterOrchTemplateApiSmokeTest, utils.ClusterOrchTemplateApiAllTest), func() {
-		By("Importing the cluster template rke2 baseline")
-		err := utils.ImportClusterTemplate(namespace, utils.TemplateTypeRke2Baseline)
-		Expect(err).NotTo(HaveOccurred())
-
-		By("Waiting for the cluster template to be ready")
-		Eventually(func() bool {
-			return utils.IsClusterTemplateReady(namespace, utils.Rke2TemplateName)
-		}, 1*time.Minute, 2*time.Second).Should(BeTrue())
-
 		By("Importing the cluster template k3s baseline")
-		err = utils.ImportClusterTemplate(namespace, utils.TemplateTypeK3sBaseline)
+		err := utils.ImportClusterTemplate(namespace, utils.TemplateTypeK3sBaseline)
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Waiting for the cluster template to be ready")
@@ -79,11 +71,6 @@ var _ = Describe("Template API Tests", Ordered, func() {
 		template, err := utils.GetClusterTemplate(namespace, utils.K3sTemplateOnlyName, utils.K3sTemplateOnlyVersion)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(template.Name + "-" + template.Version).To(Equal(utils.K3sTemplateName))
-
-		By("Retrieving the Rke2 template")
-		template, err = utils.GetClusterTemplate(namespace, utils.Rke2TemplateOnlyName, utils.Rke2TemplateOnlyVersion)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(template.Name + "-" + template.Version).To(Equal(utils.Rke2TemplateName))
 	})
 
 	It("Should not find a default template when non has been set", Label(utils.ClusterOrchTemplateApiAllTest), func() {
@@ -106,24 +93,8 @@ var _ = Describe("Template API Tests", Ordered, func() {
 		Expect(defaultTemplateInfo.Version).To(Equal(utils.K3sTemplateOnlyVersion), "Default template version should match the set template version")
 
 		By("Set the default template by providing both template name and version")
-		err = utils.SetDefaultTemplate(namespace, utils.Rke2TemplateOnlyName, utils.Rke2TemplateOnlyVersion)
+		err = utils.SetDefaultTemplate(namespace, utils.K3sTemplateOnlyName, utils.K3sTemplateOnlyVersion)
 		Expect(err).NotTo(HaveOccurred())
-
-		By("Getting Default template after setting it")
-		defaultTemplateInfo, err = utils.GetDefaultTemplate(namespace)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(*defaultTemplateInfo.Name).To(Equal(utils.Rke2TemplateOnlyName), "Default template name should match the set template name")
-		Expect(defaultTemplateInfo.Version).To(Equal(utils.Rke2TemplateOnlyVersion), "Default template version should match the set template version")
-
-		By("Setting default template again after it has been set, should not error")
-		err = utils.SetDefaultTemplate(namespace, utils.Rke2TemplateOnlyName, utils.Rke2TemplateOnlyVersion)
-		Expect(err).NotTo(HaveOccurred())
-
-		By("Getting Default template after setting it again")
-		defaultTemplateInfo, err = utils.GetDefaultTemplate(namespace)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(*defaultTemplateInfo.Name).To(Equal(utils.Rke2TemplateOnlyName), "Default template name should match the set template name")
-		Expect(defaultTemplateInfo.Version).To(Equal(utils.Rke2TemplateOnlyVersion), "Default template version should match the set template version")
 
 	})
 
@@ -140,6 +111,6 @@ var _ = Describe("Template API Tests", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(templates).ToNot(BeNil(), "Templates should not be nil")
 		Expect(templates.TemplateInfoList).ToNot(BeNil())
-		Expect(*templates.TemplateInfoList).To(HaveLen(2), "There should be two templates matching the filter - one rke2 and another k3s")
+		Expect(*templates.TemplateInfoList).To(HaveLen(1), "There should be one template matching the filter - k3s")
 	})
 })

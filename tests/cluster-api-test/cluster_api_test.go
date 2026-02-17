@@ -114,21 +114,21 @@ func performClusterOperation(operationType string, authDisabled bool, authContex
 		default:
 			return fmt.Errorf("unknown operation type: %s", operationType)
 		}
-	} else {
-		fmt.Printf(" Using non-authenticated cluster %s\n", operationType)
-		switch operationType {
-		case "import":
-			By("Importing the cluster template")
-			return utils.ImportClusterTemplate(namespace, templateName)
-		case "create":
-			By("Creating the k3s cluster")
-			return utils.CreateCluster(namespace, nodeGUID, templateName)
-		case "delete":
-			By("Deleting the cluster")
-			return utils.DeleteCluster(namespace)
-		default:
-			return fmt.Errorf("unknown operation type: %s", operationType)
-		}
+	}
+
+	fmt.Printf(" Using non-authenticated cluster %s\n", operationType)
+	switch operationType {
+	case "import":
+		By("Importing the cluster template")
+		return utils.ImportClusterTemplate(namespace, templateName)
+	case "create":
+		By("Creating the k3s cluster")
+		return utils.CreateCluster(namespace, nodeGUID, templateName)
+	case "delete":
+		By("Deleting the cluster")
+		return utils.DeleteCluster(namespace)
+	default:
+		return fmt.Errorf("unknown operation type: %s", operationType)
 	}
 }
 
@@ -147,11 +147,9 @@ func validateJWTWorkflow(authContext *auth.TestAuthContext, namespace string) {
 		"   - Cluster deletion (in AfterEach)\n", authContext.Token[:20])
 
 	By("Verifying JWT token structure and claims")
-	// Token should be a JWT with header.payload.signature format
 	parts := strings.Split(authContext.Token, ".")
 	Expect(parts).To(HaveLen(3), "JWT should have 3 parts separated by dots")
 
-	// Check auth context claims
 	Expect(authContext.Subject).To(Equal("test-user"))
 	Expect(authContext.Issuer).To(Equal("cluster-tests"))
 	Expect(authContext.Audience).To(ContainElement("cluster-manager"))
@@ -286,7 +284,6 @@ func validateKubeconfigAndClusterAccess() {
 	Expect(err).NotTo(HaveOccurred())
 	fmt.Printf("kubectl client and server version:\n%s\n", string(output))
 
-	// Wait for all pods to be running
 	By("Waiting for all pods to be running")
 	Eventually(func() bool {
 		cmd := exec.Command("kubectl", "--kubeconfig", kubeConfigName, "get", "pods", "-A", "-o", "jsonpath={.items[*].status.phase}")
@@ -321,7 +318,7 @@ func validateKubeconfigAndClusterAccess() {
 	fmt.Printf("Output of `ls` command:\n%s\n", string(output))
 }
 
-var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manager APIs with baseline template",
+var _ = Describe("Single Node K3s Cluster Create and Delete using Cluster Manager APIs with baseline template",
 	Ordered, Label(utils.ClusterOrchClusterApiSmokeTest, utils.ClusterOrchClusterApiAllTest), func() {
 		var (
 			authContext            *auth.TestAuthContext
@@ -337,7 +334,6 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 			namespace = utils.GetEnv(utils.NamespaceEnvVar, utils.DefaultNamespace)
 			nodeGUID = utils.GetEnv(utils.NodeGUIDEnvVar, utils.DefaultNodeGUID)
 
-			// Check if authentication is disabled via environment variable
 			authDisabled = os.Getenv("DISABLE_AUTH") == "true"
 
 			if !authDisabled {
@@ -357,12 +353,10 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 			err = utils.EnsureNamespaceExists(namespace)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Setup port forwarding using helper function
 			portForwardCmd, err = setupPortForwarding("cluster manager", utils.PortForwardService,
 				utils.PortForwardLocalPort, utils.PortForwardRemotePort)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Import cluster template using helper function
 			err = performClusterOperation("import", authDisabled, authContext, namespace, "", utils.TemplateTypeK3sBaseline)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -373,22 +367,18 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 
 			clusterCreateStartTime = time.Now()
 
-			// Create cluster using helper function
 			err = performClusterOperation("create", authDisabled, authContext, namespace, nodeGUID, utils.K3sTemplateName)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Setup gateway port forwarding using helper function
 			gatewayPortForward, err = setupPortForwarding("cluster gateway", utils.PortForwardGatewayService,
 				utils.PortForwardGatewayLocalPort, utils.PortForwardGatewayRemotePort)
 			Expect(err).NotTo(HaveOccurred())
 		})
 
 		AfterEach(func() {
-			// Cleanup port forwarding using helper function
 			defer cleanupPortForwarding(portForwardCmd, gatewayPortForward)
 
 			if !utils.SkipDeleteCluster {
-				// Delete cluster using helper function
 				var err error
 				err = performClusterOperation("delete", authDisabled, authContext, namespace, "", "")
 				Expect(err).NotTo(HaveOccurred())
@@ -403,13 +393,9 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 		})
 
 		It("should verify that the cluster is fully active", func() {
-			// Wait for cluster to be ready using helper function
 			waitForClusterReady(namespace, clusterCreateStartTime)
-
-			// Validate kubeconfig and cluster access using helper function
 			validateKubeconfigAndClusterAccess()
 
-			// JWT Kubeconfig API Test - integrated after cluster is ready
 			if !authDisabled {
 				validateJWTWorkflow(authContext, namespace)
 			} else {
@@ -426,171 +412,4 @@ var _ = Describe("Single Node K3S Cluster Create and Delete using Cluster Manage
 					"/usr/local/bin/k3s", "kubectl", "--kubeconfig", "/etc/rancher/k3s/k3s.yaml", "describe", "pod", "-n", "kube-system", "connect-agent-cluster-agent-0"})
 			}
 		})
-	})
-
-var _ = Describe("Single Node RKE2 Cluster Create and Delete using Cluster Manager APIs with baseline template",
-	Ordered, Label(utils.ClusterOrchClusterApiAllTest), func() {
-		var (
-			namespace              string
-			nodeGUID               string
-			portForwardCmd         *exec.Cmd
-			gatewayPortForward     *exec.Cmd
-			clusterCreateStartTime time.Time
-			clusterCreateEndTime   time.Time
-		)
-
-		BeforeAll(func() {
-			namespace = utils.GetEnv(utils.NamespaceEnvVar, utils.DefaultNamespace)
-			nodeGUID = utils.GetEnv(utils.NodeGUIDEnvVar, utils.DefaultNodeGUID)
-
-			// create namespace for the project
-			By("Ensuring the namespace exists")
-			err := utils.EnsureNamespaceExists(namespace)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Port forwarding to the cluster manager service")
-			portForwardCmd = exec.Command("kubectl", "port-forward", utils.PortForwardService,
-				fmt.Sprintf("%s:%s", utils.PortForwardLocalPort, utils.PortForwardRemotePort), "--address", utils.PortForwardAddress)
-			err = portForwardCmd.Start()
-			Expect(err).NotTo(HaveOccurred())
-			time.Sleep(PortForwardDelay) // Give some time for port-forwarding to establish
-
-			By("Port forwarding to the cluster gateway service")
-			gatewayPortForward = exec.Command("kubectl", "port-forward", utils.PortForwardGatewayService,
-				fmt.Sprintf("%s:%s", utils.PortForwardGatewayLocalPort, utils.PortForwardGatewayRemotePort), "--address", utils.PortForwardAddress)
-			err = gatewayPortForward.Start()
-			Expect(err).NotTo(HaveOccurred())
-			time.Sleep(PortForwardDelay) // Give some time for port-forwarding to establish
-
-		})
-
-		AfterAll(func() {
-			defer func() {
-				if portForwardCmd != nil && portForwardCmd.Process != nil {
-					portForwardCmd.Process.Kill()
-				}
-				if gatewayPortForward != nil && gatewayPortForward.Process != nil {
-					gatewayPortForward.Process.Kill()
-				}
-			}()
-
-			if !utils.SkipDeleteCluster {
-				By("Deleting the cluster")
-				err := utils.DeleteCluster(namespace)
-				Expect(err).NotTo(HaveOccurred())
-
-				By("Verifying that the cluster is deleted")
-				Eventually(func() bool {
-					cmd := exec.Command("kubectl", "-n", namespace, "get", "cluster", utils.ClusterName)
-					err := cmd.Run()
-					return err != nil
-				}, PortForwardTimeout, PortForwardInterval).Should(BeTrue())
-			}
-		})
-
-		It("Should successfully import RKE2 Single Node cluster template", func() {
-			By("Importing the cluster template")
-			err := utils.ImportClusterTemplate(namespace, utils.TemplateTypeRke2Baseline)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Waiting for the cluster template to be ready")
-			Eventually(func() bool {
-				return utils.IsClusterTemplateReady(namespace, utils.Rke2TemplateName)
-			}, 1*time.Minute, 2*time.Second).Should(BeTrue())
-		})
-
-		It("Should verify that cluster create API should succeed for rke2 cluster", func() {
-			// Record the start time before creating the cluster
-			clusterCreateStartTime = time.Now()
-
-			By("Creating the cluster")
-			err := utils.CreateCluster(namespace, nodeGUID, utils.Rke2TemplateName)
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		It("Should verify that the cluster is fully active", func() {
-			By("Waiting for IntelMachine to exist")
-			Eventually(func() bool {
-				cmd := exec.Command("sh", "-c", fmt.Sprintf("kubectl -n %s get intelmachine -o yaml | yq '.items | length'", namespace))
-				output, err := cmd.Output()
-				if err != nil {
-					return false
-				}
-				return string(output) > "0"
-			}, PortForwardTimeout, PortForwardInterval).Should(BeTrue())
-
-			By("Waiting for all components to be ready")
-			Eventually(func() bool {
-				cmd := exec.Command("clusterctl", "describe", "cluster", utils.ClusterName, "-n", namespace)
-				output, err := cmd.Output()
-				if err != nil {
-					return false
-				}
-				fmt.Printf("Cluster components status:\n%s\n", string(output))
-				return utils.CheckAllComponentsReady(string(output))
-			}, ClusterReadinessTimeout, ClusterReadinessInterval).Should(BeTrue())
-			// Record the end time after the cluster is fully active
-			clusterCreateEndTime = time.Now()
-
-			// Calculate and print the total time taken
-			totalTime := clusterCreateEndTime.Sub(clusterCreateStartTime)
-			fmt.Printf("\033[32mTotal time from cluster creation to fully active: %v 🚀 ✅\033[0m\n", totalTime)
-		})
-
-		It("Should verify that the cluster information can be queried	", func() {
-			By("Getting the cluster information")
-			resp, err := utils.GetClusterInfo(namespace, utils.ClusterName)
-			Expect(err).NotTo(HaveOccurred())
-			defer resp.Body.Close()
-
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-			// TODO: Verify the cluster details are correct
-		})
-
-		It("TC-CO-INT-006: Should verify that the cluster label can be queried", func() {
-			fmt.Printf("TODO: Implement this test\n")
-		})
-
-		It("TC-CO-INT-007: Should verify that the cluster label can be updated", func() {
-			fmt.Printf("TODO: Implement this test\n")
-		})
-
-		It("Should verify that the connect gateway allow access to k8s api", func() {
-			// cmd := exec.Command("curl", "-X", "GET", fmt.Sprintf("127.0.0.1:%v/kubernetes/%v-%v/api/v1/namespaces/default/pods", portForwardGatewayLocalPort, namespace, clusterName))
-			By("Getting kubeconfig")
-			fmt.Println(utils.ClusterName)
-			cmd := exec.Command("clusterctl", "get", "kubeconfig", utils.ClusterName, "--namespace", utils.DefaultNamespace) // ">", "kubeconfig.yaml")
-			output, err := cmd.Output()
-			Expect(err).NotTo(HaveOccurred())
-
-			kubeConfigName := KubeconfigFileName
-			err = os.WriteFile(kubeConfigName, output, 0644)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Setting in kubeconfig server to cluster connect gateway")
-			cmd = exec.Command("sed", "-i", fmt.Sprintf("s|http://[[:alnum:].-]*:8080/|%s|", LocalGatewayURL), KubeconfigFileName)
-			_, err = cmd.Output()
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Getting list of pods")
-			cmd = exec.Command("kubectl", "--kubeconfig", KubeconfigFileName, "get", "pods")
-			_, err = cmd.Output()
-			Expect(err).NotTo(HaveOccurred())
-
-			// Exec into one of the pods in the kube-system namespace on the edge node cluster
-			By("Executing command in kube-scheduler-cluster-agent-0 pod")
-			cmd = exec.Command("kubectl", "exec", "--kubeconfig", KubeconfigFileName, "-it", "-n",
-				"kube-system", "kube-scheduler-cluster-agent-0", "--", "ls")
-			output, err = cmd.Output()
-			Expect(err).NotTo(HaveOccurred())
-			By("Printing the output of the command")
-			fmt.Printf("Output of `ls` command:\n%s\n", string(output))
-		})
-		It("Should verify that a cluster template cannot be deleted if there is a cluster using it", func() {
-			By("Trying to delete the cluster template")
-			err := utils.DeleteTemplate(namespace, utils.Rke2TemplateOnlyName, utils.Rke2TemplateOnlyVersion)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("clusterTemplate is in use"))
-		})
-		// TODO: Add more functional tests
 	})

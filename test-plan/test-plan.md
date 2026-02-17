@@ -84,7 +84,7 @@ Test Case format shall look like below:
 
 ### Test Case ID: TC-CO-INT-001
 
-- **Test Description:** Verify Single Node RKE2 Cluster creation and deletion using Cluster Manager APIs
+- **Test Description:** Verify Single Node K3s Cluster creation and deletion using Cluster Manager APIs
 - **Preconditions:**
   - Ensure the namespace exists or create it if it does not.
   - Port forward to the cluster manager service.
@@ -93,7 +93,7 @@ Test Case format shall look like below:
   1. Authenticate with KeyCloak and obtain a token with the right roles and permissions to access the ECM /v1/clusters POST API.
   1. Send a POST request to create a new cluster using the available ClusterTemplate.
   1. Verify the Cluster CR is created in the Kubernetes API server.
-  1. Verify the associated resources (RKE2ControlPlane, IntelCluster, etc.) are created.
+  1. Verify the associated resources (KThreesControlPlane, IntelCluster, etc.) are created.
   1. Check the status of the Cluster CR to ensure it is marked as ready.
   1. Verify that the machine infrastructure is ready after successful cluster creation.
   1. Delete the cluster if SKIP_DELETE_CLUSTER is not set to true.
@@ -107,7 +107,7 @@ Test Case format shall look like below:
 
 ### Test Case ID: TC-CO-INT-002
 
-- **Test Description:** Should successfully import RKE2 Single Node cluster template
+- **Test Description:** Should successfully import K3s Single Node cluster template
 - **Preconditions:**
   - Ensure the namespace exists or create it if it does not.
   - Port forward to the cluster manager service.
