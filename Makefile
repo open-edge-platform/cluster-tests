@@ -117,11 +117,13 @@ test: render-capi-operator bootstrap ## Runs cluster orch cluster api smoke test
 	#   make test SKIP_CLUSTER_AGENT_RESET=false
 	# Note: leaving SKIP_CLUSTER_AGENT_RESET unset enables an 'auto' mode (reset only if prior k3s state is detected)
 	# when running `go test` directly.
-	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_CLUSTER_AGENT_RESET=$${SKIP_CLUSTER_AGENT_RESET:-true} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiSmokeTest
+	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_CLUSTER_AGENT_RESET=$${SKIP_CLUSTER_AGENT_RESET:-true} SKIP_DELETE_CLUSTER=false \
+		bash -lc 'set -euo pipefail; if [ -f .ven.env ]; then source .ven.env; fi; mage test:ClusterOrchClusterApiSmokeTest'
 
 .PHONY: cluster-api-all-test
 cluster-api-all-test: bootstrap ## Runs cluster orch functional tests
-	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_CLUSTER_AGENT_RESET=$${SKIP_CLUSTER_AGENT_RESET:-true} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiAllTest
+	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_CLUSTER_AGENT_RESET=$${SKIP_CLUSTER_AGENT_RESET:-true} SKIP_DELETE_CLUSTER=false \
+		bash -lc 'set -euo pipefail; if [ -f .ven.env ]; then source .ven.env; fi; mage test:ClusterOrchClusterApiAllTest'
 
 .PHONY: template-api-smoke-test
 template-api-smoke-test: ## Runs cluster orch template API smoke tests
@@ -133,7 +135,8 @@ template-api-all-test: ## Runs cluster orch template API all tests
   
 .PHONY: robustness-test
 robustness-test: bootstrap ## Runs cluster orch robustness tests
-	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_CLUSTER_AGENT_RESET=$${SKIP_CLUSTER_AGENT_RESET:-true} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchRobustness
+	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_CLUSTER_AGENT_RESET=$${SKIP_CLUSTER_AGENT_RESET:-true} SKIP_DELETE_CLUSTER=false \
+		bash -lc 'set -euo pipefail; if [ -f .ven.env ]; then source .ven.env; fi; mage test:ClusterOrchRobustness'
 
 .PHONY: help
 help: ## Display this help.

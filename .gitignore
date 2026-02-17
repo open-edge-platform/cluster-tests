@@ -29,3 +29,6 @@ configs/oidc-mock-dynamic.yaml
 
 # Dynamic JWT keys (generated at runtime)
 /tmp/cluster-tests-dynamic-keys.pem
+
+# vEN bootstrap output (generated at runtime)
+.ven.env
