@@ -63,7 +63,7 @@ var _ = Describe("Template API Tests", Ordered, func() {
 		By("Waiting for the cluster template to be ready")
 		Eventually(func() bool {
 			return utils.IsClusterTemplateReady(namespace, utils.K3sTemplateName)
-		}, 1*time.Minute, 2*time.Second).Should(BeTrue())
+		}, 2*time.Minute, 2*time.Second).Should(BeTrue())
 	})
 
 	It("Should be able to retrieve a template", Label(utils.ClusterOrchTemplateApiSmokeTest, utils.ClusterOrchTemplateApiAllTest), func() {

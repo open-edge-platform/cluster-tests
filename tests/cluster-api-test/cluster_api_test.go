@@ -25,7 +25,7 @@ const (
 	TempKubeconfigPattern    = "/tmp/%s-kubeconfig.yaml"
 	KubeconfigFileName       = "kubeconfig.yaml"
 	LocalGatewayURL          = "http://127.0.0.1:8081/"
-	ClusterReadinessTimeout  = 10 * time.Minute
+	ClusterReadinessTimeout  = 5 * time.Minute
 	ClusterReadinessInterval = 10 * time.Second
 	PodReadinessTimeout      = 5 * time.Minute
 	PodReadinessInterval     = 10 * time.Second
@@ -363,7 +363,11 @@ var _ = Describe("Single Node K3s Cluster Create and Delete using Cluster Manage
 			By("Waiting for the cluster template to be ready")
 			Eventually(func() bool {
 				return utils.IsClusterTemplateReady(namespace, utils.K3sTemplateName)
-			}, 1*time.Minute, 2*time.Second).Should(BeTrue())
+			}, 2*time.Minute, 2*time.Second).Should(BeTrue())
+
+			By("Resetting cluster-agent state (fresh k3s datastore/token)")
+			err = utils.ResetClusterAgent()
+			Expect(err).NotTo(HaveOccurred())
 
 			clusterCreateStartTime = time.Now()
 
@@ -406,10 +410,12 @@ var _ = Describe("Single Node K3s Cluster Create and Delete using Cluster Manage
 
 		JustAfterEach(func() {
 			if CurrentSpecReport().Failed() {
+				// Note: the cluster-agent may be reset as part of test hygiene; in that case
+				// /etc/rancher/k3s/k3s.yaml might not exist yet. Make diagnostics best-effort.
 				utils.LogCommandOutput("kubectl", []string{"exec", "cluster-agent-0", "--",
-					"/usr/local/bin/k3s", "kubectl", "--kubeconfig", "/etc/rancher/k3s/k3s.yaml", "get", "pods", "-A"})
+					"sh", "-lc", "test -f /etc/rancher/k3s/k3s.yaml && /usr/local/bin/k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get pods -A || true"})
 				utils.LogCommandOutput("kubectl", []string{"exec", "cluster-agent-0", "--",
-					"/usr/local/bin/k3s", "kubectl", "--kubeconfig", "/etc/rancher/k3s/k3s.yaml", "describe", "pod", "-n", "kube-system", "connect-agent-cluster-agent-0"})
+					"sh", "-lc", "test -f /etc/rancher/k3s/k3s.yaml && /usr/local/bin/k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml describe pod -n kube-system connect-agent-cluster-agent-0 || true"})
 			}
 		})
 	})

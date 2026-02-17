@@ -91,11 +91,15 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 	})
 
 	It("Test prerequisite: Should verify that cluster create API should succeed for k3s cluster", func() {
+		By("Resetting cluster-agent state (fresh k3s datastore/token)")
+		err := utils.ResetClusterAgent()
+		Expect(err).NotTo(HaveOccurred())
+
 		// Record the start time before creating the cluster
 		clusterCreateStartTime = time.Now()
 
 		By("Creating the cluster")
-		err := utils.CreateCluster(namespace, nodeGUID, utils.K3sTemplateName)
+		err = utils.CreateCluster(namespace, nodeGUID, utils.K3sTemplateName)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -123,7 +127,7 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 			}
 			fmt.Printf("Cluster components status:\n%s\n", string(output))
 			return utils.CheckAllComponentsReady(string(output))
-		}, 10*time.Minute, 10*time.Second).Should(BeTrue())
+		}, 5*time.Minute, 10*time.Second).Should(BeTrue())
 		// Record the end time after the cluster is fully active
 		clusterCreateEndTime = time.Now()
 
@@ -164,9 +168,17 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 		_, err = cmd.Output()
 		Expect(err).NotTo(HaveOccurred())
 
-		// Exec into one of the pods in the kube-system namespace on the edge node cluster
-		By("Executing command in kube-scheduler-cluster-agent-0 pod")
-		cmd = exec.Command("kubectl", "exec", "--kubeconfig", "kubeconfig.yaml", "-it", "-n", "kube-system", "kube-scheduler-cluster-agent-0", "--", "ls")
+		// Exec into a pod in the kube-system namespace on the edge node cluster.
+		// Note: in k3s, control-plane components like scheduler are not necessarily exposed as pods.
+		By("Executing command in local-path-provisioner pod")
+		cmd = exec.Command("kubectl", "get", "pods", "-n", "kube-system", "-l", "app=local-path-provisioner",
+			"-o", "jsonpath={.items[0].metadata.name}", "--kubeconfig", "kubeconfig.yaml")
+		podNameBytes, err := cmd.Output()
+		Expect(err).NotTo(HaveOccurred())
+		podName := strings.TrimSpace(string(podNameBytes))
+		Expect(podName).NotTo(BeEmpty(), "local-path-provisioner pod name should not be empty")
+
+		cmd = exec.Command("kubectl", "exec", "--kubeconfig", "kubeconfig.yaml", "-it", "-n", "kube-system", podName, "--", "ls")
 		output, err = cmd.Output()
 		Expect(err).NotTo(HaveOccurred())
 		By("Printing the output of the command")

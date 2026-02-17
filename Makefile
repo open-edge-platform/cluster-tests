@@ -111,11 +111,17 @@ bootstrap-mac: deps ## Bootstrap the test environment on MacOS before running te
 
 .PHONY: test
 test: render-capi-operator bootstrap ## Runs cluster orch cluster api smoke tests. This step bootstraps the env before running the test
-	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiSmokeTest
+	# Default: no cluster-agent reset.
+	# To enable a reset of the ENiC `cluster-agent-0` state (recreates its pod + PVC; avoids flakes like
+	# "bootstrap data already found and encrypted with different token"), run with:
+	#   make test SKIP_CLUSTER_AGENT_RESET=false
+	# Note: leaving SKIP_CLUSTER_AGENT_RESET unset enables an 'auto' mode (reset only if prior k3s state is detected)
+	# when running `go test` directly.
+	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_CLUSTER_AGENT_RESET=$${SKIP_CLUSTER_AGENT_RESET:-true} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiSmokeTest
 
 .PHONY: cluster-api-all-test
 cluster-api-all-test: bootstrap ## Runs cluster orch functional tests
-	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiAllTest
+	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_CLUSTER_AGENT_RESET=$${SKIP_CLUSTER_AGENT_RESET:-true} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchClusterApiAllTest
 
 .PHONY: template-api-smoke-test
 template-api-smoke-test: ## Runs cluster orch template API smoke tests
@@ -127,7 +133,7 @@ template-api-all-test: ## Runs cluster orch template API all tests
   
 .PHONY: robustness-test
 robustness-test: bootstrap ## Runs cluster orch robustness tests
-	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchRobustness
+	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_CLUSTER_AGENT_RESET=$${SKIP_CLUSTER_AGENT_RESET:-true} SKIP_DELETE_CLUSTER=false mage test:ClusterOrchRobustness
 
 .PHONY: help
 help: ## Display this help.
