@@ -18,6 +18,7 @@ ACTION="${1:-}"
 PF_DIR="${VEN_PORTFORWARD_DIR:-/tmp/cluster-tests-ven-portforwards}"
 CM_LOCAL_PORT="${VEN_CM_LOCAL_PORT:-18080}"
 GW_LOCAL_PORT="${VEN_GW_LOCAL_PORT:-18081}"
+SB_LOCAL_PORT="${VEN_SB_LOCAL_PORT:-150020}"
 ADDRESS="${VEN_PORTFORWARD_ADDRESS:-0.0.0.0}"
 
 mkdir -p "$PF_DIR"
@@ -70,13 +71,15 @@ case "$ACTION" in
   start)
     start_one cluster-manager svc/cluster-manager "$CM_LOCAL_PORT" 8080
     start_one connect-gateway svc/cluster-connect-gateway "$GW_LOCAL_PORT" 8080
+    start_one southbound-grpc svc/intel-infra-provider-grpc "$SB_LOCAL_PORT" 50020
     ;;
   stop)
     stop_one cluster-manager
     stop_one connect-gateway
+    stop_one southbound-grpc
     ;;
   status)
-    for pf in cluster-manager connect-gateway; do
+    for pf in cluster-manager connect-gateway southbound-grpc; do
       if is_running "$pf"; then
         echo "$pf: running (pid $(cat "$(pidfile "$pf")"))"
       else
