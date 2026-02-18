@@ -401,6 +401,30 @@ func CreateCluster(namespace, nodeGUID, templateName string) error {
 		return fmt.Errorf("failed to create cluster: %s", string(body))
 	}
 
+	// Cluster Manager may create clusters with spec.paused=true.
+	// If left paused, ClusterClass topology reconciliation will not create the infra
+	// objects (IntelCluster/IntelMachine), which can later lead to stuck finalizers.
+	if err := UnpauseCluster(namespace, ClusterName); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// UnpauseCluster sets spec.paused=false for a CAPI Cluster.
+// This is required so ClusterClass topology reconciliation can proceed.
+func UnpauseCluster(namespace, clusterName string) error {
+	cmd := exec.Command(
+		"kubectl",
+		"-n", namespace,
+		"patch", "cluster", clusterName,
+		"--type=merge",
+		"-p", `{"spec":{"paused":false}}`,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to unpause cluster %s/%s: %w: %s", namespace, clusterName, err, strings.TrimSpace(string(out)))
+	}
 	return nil
 }
 

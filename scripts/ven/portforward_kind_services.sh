@@ -18,7 +18,8 @@ ACTION="${1:-}"
 PF_DIR="${VEN_PORTFORWARD_DIR:-/tmp/cluster-tests-ven-portforwards}"
 CM_LOCAL_PORT="${VEN_CM_LOCAL_PORT:-18080}"
 GW_LOCAL_PORT="${VEN_GW_LOCAL_PORT:-18081}"
-SB_LOCAL_PORT="${VEN_SB_LOCAL_PORT:-150020}"
+# Must be a valid TCP port (<= 65535). Service port is 50020; we default to 15020 on the host.
+SB_LOCAL_PORT="${VEN_SB_LOCAL_PORT:-15020}"
 ADDRESS="${VEN_PORTFORWARD_ADDRESS:-0.0.0.0}"
 
 mkdir -p "$PF_DIR"
@@ -45,9 +46,25 @@ start_one() {
   fi
 
   echo "Starting port-forward for $svc: $ADDRESS:$local_port -> :$remote_port" >&2
-  # shellcheck disable=SC2086
-  kubectl port-forward "$svc" "$local_port:$remote_port" --address "$ADDRESS" \
-    >"$(logfile "$name")" 2>&1 &
+  echo "(auto-restart enabled; logs: $(logfile "$name"))" >&2
+
+  # kubectl port-forward is not resilient: transient apiserver/kubelet stream disconnects,
+  # pod restarts, or network hiccups can cause it to exit (often with 'broken pipe').
+  # Run it under a tiny supervisor loop so vEN connectivity doesn't flap.
+  (
+    set -euo pipefail
+    trap 'kill 0' INT TERM EXIT
+    while true; do
+      echo "[$(date -Is)] starting: kubectl port-forward $svc $local_port:$remote_port --address $ADDRESS"
+      kubectl port-forward "$svc" "$local_port:$remote_port" --address "$ADDRESS" &
+      kpid=$!
+      wait "$kpid" || rc=$? || true
+      rc="${rc:-0}"
+      echo "[$(date -Is)] exited rc=$rc; restarting in 1s"
+      unset rc
+      sleep 1
+    done
+  ) >>"$(logfile "$name")" 2>&1 &
 
   echo $! >"$(pidfile "$name")"
 }

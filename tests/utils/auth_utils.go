@@ -245,6 +245,12 @@ func CreateClusterAuthenticated(authContext *auth.TestAuthContext, namespace, no
 		return fmt.Errorf("failed to create cluster: %s", string(body))
 	}
 
+	// Keep behavior consistent with non-auth flow: ensure the Cluster is unpaused so
+	// ClusterClass topology reconciliation can proceed.
+	if err := UnpauseCluster(namespace, ClusterName); err != nil {
+		return err
+	}
+
 	return nil
 }
 

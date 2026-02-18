@@ -136,6 +136,15 @@ func maybeBootstrapVEN() error {
 		return nil
 	}
 
+	// If a prior step already created .ven.env (e.g., local dev bootstrap),
+	// allow reusing it as the source of truth.
+	if b, err := os.ReadFile(venEnvFile); err == nil {
+		content := string(b)
+		if strings.Contains(content, "export "+utils.NodeGUIDEnvVar+"=") {
+			return nil
+		}
+	}
+
 	// Minimal path: user/CI provides NODEGUID (or VEN_NODEGUID) and SSH settings.
 	nodeGUID := strings.TrimSpace(os.Getenv(utils.NodeGUIDEnvVar))
 	if nodeGUID == "" {
