@@ -43,8 +43,8 @@ const (
 	PortForwardGatewayRemotePort = "8080"
 
 	K3sTemplateOnlyName    = "baseline-k3s"
-	K3sTemplateOnlyVersion = "v0.0.1"
-	K3sTemplateName  = "baseline-k3s-v0.0.1"
+	K3sTemplateOnlyVersion = "v0.0.10"
+	K3sTemplateName  = "baseline-k3s-v0.0.10"
 
 	ClusterTemplateURL = "http://127.0.0.1:8080/v2/templates"
 	ClusterCreateURL   = "http://127.0.0.1:8080/v2/clusters"

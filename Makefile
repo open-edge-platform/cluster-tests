@@ -121,6 +121,18 @@ bootstrap-mac: deps ## Bootstrap the test environment on MacOS before running te
 	kubectl get deployments -A -o wide
 	kubectl get svc -A -o wide
 
+# GitHub ref (branch, tag, or commit) of cluster-manager to fetch templates from.
+# Should match the version used in .test-dependencies.yaml.
+CLUSTER_MANAGER_REPO_REF ?= main
+CLUSTER_MANAGER_REPO_URL  ?= https://raw.githubusercontent.com/open-edge-platform/cluster-manager
+
+.PHONY: sync-cluster-templates
+sync-cluster-templates: ## Fetch baseline cluster templates from upstream cluster-manager (CLUSTER_MANAGER_REPO_REF=main)
+	@echo "Syncing cluster templates from cluster-manager@$(CLUSTER_MANAGER_REPO_REF)..."
+	curl -fsSL "$(CLUSTER_MANAGER_REPO_URL)/$(CLUSTER_MANAGER_REPO_REF)/default-cluster-templates/baseline-k3s.json" \
+		-o configs/baseline-cluster-template-k3s.json
+	@echo "Updated configs/baseline-cluster-template-k3s.json"
+
 .PHONY: test
 test: render-capi-operator bootstrap ## Runs cluster orch cluster api smoke tests. This step bootstraps the env before running the test
 	PATH=${ENV_PATH} \

@@ -107,7 +107,7 @@ var _ = Describe("Template API Tests", Ordered, func() {
 
 	It("Should return templates matching a filter", Label(utils.ClusterOrchTemplateApiAllTest), func() {
 		By("Retrieving templates with a filter")
-		templates, err := utils.GetClusterTemplatesWithFilter(namespace, "version=v0.0.1")
+			templates, err := utils.GetClusterTemplatesWithFilter(namespace, "version="+utils.K3sTemplateOnlyVersion)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(templates).ToNot(BeNil(), "Templates should not be nil")
 		Expect(templates.TemplateInfoList).ToNot(BeNil())
