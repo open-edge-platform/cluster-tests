@@ -65,6 +65,8 @@ need_cmd ssh
 need_cmd scp
 need_cmd uuidgen
 
+need_cmd go
+
 # Optional proxy support (required in environments where the VM has no direct egress).
 #
 # How it works:
@@ -187,6 +189,23 @@ fi
 # we do not keep stale port-forward processes.
 ./scripts/ven/portforward_kind_services.sh stop || true
 ./scripts/ven/portforward_kind_services.sh start
+
+# The southbound handler enforces JWT auth/RBAC. In this test environment we do not
+# deploy a real Keycloak, so provide a mock OIDC discovery + JWKS endpoint that
+# matches the default issuer used by the chart:
+#   http://platform-keycloak.orch-platform.svc/realms/master
+ensure_oidc_mock() {
+  # Create namespace and apply the generated manifest.
+  kubectl create namespace orch-platform --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
+
+  # Generate and apply the manifest (uses vendored deps).
+  GOFLAGS=-mod=vendor go run ./scripts/oidc_mock_gen -mode manifest | kubectl apply -f - >/dev/null
+
+  # Wait for the mock deployment to be ready (best-effort).
+  kubectl wait --for=condition=Available --timeout=120s deployment.apps/oidc-mock -n default >/dev/null 2>&1 || true
+}
+
+ensure_oidc_mock
 
 if ! ./scripts/ven/portforward_kind_services.sh status 2>/dev/null | grep -q '^southbound-grpc: running'; then
   echo "ERROR: southbound-grpc port-forward is not running" >&2
@@ -692,28 +711,65 @@ sudo systemctl enable --now cluster-tests-connect-agent-gateway-patch.path
 sudo systemctl start cluster-tests-connect-agent-gateway-patch.service >/dev/null 2>&1 || true
 EOSSH
 
-# Build cluster-agent binary locally (in-repo workspace copy).
+# Build cluster-agent binary locally.
 #
-# Current location (edge-node-agents repo):
+# vEN mode MUST use edge-node-agents `cluster-agent` sources (not the legacy in-repo copy).
+# Source location:
 #   _workspace/edge-node-agents/cluster-agent
-# Legacy location (older experiments):
-#   _workspace/cluster-agent/cluster-agent
 CA_DIR="${CA_DIR:-}"
 if [[ -z "$CA_DIR" ]]; then
-  if [[ -d "$repo_root/_workspace/edge-node-agents/cluster-agent" ]]; then
-    CA_DIR="$repo_root/_workspace/edge-node-agents/cluster-agent"
-  elif [[ -d "$repo_root/_workspace/cluster-agent/cluster-agent" ]]; then
-    CA_DIR="$repo_root/_workspace/cluster-agent/cluster-agent"
-  fi
+  CA_DIR="$repo_root/_workspace/edge-node-agents/cluster-agent"
 fi
 
-if [[ -z "$CA_DIR" || ! -d "$CA_DIR" ]]; then
-  echo "ERROR: cluster-agent sources not found (CA_DIR is unset or invalid)" >&2
-  echo "Checked (in order):" >&2
-  echo "  - $repo_root/_workspace/edge-node-agents/cluster-agent" >&2
-  echo "  - $repo_root/_workspace/cluster-agent/cluster-agent" >&2
+LEGACY_CA_DIR="$repo_root/_workspace/cluster-agent/cluster-agent"
+if [[ "$CA_DIR" == "$LEGACY_CA_DIR" ]]; then
+  echo "ERROR: legacy cluster-agent is not supported in vEN mode." >&2
+  echo "Refusing CA_DIR=$CA_DIR" >&2
+  echo "Use: $repo_root/_workspace/edge-node-agents/cluster-agent" >&2
+  exit 2
+fi
+
+if [[ ! -d "$CA_DIR" ]]; then
+  echo "ERROR: cluster-agent sources not found at: $CA_DIR" >&2
+  echo "Expected: $repo_root/_workspace/edge-node-agents/cluster-agent" >&2
   echo "Hint: ensure mage test:bootstrap populates _workspace/ (see .test-dependencies.yaml), or set CA_DIR explicitly." >&2
   exit 2
+fi
+
+# vEN test environment note:
+# The kind-based southbound gRPC endpoint exposed via host port-forward is plaintext.
+# Upstream edge-node-agents `cluster-agent` uses TLS transport credentials by default.
+#
+# To avoid carrying a forked `cluster-agent` binary (and to satisfy "no legacy cluster-agent"),
+# we patch the cloned sources in-place before building to support a runtime switch.
+#
+# - When CLUSTER_AGENT_INSECURE_GRPC=true, the agent will use plaintext gRPC.
+# - Otherwise it will keep using TLS as upstream intended.
+VEN_CLUSTER_AGENT_INSECURE_GRPC="${VEN_CLUSTER_AGENT_INSECURE_GRPC:-true}"
+if [[ "$VEN_CLUSTER_AGENT_INSECURE_GRPC" == "true" ]]; then
+  comms_file="$CA_DIR/internal/comms/comms.go"
+  if [[ -f "$comms_file" ]] && ! grep -q 'CLUSTER_AGENT_INSECURE_GRPC' "$comms_file"; then
+    # Verify the line we expect to patch is present.
+    needle='	cli.Transport = grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))'
+    if ! grep -qF "$needle" "$comms_file"; then
+      echo "ERROR: did not find expected TLS transport line to patch in comms.go;" >&2
+      echo "       edge-node-agents cluster-agent source may have changed" >&2
+      exit 2
+    fi
+
+    # Add missing imports (idempotent): os, strings, grpc/credentials/insecure.
+    grep -qF '"os"' "$comms_file" || \
+      sed -i 's|"fmt"|"fmt"\n\t"os"|' "$comms_file"
+    grep -qF '"strings"' "$comms_file" || \
+      sed -i 's|"os"|"os"\n\t"strings"|' "$comms_file"
+    grep -qF 'grpc/credentials/insecure' "$comms_file" || \
+      sed -i 's|"google.golang.org/grpc/credentials"|"google.golang.org/grpc/credentials"\n\t"google.golang.org/grpc/credentials/insecure"|' "$comms_file"
+
+    # Replace the single TLS transport line with an insecure/TLS runtime switch.
+    sed -i 's|\tcli\.Transport = grpc\.WithTransportCredentials(credentials\.NewTLS(tlsConfig))|\tif strings.EqualFold(os.Getenv("CLUSTER_AGENT_INSECURE_GRPC"), "true") {\n\t\tcli.Transport = grpc.WithTransportCredentials(insecure.NewCredentials())\n\t} else {\n\t\tcli.Transport = grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))\n\t}|' "$comms_file"
+
+    echo "Patched $comms_file for CLUSTER_AGENT_INSECURE_GRPC runtime switch"
+  fi
 fi
 
 pushd "$CA_DIR" >/dev/null
@@ -728,16 +784,28 @@ if [[ ! -f "$CA_BIN" ]]; then
 fi
 
 # Install cluster-agent on the VM and start it
+# Generate a valid JWT signed by the same runtime keypair used by the OIDC mock.
+# Do NOT print the token.
+ACCESS_TOKEN_FILE="$(mktemp /tmp/cluster-tests-cluster-agent-token.XXXXXX)"
+chmod 0600 "$ACCESS_TOKEN_FILE"
+GOFLAGS=-mod=vendor go run ./scripts/oidc_mock_gen -mode token -subject cluster-agent >"$ACCESS_TOKEN_FILE"
+
 scp "${scp_opts[@]}" "$CA_BIN" "${SSH_USER}@${VEN_SSH_HOST}:/tmp/cluster-agent" >/dev/null
+scp "${scp_opts[@]}" "$ACCESS_TOKEN_FILE" "${SSH_USER}@${VEN_SSH_HOST}:/tmp/cluster-agent-access-token" >/dev/null
+rm -f "$ACCESS_TOKEN_FILE"
 
 ssh "${ssh_opts[@]}" "${SSH_USER}@${VEN_SSH_HOST}" 'bash -se' <<EOSSH >/dev/null
 set -euo pipefail
 
 sudo install -m 0755 /tmp/cluster-agent /usr/local/bin/cluster-agent
 sudo mkdir -p /etc/enic
-# Leave the token empty so the southbound handler can treat this client as "missing auth"
-# (we patch ALLOW_MISSING_AUTH_CLIENTS=cluster-agent on the southbound deployment).
-sudo truncate -s 0 /etc/enic/access_token
+# Install a JWT token for the southbound handler RBAC/auth.
+# If the token is missing for any reason, fall back to an empty file.
+if [[ -s /tmp/cluster-agent-access-token ]]; then
+  sudo install -m 0600 /tmp/cluster-agent-access-token /etc/enic/access_token
+else
+  sudo truncate -s 0 /etc/enic/access_token
+fi
 
 sudo tee /etc/enic/cluster-agent.yaml >/dev/null <<CFG
 version: 'v${CA_VERSION}'
@@ -745,6 +813,7 @@ GUID: '${NODEGUID}'
 logLevel: 'debug'
 metricsInterval: 10s
 clusterOrchestratorURL: '${HOST_IP_FOR_VM}:${HOST_SB_GRPC_PORT}'
+statusEndpoint: 'unix:///run/node-agent/node-agent.sock'
 heartbeat: '10s'
 jwt:
   accessTokenPath: '/etc/enic/access_token'
@@ -758,6 +827,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+Environment=CLUSTER_AGENT_INSECURE_GRPC=${VEN_CLUSTER_AGENT_INSECURE_GRPC}
 ExecStart=/usr/local/bin/cluster-agent -config /etc/enic/cluster-agent.yaml
 Restart=always
 RestartSec=5

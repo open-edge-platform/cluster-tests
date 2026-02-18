@@ -209,8 +209,8 @@ components:
     helm-repo: []
     git-repo:
       url: https://github.com/open-edge-platform/edge-node-agents.git
-      # Pin to a known-good commit for reproducibility.
-      version: 3680ffd6f8acbcbf48d04e67cb57dc033d3aed14
+      # Pin to the cluster-agent release tag for reproducibility and easy tracking.
+      version: cluster-agent/v1.9.0
     make-directory: ""
     make-variables: []
     make-targets: []

@@ -328,6 +328,15 @@ func SetupTestAuthentication(username string) (*TestAuthContext, error) {
 
 // GenerateTestJWT creates a JWT token for testing with the given username using PS512
 func GenerateTestJWT(username string) (string, error) {
+	return GenerateTestJWTForClient(username, []string{"cluster-manager"}, "system-client")
+}
+
+// GenerateTestJWTForClient creates a JWT token signed by the runtime-generated keypair
+// used by the OIDC mock server, but allows selecting audience and azp.
+//
+// This is useful for components (e.g., southbound RBAC) that require tokens scoped to a
+// specific OIDC client id.
+func GenerateTestJWTForClient(username string, audience []string, azp string) (string, error) {
 	// Get the dynamically generated private key
 	privateKey, _, err := getOrGenerateKeys()
 	if err != nil {
@@ -339,13 +348,13 @@ func GenerateTestJWT(username string) (string, error) {
 	clusterNamespace := "53cd37b9-66b2-4cc8-b080-3722ed7af64a" // Default namespace from cluster_utils.go
 	claims := jwt.MapClaims{
 		"sub":   username,
-		"iss":   IssuerURL,                    // Use constant instead of hardcoded value
-		"aud":   []string{"cluster-manager"},  // Unit tests expect this audience
+		"iss":   IssuerURL, // Use constant instead of hardcoded value
+		"aud":   audience,
 		"scope": "openid email roles profile", // Match working JWT scope
 		"exp":   now.Add(time.Hour).Unix(),
 		"iat":   now.Unix(),
-		"typ":   "Bearer",        // Token type
-		"azp":   "system-client", // Authorized party
+		"typ":   "Bearer", // Token type
+		"azp":   azp,
 		"realm_access": map[string]interface{}{
 			"roles": []string{
 				"account/view-profile",
@@ -364,6 +373,11 @@ func GenerateTestJWT(username string) (string, error) {
 				clusterNamespace + "_cl-rw",
 				"account/manage-account",
 				"63764aaf-1527-46a0-b921-c5f32dba1ddb_" + clusterNamespace + "_m",
+				// Required by intel-infra-provider southbound RBAC (authz.rego):
+				// hasWriteAccess/hasReadAccess require realm_access.roles to contain a role
+				// matching "^(([UUID]_)?node-agent-readwrite-role)" or "[UUID]_en-agent-rw"
+				"node-agent-readwrite-role",
+				clusterNamespace + "_en-agent-rw",
 			},
 		},
 		"resource_access": map[string]interface{}{ // Resource-specific roles
