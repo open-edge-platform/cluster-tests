@@ -148,7 +148,7 @@ HOST_GW_PORT_FOR_VM="${VEN_GW_LOCAL_PORT:-18081}"
 maybe_prepare_proxy_env
 
 # NOTE: The cluster-agent implementation used by cluster-tests lives under
-#   _workspace/cluster-agent/cluster-agent
+#   _workspace/edge-node-agents/cluster-agent
 # and (in this repo version) uses insecure gRPC credentials by default. This is
 # required for the kind-based test environment where the southbound service is
 # exposed without TLS.
@@ -693,10 +693,26 @@ sudo systemctl start cluster-tests-connect-agent-gateway-patch.service >/dev/nul
 EOSSH
 
 # Build cluster-agent binary locally (in-repo workspace copy).
-CA_DIR="${CA_DIR:-$repo_root/_workspace/cluster-agent/cluster-agent}"
-if [[ ! -d "$CA_DIR" ]]; then
-  echo "ERROR: expected cluster-agent sources at $CA_DIR" >&2
-  echo "Hint: run 'make bootstrap' first to populate _workspace/, or set CA_DIR explicitly." >&2
+#
+# Current location (edge-node-agents repo):
+#   _workspace/edge-node-agents/cluster-agent
+# Legacy location (older experiments):
+#   _workspace/cluster-agent/cluster-agent
+CA_DIR="${CA_DIR:-}"
+if [[ -z "$CA_DIR" ]]; then
+  if [[ -d "$repo_root/_workspace/edge-node-agents/cluster-agent" ]]; then
+    CA_DIR="$repo_root/_workspace/edge-node-agents/cluster-agent"
+  elif [[ -d "$repo_root/_workspace/cluster-agent/cluster-agent" ]]; then
+    CA_DIR="$repo_root/_workspace/cluster-agent/cluster-agent"
+  fi
+fi
+
+if [[ -z "$CA_DIR" || ! -d "$CA_DIR" ]]; then
+  echo "ERROR: cluster-agent sources not found (CA_DIR is unset or invalid)" >&2
+  echo "Checked (in order):" >&2
+  echo "  - $repo_root/_workspace/edge-node-agents/cluster-agent" >&2
+  echo "  - $repo_root/_workspace/cluster-agent/cluster-agent" >&2
+  echo "Hint: ensure mage test:bootstrap populates _workspace/ (see .test-dependencies.yaml), or set CA_DIR explicitly." >&2
   exit 2
 fi
 

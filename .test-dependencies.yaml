@@ -194,3 +194,24 @@ components:
     make-variables: []
     make-targets: []
     post-install-commands: []
+
+  # edge-node-agents (sources only)
+  #
+  # vEN mode runs cluster-agent inside the libvirt VM. The vEN bootstrap script builds the
+  # cluster-agent binary from sources under:
+  #   _workspace/edge-node-agents/cluster-agent
+  #
+  # IMPORTANT: This does NOT deploy the legacy lw-ENiC in-kind pod (`cluster-agent-0`).
+  - name: edge-node-agents
+    skip-component: false
+    skip-local-build: false
+    pre-install-commands: []
+    helm-repo: []
+    git-repo:
+      url: https://github.com/open-edge-platform/edge-node-agents.git
+      # Pin to a known-good commit for reproducibility.
+      version: 3680ffd6f8acbcbf48d04e67cb57dc033d3aed14
+    make-directory: ""
+    make-variables: []
+    make-targets: []
+    post-install-commands: []
