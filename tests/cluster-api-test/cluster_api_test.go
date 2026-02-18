@@ -169,13 +169,12 @@ func validateJWTWorkflow(authContext *auth.TestAuthContext, namespace string) {
 	Expect(authContext).NotTo(BeNil())
 
 	By("Confirming JWT authentication usage for cluster operations")
-	fmt.Printf(" JWT Token confirmed for cluster operations: %s...\n"+
-		" JWT authentication confirmed for:\n"+
+	fmt.Printf(" JWT authentication confirmed for:\n"+
 		"   - Cluster template import\n"+
 		"   - Cluster creation\n"+
 		"   - Cluster management APIs\n"+
 		"   - Kubeconfig retrieval\n"+
-		"   - Cluster deletion (in AfterEach)\n", authContext.Token[:20])
+		"   - Cluster deletion (in AfterEach)\n")
 
 	By("Verifying JWT token structure and claims")
 	parts := strings.Split(authContext.Token, ".")

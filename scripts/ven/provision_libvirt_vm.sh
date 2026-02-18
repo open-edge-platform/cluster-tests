@@ -40,20 +40,15 @@ need_cmd virsh
 need_cmd jq
 need_cmd rsync
 
-# If user didn't specify a module dir, try a sensible default from edge-manage-test-automation.
 VEN_MODULE_DIR="${VEN_MODULE_DIR:-}"
-if [[ -z "$VEN_MODULE_DIR" ]]; then
-  if [[ -d "/root/edge-manage-test-automation/repos/ven/pico/modules/pico-vm-libvirt" ]]; then
-    VEN_MODULE_DIR="/root/edge-manage-test-automation/repos/ven/pico/modules/pico-vm-libvirt"
-  fi
-fi
 
 if [[ -z "$VEN_MODULE_DIR" || ! -d "$VEN_MODULE_DIR" ]]; then
   cat >&2 <<'EOM'
 ERROR: VEN_MODULE_DIR is not set (or is not a directory).
 
-Point it at the virtual-edge-node Terraform module directory, e.g.:
-  export VEN_MODULE_DIR=/root/edge-manage-test-automation/repos/ven/pico/modules/pico-vm-libvirt
+Point it at the virtual-edge-node Terraform module directory (pico-vm-libvirt).
+
+This repo intentionally does not assume any particular checkout path for that module.
 EOM
   exit 2
 fi
@@ -64,7 +59,7 @@ if [[ ! -d "$modules_dir/common" ]]; then
   exit 2
 fi
 
-# Terraform variables (mostly matching edge-manage-test-automation defaults)
+# Terraform variables (module-compatible defaults)
 VEN_VM_NAME="${VEN_VM_NAME:-pico-node-libvirt}"
 VEN_CPU_CORES="${VEN_CPU_CORES:-8}"
 VEN_MEMORY_MB="${VEN_MEMORY_MB:-8192}"
