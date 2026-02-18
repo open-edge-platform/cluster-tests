@@ -5,7 +5,9 @@
 #
 SHELL       := bash -e -o pipefail
 
-ENV_PATH := $(shell printf "%s" "$$PATH"):$(HOME)/.asdf/shims
+# Prepend asdf shims so tool versions from .tool-versions win over any
+# globally-installed binaries (e.g. /root/go/bin/ginkgo).
+ENV_PATH := $(HOME)/.asdf/shims:$(shell printf "%s" "$$PATH")
 
 # Optional local proxy env file (do not commit). Format:
 #   HTTP_PROXY=http://...

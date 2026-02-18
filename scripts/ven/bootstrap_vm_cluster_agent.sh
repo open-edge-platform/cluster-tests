@@ -186,15 +186,26 @@ fi
 
 # Ensure intel-infra-provider southbound allows missing auth clients for cluster-agent.
 # This mirrors edge-node-agents/enic/add_env_var.sh but is required in vEN mode as we skip the in-kind cluster-agent component.
-if kubectl -n default get deploy intel-infra-provider-southbound >/dev/null 2>&1; then
-  kubectl get deployment intel-infra-provider-southbound -n default -o json | \
-    jq --arg name "ALLOW_MISSING_AUTH_CLIENTS" --arg value "cluster-agent" '
-      if (.spec.template.spec.containers[].env // [] | map(select(.name == $name)) | length) == 0 then
-        .spec.template.spec.containers[].env += [{"name": $name, "value": $value}]
-      else
-        .
-      end' | kubectl apply -f - >/dev/null
-fi
+echo "Ensuring intel-infra-provider-southbound allows unauthenticated cluster-agent..." >&2
+for i in {1..10}; do
+  if kubectl -n default get deploy intel-infra-provider-southbound >/dev/null 2>&1; then
+    kubectl get deployment intel-infra-provider-southbound -n default -o json | \
+      jq --arg name "ALLOW_MISSING_AUTH_CLIENTS" --arg value "cluster-agent" '
+        (.spec.template.spec.containers[0].env // []) as $env |
+        if ($env | map(select(.name == $name)) | length) == 0 then
+          .spec.template.spec.containers[0].env += [{"name": $name, "value": $value}]
+        else
+          .
+        end' | kubectl apply -f -
+    if [[ $? -eq 0 ]]; then
+      echo "Successfully patched intel-infra-provider-southbound." >&2
+      kubectl rollout status deployment/intel-infra-provider-southbound -n default --timeout=60s || true
+      break
+    fi
+  fi
+  echo "Waiting for intel-infra-provider-southbound deployment (attempt $i)..." >&2
+  sleep 5
+done
 
 mkdir -p "$SSH_KEY_DIR"
 if [[ ! -f "$SSH_PRIV" ]]; then
@@ -468,12 +479,6 @@ if [[ -f /tmp/cluster-tests-proxy.env ]]; then
   sudo mkdir -p /etc/cluster-tests
   sudo install -m 0600 -o root -g root /tmp/cluster-tests-proxy.env /etc/cluster-tests/proxy.env
 
-  # Export for commands in this bootstrap session (apt/curl).
-  set -a
-  # shellcheck disable=SC1091
-  . /etc/cluster-tests/proxy.env
-  set +a
-
   # Make k3s inherit proxy settings (affects containerd image pulls).
   sudo mkdir -p /etc/systemd/system/k3s.service.d
   sudo tee /etc/systemd/system/k3s.service.d/10-proxy.conf >/dev/null <<'CFG'
@@ -483,12 +488,86 @@ CFG
   sudo systemctl daemon-reload
 fi
 
-sudo apt-get update -y
-sudo apt-get install -y --no-install-recommends curl jq ca-certificates
+if [[ -f /etc/cluster-tests/proxy.env ]]; then
+  # proxy.env is root-only by design; run networked bootstrap steps under sudo.
+  sudo bash -se <<'EOROOT'
+set -euo pipefail
+set -a
+# shellcheck disable=SC1091
+. /etc/cluster-tests/proxy.env
+set +a
+
+apt-get update -y
+apt-get install -y --no-install-recommends curl jq ca-certificates
 
 # Pre-stage k3s installer (required by cluster-agent install_cmd)
-sudo curl -L -o /opt/install.sh https://get.k3s.io
-sudo chmod +x /opt/install.sh
+curl -L -o /opt/install.sh https://get.k3s.io
+chmod +x /opt/install.sh
+EOROOT
+else
+  sudo apt-get update -y
+  sudo apt-get install -y --no-install-recommends curl jq ca-certificates
+
+  # Pre-stage k3s installer (required by cluster-agent install_cmd)
+  sudo curl -L -o /opt/install.sh https://get.k3s.io
+  sudo chmod +x /opt/install.sh
+fi
+EOSSH
+
+# The baseline k3s template is configured as air-gapped and the install command
+# explicitly sets INSTALL_K3S_SKIP_DOWNLOAD=true.
+#
+# That means the VM must already have:
+#   - /usr/local/bin/k3s
+#   - /var/lib/rancher/k3s/agent/images/k3s-airgap-images-<arch>.tar
+#
+# Otherwise cluster-agent will fail with:
+#   "Executable k3s binary not found at /usr/local/bin/k3s"
+K3S_VERSION_DEFAULT="$(jq -r '.kubernetesVersion // empty' "$repo_root/configs/baseline-cluster-template-k3s.json" 2>/dev/null || true)"
+if [[ -z "$K3S_VERSION_DEFAULT" || "$K3S_VERSION_DEFAULT" == "null" ]]; then
+  K3S_VERSION_DEFAULT="v1.32.4+k3s1"
+fi
+K3S_VERSION="${VEN_K3S_VERSION:-$K3S_VERSION_DEFAULT}"
+
+VEN_ARCH_RAW="$(ssh "${ssh_opts[@]}" "${SSH_USER}@${VEN_SSH_HOST}" 'uname -m' 2>/dev/null | tr -d '\r' || true)"
+case "$VEN_ARCH_RAW" in
+  x86_64|amd64)
+    VEN_ARCH=amd64
+    ;;
+  aarch64|arm64)
+    VEN_ARCH=arm64
+    ;;
+  *)
+    echo "WARN: unknown VM arch '$VEN_ARCH_RAW'; defaulting to amd64 for k3s assets" >&2
+    VEN_ARCH=amd64
+    ;;
+esac
+
+k3s_cache_dir="/tmp/cluster-tests-k3s-cache/${K3S_VERSION}/${VEN_ARCH}"
+mkdir -p "$k3s_cache_dir"
+
+k3s_bin="$k3s_cache_dir/k3s"
+k3s_images="$k3s_cache_dir/k3s-airgap-images-${VEN_ARCH}.tar"
+
+if [[ ! -s "$k3s_bin" ]]; then
+  curl -fsSL -o "$k3s_bin" "https://github.com/k3s-io/k3s/releases/download/${K3S_VERSION}/k3s"
+  chmod 0755 "$k3s_bin"
+fi
+if [[ ! -s "$k3s_images" ]]; then
+  curl -fsSL -o "$k3s_images" "https://github.com/k3s-io/k3s/releases/download/${K3S_VERSION}/k3s-airgap-images-${VEN_ARCH}.tar"
+fi
+
+scp "${scp_opts[@]}" "$k3s_bin" "${SSH_USER}@${VEN_SSH_HOST}:/tmp/k3s" >/dev/null
+scp "${scp_opts[@]}" "$k3s_images" "${SSH_USER}@${VEN_SSH_HOST}:/tmp/k3s-airgap-images-${VEN_ARCH}.tar" >/dev/null
+
+ssh "${ssh_opts[@]}" "${SSH_USER}@${VEN_SSH_HOST}" 'bash -se' <<EOSSH >/dev/null
+set -euo pipefail
+
+sudo install -d -m 0755 /usr/local/bin
+sudo install -m 0755 /tmp/k3s /usr/local/bin/k3s
+
+sudo install -d -m 0755 /var/lib/rancher/k3s/agent/images
+sudo install -m 0644 "/tmp/k3s-airgap-images-${VEN_ARCH}.tar" "/var/lib/rancher/k3s/agent/images/k3s-airgap-images-${VEN_ARCH}.tar"
 EOSSH
 
 # Option 1 (preferred for vEN): patch connect-agent to use a gateway URL that is
@@ -502,7 +581,12 @@ EOSSH
 # We install a systemd path+service that:
 # - rewrites --gateway-url to ws://$HOST_IP_FOR_VM:$HOST_GW_PORT_FOR_VM/connect
 # - bounces the mirror pod so kubelet applies the updated manifest
-ssh "${ssh_opts[@]}" "${SSH_USER}@${VEN_SSH_HOST}" 'bash -se' <<EOSSH >/dev/null
+#
+# NOTE: This block intentionally quotes the outer heredoc delimiter to avoid the
+# host shell expanding any $-expressions that are meant to be written literally
+# into the VM-side patch script.
+desired_gateway_url_for_vm="ws://${HOST_IP_FOR_VM}:${HOST_GW_PORT_FOR_VM}/connect"
+ssh "${ssh_opts[@]}" "${SSH_USER}@${VEN_SSH_HOST}" "CONNECT_AGENT_GATEWAY_URL=${desired_gateway_url_for_vm} bash -se" <<'EOSSH' >/dev/null
 set -euo pipefail
 
 sudo mkdir -p /etc/cluster-tests
@@ -527,11 +611,11 @@ if [[ "$current" == "$desired_gateway_url" ]]; then
 fi
 
 backup_dir="/var/log/cluster-tests/static-pod-backups"
-sudo mkdir -p "$backup_dir"
-sudo cp -a "$target" "$backup_dir/connect-agent.yaml.$(date +%s).bak" || true
+mkdir -p "$backup_dir"
+cp -a "$target" "$backup_dir/connect-agent.yaml.$(date +%s).bak" || true
 
 # Replace any existing ws://.../connect or wss://.../connect form.
-sudo sed -i -E "s#(--gateway-url=)(wss?://)[^\"]+/connect#\\1${desired_gateway_url}#g" "$target"
+sed -i -E "s#(--gateway-url=)(wss?://)[^\"]+/connect#\\1${desired_gateway_url}#g" "$target"
 
 # Prefer bouncing just the mirror pod; fall back to restarting k3s.
 if command -v k3s >/dev/null 2>&1; then
@@ -546,23 +630,27 @@ fi
 SCRIPT
 sudo chmod 0755 /usr/local/bin/cluster-tests-patch-connect-agent-gateway
 
-desired="ws://${HOST_IP_FOR_VM}:${HOST_GW_PORT_FOR_VM}/connect"
-
 sudo tee /etc/cluster-tests/connect-agent-gateway.env >/dev/null <<EOF
-CONNECT_AGENT_GATEWAY_URL=${desired}
+CONNECT_AGENT_GATEWAY_URL=${CONNECT_AGENT_GATEWAY_URL}
 EOF
 sudo chmod 0600 /etc/cluster-tests/connect-agent-gateway.env
 
 sudo tee /etc/systemd/system/cluster-tests-connect-agent-gateway-patch.service >/dev/null <<'UNIT'
 [Unit]
 Description=cluster-tests: patch connect-agent gateway-url (vEN)
+# The connect-agent manifest may be written/rewritten multiple times in quick
+# succession during bootstrap; disable start limiting so the patch remains
+# effective (the patch script is idempotent).
+StartLimitIntervalSec=0
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
 EnvironmentFile=/etc/cluster-tests/connect-agent-gateway.env
-ExecStart=/usr/local/bin/cluster-tests-patch-connect-agent-gateway ${CONNECT_AGENT_GATEWAY_URL}
+# systemd does not do shell expansion for ExecStart arguments. Use a shell so
+# CONNECT_AGENT_GATEWAY_URL is expanded at runtime.
+ExecStart=/usr/bin/env bash -lc '/usr/local/bin/cluster-tests-patch-connect-agent-gateway "${CONNECT_AGENT_GATEWAY_URL}"'
 UNIT
 
 sudo tee /etc/systemd/system/cluster-tests-connect-agent-gateway-patch.path >/dev/null <<'UNIT'

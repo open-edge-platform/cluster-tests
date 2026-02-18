@@ -25,14 +25,45 @@ const (
 	TempKubeconfigPattern    = "/tmp/%s-kubeconfig.yaml"
 	KubeconfigFileName       = "kubeconfig.yaml"
 	LocalGatewayURL          = "http://127.0.0.1:8081/"
-	ClusterReadinessTimeout  = 5 * time.Minute
+	// NOTE: cluster readiness can be significantly slower on vEN due to VM bring-up
+	// and first-time image pulls. Prefer using clusterReadinessTimeout() rather
+	// than hard-coding this value.
+	DefaultClusterReadinessTimeout  = 5 * time.Minute
 	ClusterReadinessInterval = 10 * time.Second
-	PodReadinessTimeout      = 5 * time.Minute
+	// Prefer using podReadinessTimeout() rather than hard-coding this value.
+	DefaultPodReadinessTimeout      = 5 * time.Minute
 	PodReadinessInterval     = 10 * time.Second
 	PortForwardTimeout       = 1 * time.Minute
 	PortForwardInterval      = 5 * time.Second
 	PortForwardDelay         = 5 * time.Second
 )
+
+func clusterReadinessTimeout() time.Duration {
+	// Allow overriding from the environment for slow/loaded CI hosts.
+	if val := strings.TrimSpace(os.Getenv("CLUSTER_READINESS_TIMEOUT")); val != "" {
+		if d, err := time.ParseDuration(val); err == nil {
+			return d
+		}
+	}
+
+	// vEN provisioning can take longer than the in-kind ENiC flow.
+	if utils.GetEdgeNodeProvider() == utils.EdgeNodeProviderVEN {
+		return 5 * time.Minute
+	}
+	return DefaultClusterReadinessTimeout
+}
+
+func podReadinessTimeout() time.Duration {
+	if val := strings.TrimSpace(os.Getenv("POD_READINESS_TIMEOUT")); val != "" {
+		if d, err := time.ParseDuration(val); err == nil {
+			return d
+		}
+	}
+	if utils.GetEdgeNodeProvider() == utils.EdgeNodeProviderVEN {
+		return 5 * time.Minute
+	}
+	return DefaultPodReadinessTimeout
+}
 
 // function to check if cluster components are ready
 func checkClusterComponentsReady(namespace string) bool {
@@ -63,7 +94,7 @@ func waitForClusterComponentsReady(namespace string) {
 	By("Waiting for all components to be ready")
 	Eventually(func() bool {
 		return checkClusterComponentsReady(namespace)
-	}, ClusterReadinessTimeout, ClusterReadinessInterval).Should(BeTrue())
+	}, clusterReadinessTimeout(), ClusterReadinessInterval).Should(BeTrue())
 }
 
 func TestClusterApiTest(t *testing.T) {
@@ -298,7 +329,7 @@ func validateKubeconfigAndClusterAccess() {
 			}
 		}
 		return true
-	}, PodReadinessTimeout, PodReadinessInterval).Should(BeTrue(), "Not all pods are in Running or Completed state")
+	}, podReadinessTimeout(), PodReadinessInterval).Should(BeTrue(), "Not all pods are in Running or Completed state")
 
 	By("Getting the local-path-provisioner pod name")
 	cmd = exec.Command("kubectl", "get", "pods", "-n", "kube-system", "-l", "app=local-path-provisioner",

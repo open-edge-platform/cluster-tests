@@ -139,6 +139,9 @@ components:
       - helm-install
     post-install-commands:
       - CONNECT_GATEWAY_IP=$(kubectl get svc cluster-connect-gateway -o go-template="{{ .spec.clusterIP }}") envsubst < ../../configs/conredns-config.yaml | kubectl apply -f -
+      # Ensure connect-gateway is ready before tests attempt to create clusters (connect-agent relies on it).
+      - kubectl wait --for=condition=Available --timeout=300s deployment.apps/cluster-connect-gateway-controller -n default
+      - kubectl wait --for=condition=Available --timeout=300s deployment.apps/cluster-connect-gateway-gateway -n default
 
   # Cluster Manager
   - name: cluster-manager
@@ -173,7 +176,10 @@ components:
     make-targets:
       - helm-install
     make-directory: ""
-    post-install-commands: []
+    post-install-commands:
+      # Ensure cluster-manager API is serving before the ginkgo suite attempts port-forward + template import.
+      - kubectl wait --for=condition=Available --timeout=300s deployment.apps/cluster-manager -n default
+      - kubectl wait --for=condition=Available --timeout=300s deployment.apps/cluster-manager-template-controller -n default
 
   # OIDC Mock Server for JWT Authentication Testing (conditionally deployed via Makefile)
   - name: oidc-mock-server
