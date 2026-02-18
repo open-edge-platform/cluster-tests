@@ -25,6 +25,18 @@ if [[ "${EDGE_NODE_PROVIDER:-}" != "ven" ]]; then
   exit 2
 fi
 
+# Some operations (writing to /var/lib/libvirt/images, enabling libvirtd) require root.
+# Use sudo when needed to keep the script usable in CI runners where the user is not root.
+SUDO=""
+if [[ "$(id -u)" -ne 0 ]]; then
+  if command -v sudo >/dev/null 2>&1; then
+    SUDO="sudo"
+  else
+    echo "ERROR: this script requires root privileges (sudo not found and not running as root)" >&2
+    exit 2
+  fi
+fi
+
 need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "ERROR: missing required command: $1" >&2
@@ -212,20 +224,20 @@ if [[ ! -f "$SSH_PRIV" ]]; then
   ssh-keygen -t ed25519 -N "" -f "$SSH_PRIV" >/dev/null
 fi
 
-mkdir -p "$VEN_VM_IMAGE_DIR"
+$SUDO mkdir -p "$VEN_VM_IMAGE_DIR"
 base_img="$VEN_VM_IMAGE_DIR/${VEN_VM_NAME}-base.qcow2"
 vm_img="$VEN_VM_IMAGE_DIR/${VEN_VM_NAME}.qcow2"
 seed_img="$VEN_VM_IMAGE_DIR/${VEN_VM_NAME}-seed.img"
 
 vm_exists=false
-if virsh dominfo "$VEN_VM_NAME" >/dev/null 2>&1; then
+if $SUDO virsh dominfo "$VEN_VM_NAME" >/dev/null 2>&1; then
   vm_exists=true
 fi
 
 if [[ "$VEN_REUSE_VM" != "true" ]]; then
   # Destroy any old VM first (and remove its storage) before we create new disk files.
-  virsh destroy "$VEN_VM_NAME" >/dev/null 2>&1 || true
-  virsh undefine "$VEN_VM_NAME" --remove-all-storage >/dev/null 2>&1 || true
+  $SUDO virsh destroy "$VEN_VM_NAME" >/dev/null 2>&1 || true
+  $SUDO virsh undefine "$VEN_VM_NAME" --remove-all-storage >/dev/null 2>&1 || true
   vm_exists=false
 fi
 
@@ -234,12 +246,12 @@ if [[ "$vm_exists" != "true" ]]; then
   UBUNTU_IMG_URL="${VEN_UBUNTU_IMG_URL:-https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img}"
   if [[ ! -f "$base_img" ]]; then
     echo "Downloading Ubuntu cloud image..." >&2
-    curl -L "$UBUNTU_IMG_URL" -o "$base_img" >&2
+    $SUDO curl -L "$UBUNTU_IMG_URL" -o "$base_img" >&2
   fi
 
   # Recreate VM disk
-  rm -f "$vm_img" "$seed_img"
-  qemu-img create -f qcow2 -F qcow2 -b "$base_img" "$vm_img" "$VEN_VM_DISK_GB"G >/dev/null
+  $SUDO rm -f "$vm_img" "$seed_img"
+  $SUDO qemu-img create -f qcow2 -F qcow2 -b "$base_img" "$vm_img" "$VEN_VM_DISK_GB"G >/dev/null
 
   user_data="/tmp/${VEN_VM_NAME}-user-data.yaml"
   meta_data="/tmp/${VEN_VM_NAME}-meta-data.yaml"
@@ -263,24 +275,24 @@ instance-id: ${VEN_VM_NAME}
 local-hostname: ${VEN_VM_NAME}
 EOF
 
-  cloud-localds "$seed_img" "$user_data" "$meta_data" >/dev/null
+  $SUDO cloud-localds "$seed_img" "$user_data" "$meta_data" >/dev/null
 fi
 
 # Create the VM
-if ! virsh net-info "$VEN_VM_NET" >/dev/null 2>&1; then
+if ! $SUDO virsh net-info "$VEN_VM_NET" >/dev/null 2>&1; then
   echo "ERROR: libvirt network '$VEN_VM_NET' not found" >&2
-  virsh net-list --all >&2 || true
+  $SUDO virsh net-list --all >&2 || true
   exit 2
 fi
 
-if ! virsh net-info "$VEN_VM_NET" 2>/dev/null | grep -q '^Active:.*yes'; then
+if ! $SUDO virsh net-info "$VEN_VM_NET" 2>/dev/null | grep -q '^Active:.*yes'; then
   echo "Starting libvirt network: $VEN_VM_NET" >&2
-  virsh net-start "$VEN_VM_NET" >/dev/null
-  virsh net-autostart "$VEN_VM_NET" >/dev/null 2>&1 || true
+  $SUDO virsh net-start "$VEN_VM_NET" >/dev/null
+  $SUDO virsh net-autostart "$VEN_VM_NET" >/dev/null 2>&1 || true
 fi
 
 if [[ "$vm_exists" != "true" ]]; then
-  virt-install \
+  $SUDO virt-install \
     --name "$VEN_VM_NAME" \
     --memory "$VEN_VM_MEM_MB" \
     --vcpus "$VEN_VM_CPU" \
@@ -296,7 +308,7 @@ else
   # Optional: Align NODEGUID to the existing domain UUID.
   # Default is false because the test environment stubs are keyed on NODEGUID.
   if [[ "${VEN_NODEGUID_FROM_DOMAIN_UUID:-false}" == "true" ]]; then
-    existing_uuid="$(virsh dominfo "$VEN_VM_NAME" 2>/dev/null | awk -F': +' '/^UUID:/ {print $2}' | tr -d '\r' || true)"
+    existing_uuid="$($SUDO virsh dominfo "$VEN_VM_NAME" 2>/dev/null | awk -F': +' '/^UUID:/ {print $2}' | tr -d '\r' || true)"
     if [[ -n "$existing_uuid" ]]; then
       NODEGUID="$existing_uuid"
     fi
@@ -327,7 +339,7 @@ wait_for_vm_ready() {
   while [[ $SECONDS -lt $deadline ]]; do
     attempt=$((attempt + 1))
 
-    if ! virsh domstate "$vm_name" 2>/dev/null | grep -qi "running"; then
+    if ! $SUDO virsh domstate "$vm_name" 2>/dev/null | grep -qi "running"; then
       if (( attempt % 6 == 0 )); then
         echo "  VM not running yet..." >&2
       fi
@@ -336,7 +348,7 @@ wait_for_vm_ready() {
     fi
 
     # Prefer domiflist over XML parsing.
-    mac="$(virsh domiflist "$vm_name" 2>/dev/null | awk 'NR>2 && $1 != "" {print $5}' | head -n1 || true)"
+    mac="$($SUDO virsh domiflist "$vm_name" 2>/dev/null | awk 'NR>2 && $1 != "" {print $5}' | head -n1 || true)"
     if [[ -z "${mac:-}" ]]; then
       if (( attempt % 6 == 0 )); then
         echo "  VM network interface not ready yet..." >&2
@@ -348,11 +360,11 @@ wait_for_vm_ready() {
     ip=""
 
     # Method A: domifaddr --source lease (does not require guest agent)
-    ip="$(virsh domifaddr "$vm_name" --source lease 2>/dev/null | awk 'NR>2 && /ipv4/ {print $4}' | cut -d'/' -f1 | head -n1 || true)"
+    ip="$($SUDO virsh domifaddr "$vm_name" --source lease 2>/dev/null | awk 'NR>2 && /ipv4/ {print $4}' | cut -d'/' -f1 | head -n1 || true)"
 
     # Method B: net-dhcp-leases by MAC
     if [[ -z "$ip" ]]; then
-      ip="$(virsh net-dhcp-leases "$network" 2>/dev/null | awk -v m="$mac" 'tolower($3)==tolower(m) {print $5}' | cut -d'/' -f1 | head -n1 || true)"
+      ip="$($SUDO virsh net-dhcp-leases "$network" 2>/dev/null | awk -v m="$mac" 'tolower($3)==tolower(m) {print $5}' | cut -d'/' -f1 | head -n1 || true)"
     fi
 
     if [[ -z "$ip" || "$ip" == "127.0.0.1" ]]; then
