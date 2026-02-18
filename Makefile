@@ -123,13 +123,10 @@ bootstrap-mac: deps ## Bootstrap the test environment on MacOS before running te
 
 .PHONY: test
 test: render-capi-operator bootstrap ## Runs cluster orch cluster api smoke tests. This step bootstraps the env before running the test
-	# NOTE: SKIP_CLUSTER_AGENT_RESET is retained for backward compatibility but is a no-op
-	# now that the in-kind lw-ENiC provider has been removed.
 	PATH=${ENV_PATH} \
 		EDGE_NODE_PROVIDER=$${EDGE_NODE_PROVIDER:-ven} \
 		VEN_BOOTSTRAP_CMD=$${VEN_BOOTSTRAP_CMD:-./scripts/ven/bootstrap_vm_cluster_agent.sh} \
 		DISABLE_AUTH=$${DISABLE_AUTH:-true} \
-		SKIP_CLUSTER_AGENT_RESET=$${SKIP_CLUSTER_AGENT_RESET:-true} \
 		SKIP_DELETE_CLUSTER=$${SKIP_DELETE_CLUSTER:-false} \
 		PROXY_ENV_FILE="$(PROXY_ENV_FILE)" \
 		bash -lc 'set -euo pipefail; if [ -n "${PROXY_ENV_FILE:-}" ] && [ -f "${PROXY_ENV_FILE}" ]; then set -a; source "${PROXY_ENV_FILE}"; set +a; fi; if [ -f .ven.env ]; then source .ven.env; fi; mage test:ClusterOrchClusterApiSmokeTest'
@@ -140,7 +137,6 @@ cluster-api-all-test: bootstrap ## Runs cluster orch functional tests
 		EDGE_NODE_PROVIDER=$${EDGE_NODE_PROVIDER:-ven} \
 		VEN_BOOTSTRAP_CMD=$${VEN_BOOTSTRAP_CMD:-./scripts/ven/bootstrap_vm_cluster_agent.sh} \
 		DISABLE_AUTH=$${DISABLE_AUTH:-true} \
-		SKIP_CLUSTER_AGENT_RESET=$${SKIP_CLUSTER_AGENT_RESET:-true} \
 		SKIP_DELETE_CLUSTER=false \
 		PROXY_ENV_FILE="$(PROXY_ENV_FILE)" \
 		bash -lc 'set -euo pipefail; if [ -n "${PROXY_ENV_FILE:-}" ] && [ -f "${PROXY_ENV_FILE}" ]; then set -a; source "${PROXY_ENV_FILE}"; set +a; fi; if [ -f .ven.env ]; then source .ven.env; fi; mage test:ClusterOrchClusterApiAllTest'
@@ -159,7 +155,6 @@ robustness-test: bootstrap ## Runs cluster orch robustness tests
 		EDGE_NODE_PROVIDER=$${EDGE_NODE_PROVIDER:-ven} \
 		VEN_BOOTSTRAP_CMD=$${VEN_BOOTSTRAP_CMD:-./scripts/ven/bootstrap_vm_cluster_agent.sh} \
 		DISABLE_AUTH=$${DISABLE_AUTH:-true} \
-		SKIP_CLUSTER_AGENT_RESET=$${SKIP_CLUSTER_AGENT_RESET:-true} \
 		SKIP_DELETE_CLUSTER=false \
 		PROXY_ENV_FILE="$(PROXY_ENV_FILE)" \
 		bash -lc 'set -euo pipefail; if [ -n "${PROXY_ENV_FILE:-}" ] && [ -f "${PROXY_ENV_FILE}" ]; then set -a; source "${PROXY_ENV_FILE}"; set +a; fi; if [ -f .ven.env ]; then source .ven.env; fi; mage test:ClusterOrchRobustness'

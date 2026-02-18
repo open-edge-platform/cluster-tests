@@ -395,11 +395,7 @@ var _ = Describe("Single Node K3s Cluster Create and Delete using Cluster Manage
 				return utils.IsClusterTemplateReady(namespace, utils.K3sTemplateName)
 			}, 2*time.Minute, 2*time.Second).Should(BeTrue())
 
-			By("Resetting cluster-agent state (fresh k3s datastore/token)")
-			err = utils.ResetClusterAgent()
-			Expect(err).NotTo(HaveOccurred())
-
-			clusterCreateStartTime = time.Now()
+clusterCreateStartTime = time.Now()
 
 			err = performClusterOperation("create", authDisabled, authContext, namespace, nodeGUID, utils.K3sTemplateName)
 			Expect(err).NotTo(HaveOccurred())

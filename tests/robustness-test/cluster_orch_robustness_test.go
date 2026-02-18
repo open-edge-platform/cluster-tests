@@ -183,15 +183,11 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 	})
 
 	It("Test prerequisite: Should verify that cluster create API should succeed for k3s cluster", func() {
-		By("Resetting cluster-agent state (fresh k3s datastore/token)")
-		err := utils.ResetClusterAgent()
-		Expect(err).NotTo(HaveOccurred())
-
-		// Record the start time before creating the cluster
+// Record the start time before creating the cluster
 		clusterCreateStartTime = time.Now()
 
 		By("Creating the cluster")
-		err = utils.CreateCluster(namespace, nodeGUID, utils.K3sTemplateName)
+		err := utils.CreateCluster(namespace, nodeGUID, utils.K3sTemplateName)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
