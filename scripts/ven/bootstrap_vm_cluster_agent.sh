@@ -285,9 +285,16 @@ if ! $SUDO virsh net-info "$VEN_VM_NET" >/dev/null 2>&1; then
   exit 2
 fi
 
-if ! $SUDO virsh net-info "$VEN_VM_NET" 2>/dev/null | grep -q '^Active:.*yes'; then
+if ! $SUDO virsh net-info "$VEN_VM_NET" 2>/dev/null | awk -F': +' '/^Active:/ {print $2}' | grep -qi '^yes$'; then
   echo "Starting libvirt network: $VEN_VM_NET" >&2
-  $SUDO virsh net-start "$VEN_VM_NET" >/dev/null
+  if ! start_out="$($SUDO virsh net-start "$VEN_VM_NET" 2>&1)"; then
+    if echo "$start_out" | grep -qi 'already active'; then
+      echo "libvirt network '$VEN_VM_NET' already active" >&2
+    else
+      echo "ERROR: failed to start libvirt network '$VEN_VM_NET': $start_out" >&2
+      exit 2
+    fi
+  fi
   $SUDO virsh net-autostart "$VEN_VM_NET" >/dev/null 2>&1 || true
 fi
 
