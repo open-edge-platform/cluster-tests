@@ -45,9 +45,9 @@ Refer the `test-plan/test-plan.md` for the detailed test plan.
 
 #### vEN mode (Virtual Edge Node)
 
-By default, tests run against the in-kind ENiC edge node (`EDGE_NODE_PROVIDER` defaults to `enic`).
+Tests run against a vEN (Virtual Edge Node) reachable over SSH.
 
-To run against a vEN reachable over SSH, set:
+To run, set:
 
 - `EDGE_NODE_PROVIDER=ven`
 - `NODEGUID` (or `VEN_NODEGUID`) to the onboarded host GUID

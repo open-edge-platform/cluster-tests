@@ -194,27 +194,3 @@ components:
     make-variables: []
     make-targets: []
     post-install-commands: []
-
-  # Cluster Agent on LW-ENiC
-  - name: cluster-agent
-    skip-component: false
-    skip-local-build: false
-    pre-install-commands: []
-    helm-repo:
-      - url: ""
-        release-name: ""
-        package: ""
-        namespace: ""
-        version: ""
-        use-devel: false  # Use development version of the chart
-        overrides: ""
-    git-repo:
-      url: https://github.com/open-edge-platform/edge-node-agents.git
-      version: lw-enic
-    make-directory: "cluster-agent/enic/"
-    make-variables: []
-    make-targets:
-      - build-enic-docker      # Enable this if you want to build the enic docker image. This usually is a time-consuming process
-      - load-enic-docker       # Enable this if you want to load the enic docker image that you build to the kind cluster
-      - run-enic-pod
-    post-install-commands: []

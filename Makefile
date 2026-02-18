@@ -100,7 +100,11 @@ render-capi-operator:
 
 .PHONY: bootstrap
 bootstrap: deps ## Bootstrap the test environment before running tests
-	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} mage test:bootstrap
+	PATH=${ENV_PATH} \
+		EDGE_NODE_PROVIDER=$${EDGE_NODE_PROVIDER:-ven} \
+		VEN_BOOTSTRAP_CMD=$${VEN_BOOTSTRAP_CMD:-./scripts/ven/bootstrap_vm_cluster_agent.sh} \
+		DISABLE_AUTH=$${DISABLE_AUTH:-true} \
+		mage test:bootstrap
 	kubectl get pods -A -o wide
 	kubectl get deployments -A -o wide
 	kubectl get svc -A -o wide
@@ -119,18 +123,26 @@ bootstrap-mac: deps ## Bootstrap the test environment on MacOS before running te
 
 .PHONY: test
 test: render-capi-operator bootstrap ## Runs cluster orch cluster api smoke tests. This step bootstraps the env before running the test
-	# Default: no cluster-agent reset.
-	# To enable a reset of the ENiC `cluster-agent-0` state (recreates its pod + PVC; avoids flakes like
-	# "bootstrap data already found and encrypted with different token"), run with:
-	#   make test SKIP_CLUSTER_AGENT_RESET=false
-	# Note: leaving SKIP_CLUSTER_AGENT_RESET unset enables an 'auto' mode (reset only if prior k3s state is detected)
-	# when running `go test` directly.
-	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_CLUSTER_AGENT_RESET=$${SKIP_CLUSTER_AGENT_RESET:-true} SKIP_DELETE_CLUSTER=$${SKIP_DELETE_CLUSTER:-false} PROXY_ENV_FILE="$(PROXY_ENV_FILE)" \
+	# NOTE: SKIP_CLUSTER_AGENT_RESET is retained for backward compatibility but is a no-op
+	# now that the in-kind lw-ENiC provider has been removed.
+	PATH=${ENV_PATH} \
+		EDGE_NODE_PROVIDER=$${EDGE_NODE_PROVIDER:-ven} \
+		VEN_BOOTSTRAP_CMD=$${VEN_BOOTSTRAP_CMD:-./scripts/ven/bootstrap_vm_cluster_agent.sh} \
+		DISABLE_AUTH=$${DISABLE_AUTH:-true} \
+		SKIP_CLUSTER_AGENT_RESET=$${SKIP_CLUSTER_AGENT_RESET:-true} \
+		SKIP_DELETE_CLUSTER=$${SKIP_DELETE_CLUSTER:-false} \
+		PROXY_ENV_FILE="$(PROXY_ENV_FILE)" \
 		bash -lc 'set -euo pipefail; if [ -n "${PROXY_ENV_FILE:-}" ] && [ -f "${PROXY_ENV_FILE}" ]; then set -a; source "${PROXY_ENV_FILE}"; set +a; fi; if [ -f .ven.env ]; then source .ven.env; fi; mage test:ClusterOrchClusterApiSmokeTest'
 
 .PHONY: cluster-api-all-test
 cluster-api-all-test: bootstrap ## Runs cluster orch functional tests
-	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_CLUSTER_AGENT_RESET=$${SKIP_CLUSTER_AGENT_RESET:-true} SKIP_DELETE_CLUSTER=false PROXY_ENV_FILE="$(PROXY_ENV_FILE)" \
+	PATH=${ENV_PATH} \
+		EDGE_NODE_PROVIDER=$${EDGE_NODE_PROVIDER:-ven} \
+		VEN_BOOTSTRAP_CMD=$${VEN_BOOTSTRAP_CMD:-./scripts/ven/bootstrap_vm_cluster_agent.sh} \
+		DISABLE_AUTH=$${DISABLE_AUTH:-true} \
+		SKIP_CLUSTER_AGENT_RESET=$${SKIP_CLUSTER_AGENT_RESET:-true} \
+		SKIP_DELETE_CLUSTER=false \
+		PROXY_ENV_FILE="$(PROXY_ENV_FILE)" \
 		bash -lc 'set -euo pipefail; if [ -n "${PROXY_ENV_FILE:-}" ] && [ -f "${PROXY_ENV_FILE}" ]; then set -a; source "${PROXY_ENV_FILE}"; set +a; fi; if [ -f .ven.env ]; then source .ven.env; fi; mage test:ClusterOrchClusterApiAllTest'
 
 .PHONY: template-api-smoke-test
@@ -143,7 +155,13 @@ template-api-all-test: ## Runs cluster orch template API all tests
   
 .PHONY: robustness-test
 robustness-test: bootstrap ## Runs cluster orch robustness tests
-	PATH=${ENV_PATH} DISABLE_AUTH=$${DISABLE_AUTH:-true} SKIP_CLUSTER_AGENT_RESET=$${SKIP_CLUSTER_AGENT_RESET:-true} SKIP_DELETE_CLUSTER=false PROXY_ENV_FILE="$(PROXY_ENV_FILE)" \
+	PATH=${ENV_PATH} \
+		EDGE_NODE_PROVIDER=$${EDGE_NODE_PROVIDER:-ven} \
+		VEN_BOOTSTRAP_CMD=$${VEN_BOOTSTRAP_CMD:-./scripts/ven/bootstrap_vm_cluster_agent.sh} \
+		DISABLE_AUTH=$${DISABLE_AUTH:-true} \
+		SKIP_CLUSTER_AGENT_RESET=$${SKIP_CLUSTER_AGENT_RESET:-true} \
+		SKIP_DELETE_CLUSTER=false \
+		PROXY_ENV_FILE="$(PROXY_ENV_FILE)" \
 		bash -lc 'set -euo pipefail; if [ -n "${PROXY_ENV_FILE:-}" ] && [ -f "${PROXY_ENV_FILE}" ]; then set -a; source "${PROXY_ENV_FILE}"; set +a; fi; if [ -f .ven.env ]; then source .ven.env; fi; mage test:ClusterOrchRobustness'
 
 .PHONY: help

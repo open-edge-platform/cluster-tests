@@ -61,17 +61,6 @@ func (Test) bootstrap() error {
 		return err
 	}
 
-	// In vEN mode, the edge node is provisioned externally (e.g., via libvirt on the runner),
-	// so we must not deploy the in-kind ENiC cluster-agent component.
-	if strings.EqualFold(os.Getenv(utils.EdgeNodeProviderEnvVar), utils.EdgeNodeProviderVEN) {
-		mergeConfigs(defaultConfig, &Config{
-			Components: []Component{{
-				Name:          "cluster-agent",
-				SkipComponent: true,
-			}},
-		})
-	}
-
 	additionalConfigStr := os.Getenv("ADDITIONAL_CONFIG")
 	fmt.Printf("Additional config: %s\n", additionalConfigStr)
 	if additionalConfigStr != "" {
@@ -119,7 +108,7 @@ func maybeBootstrapVEN() error {
 		venNodeGUID     = "VEN_NODEGUID"
 	)
 
-	if !strings.EqualFold(os.Getenv(utils.EdgeNodeProviderEnvVar), utils.EdgeNodeProviderVEN) {
+	if !strings.EqualFold(utils.GetEdgeNodeProvider(), utils.EdgeNodeProviderVEN) {
 		// If we are not in vEN mode, ensure we don't accidentally source a stale NODEGUID.
 		_ = os.Remove(venEnvFile)
 		return nil
