@@ -178,6 +178,11 @@ SSH_PUB="$SSH_KEY_DIR/id_ed25519.pub"
 DEFAULT_NODEGUID="12345678-1234-1234-1234-123456789012"
 NODEGUID="${VEN_NODEGUID:-${NODEGUID:-$DEFAULT_NODEGUID}}"
 
+# Project/tenant namespace used for all cluster-orch resources.
+# The intel-infra-provider inventory stub is pre-seeded for this UUID.
+DEFAULT_NAMESPACE="53cd37b9-66b2-4cc8-b080-3722ed7af64a"
+NAMESPACE="${VEN_NAMESPACE:-$DEFAULT_NAMESPACE}"
+
 # Guardrail: bad ports are very hard to debug from inside the VM.
 if [[ ! "$HOST_SB_GRPC_PORT" =~ ^[0-9]+$ ]] || (( HOST_SB_GRPC_PORT < 1 || HOST_SB_GRPC_PORT > 65535 )); then
   echo "ERROR: VEN_SB_LOCAL_PORT/HOST_SB_GRPC_PORT must be a valid TCP port (1-65535); got: $HOST_SB_GRPC_PORT" >&2
@@ -206,6 +211,47 @@ ensure_oidc_mock() {
 }
 
 ensure_oidc_mock
+
+# The baseline k3s template (v0.0.10+) references a pod-security-admission-config secret
+# in the project namespace. This secret holds the PSA (Pod Security Admission) config that
+# k3s reads from /var/lib/rancher/k3s/server/psa.yaml on first start.
+# In production this secret is created during tenant onboarding; in the vEN test environment
+# we provision it here so the KThrees bootstrap controller can generate cluster bootstrap data.
+ensure_psa_secret() {
+  local ns="$NAMESPACE"
+  kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
+  if kubectl get secret pod-security-admission-config -n "$ns" >/dev/null 2>&1; then
+    echo "pod-security-admission-config secret already exists in $ns" >&2
+    return 0
+  fi
+  echo "Creating pod-security-admission-config secret in $ns..." >&2
+  kubectl create secret generic pod-security-admission-config -n "$ns" \
+    --from-literal=baseline.yaml="$(cat <<'PSAEOF'
+apiVersion: apiserver.config.k8s.io/v1
+kind: AdmissionConfiguration
+plugins:
+- name: PodSecurity
+  configuration:
+    apiVersion: pod-security.admission.config.k8s.io/v1
+    kind: PodSecurityConfiguration
+    defaults:
+      enforce: "baseline"
+      enforce-version: "latest"
+      audit: "restricted"
+      audit-version: "latest"
+      warn: "restricted"
+      warn-version: "latest"
+    exemptions:
+      usernames: []
+      runtimeClasses: []
+      namespaces:
+      - kube-system
+PSAEOF
+)" >/dev/null
+  echo "Created pod-security-admission-config secret in $ns" >&2
+}
+
+ensure_psa_secret
 
 if ! ./scripts/ven/portforward_kind_services.sh status 2>/dev/null | grep -q '^southbound-grpc: running'; then
   echo "ERROR: southbound-grpc port-forward is not running" >&2
@@ -517,6 +563,14 @@ if [[ -f /tmp/cluster-tests-proxy.env ]]; then
   sudo mkdir -p /etc/cluster-tests
   sudo install -m 0600 -o root -g root /tmp/cluster-tests-proxy.env /etc/cluster-tests/proxy.env
 
+  # cluster-agent executes install commands via `sudo sh -c ...`. In many environments
+  # sudo drops environment variables (including *_PROXY), which would make curl fail.
+  # Keep proxy vars so root commands inherit them.
+  sudo tee /etc/sudoers.d/cluster-tests-proxy-env >/dev/null <<'SUDOERS'
+Defaults env_keep += "HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy"
+SUDOERS
+  sudo chmod 0440 /etc/sudoers.d/cluster-tests-proxy-env
+
   # Make k3s inherit proxy settings (affects containerd image pulls).
   sudo mkdir -p /etc/systemd/system/k3s.service.d
   sudo tee /etc/systemd/system/k3s.service.d/10-proxy.conf >/dev/null <<'CFG'
@@ -556,11 +610,12 @@ EOSSH
 # explicitly sets INSTALL_K3S_SKIP_DOWNLOAD=true.
 #
 # That means the VM must already have:
-#   - /usr/local/bin/k3s
+#   - the k3s binary in the location the installer will use
+#     (the baseline template sets INSTALL_K3S_BIN_DIR=/var/lib/rancher/k3s/bin)
 #   - /var/lib/rancher/k3s/agent/images/k3s-airgap-images-<arch>.tar
 #
-# Otherwise cluster-agent will fail with:
-#   "Executable k3s binary not found at /usr/local/bin/k3s"
+# For convenience (and compatibility with other scripts), we also provide
+# /usr/local/bin/k3s as a symlink to the template bin dir.
 K3S_VERSION_DEFAULT="$(jq -r '.kubernetesVersion // empty' "$repo_root/configs/baseline-cluster-template-k3s.json" 2>/dev/null || true)"
 if [[ -z "$K3S_VERSION_DEFAULT" || "$K3S_VERSION_DEFAULT" == "null" ]]; then
   K3S_VERSION_DEFAULT="v1.32.4+k3s1"
@@ -581,31 +636,37 @@ case "$VEN_ARCH_RAW" in
     ;;
 esac
 
-k3s_cache_dir="/tmp/cluster-tests-k3s-cache/${K3S_VERSION}/${VEN_ARCH}"
-mkdir -p "$k3s_cache_dir"
+#k3s_cache_dir="/tmp/cluster-tests-k3s-cache/${K3S_VERSION}/${VEN_ARCH}"
+#mkdir -p "$k3s_cache_dir"
 
-k3s_bin="$k3s_cache_dir/k3s"
-k3s_images="$k3s_cache_dir/k3s-airgap-images-${VEN_ARCH}.tar"
+#k3s_bin="$k3s_cache_dir/k3s"
+#k3s_images="$k3s_cache_dir/k3s-airgap-images-${VEN_ARCH}.tar"
 
-if [[ ! -s "$k3s_bin" ]]; then
-  curl -fsSL -o "$k3s_bin" "https://github.com/k3s-io/k3s/releases/download/${K3S_VERSION}/k3s"
-  chmod 0755 "$k3s_bin"
-fi
-if [[ ! -s "$k3s_images" ]]; then
-  curl -fsSL -o "$k3s_images" "https://github.com/k3s-io/k3s/releases/download/${K3S_VERSION}/k3s-airgap-images-${VEN_ARCH}.tar"
-fi
+#if [[ ! -s "$k3s_bin" ]]; then
+#  curl -fsSL -o "$k3s_bin" "https://github.com/k3s-io/k3s/releases/download/${K3S_VERSION}/k3s"
+#  chmod 0755 "$k3s_bin"
+#fi
+#if [[ ! -s "$k3s_images" ]]; then
+#  curl -fsSL -o "$k3s_images" "https://github.com/k3s-io/k3s/releases/download/${K3S_VERSION}/k3s-airgap-images-${VEN_ARCH}.tar"
+#fi
 
-scp "${scp_opts[@]}" "$k3s_bin" "${SSH_USER}@${VEN_SSH_HOST}:/tmp/k3s" >/dev/null
-scp "${scp_opts[@]}" "$k3s_images" "${SSH_USER}@${VEN_SSH_HOST}:/tmp/k3s-airgap-images-${VEN_ARCH}.tar" >/dev/null
+#scp "${scp_opts[@]}" "$k3s_bin" "${SSH_USER}@${VEN_SSH_HOST}:/tmp/k3s" >/dev/null
+#scp "${scp_opts[@]}" "$k3s_images" "${SSH_USER}@${VEN_SSH_HOST}:/tmp/k3s-airgap-images-${VEN_ARCH}.tar" >/dev/null
 
 ssh "${ssh_opts[@]}" "${SSH_USER}@${VEN_SSH_HOST}" 'bash -se' <<EOSSH >/dev/null
 set -euo pipefail
 
-sudo install -d -m 0755 /usr/local/bin
-sudo install -m 0755 /tmp/k3s /usr/local/bin/k3s
+#sudo install -d -m 0755 /var/lib/rancher/k3s/bin
+#sudo install -m 0755 /tmp/k3s /var/lib/rancher/k3s/bin/k3s
 
-sudo install -d -m 0755 /var/lib/rancher/k3s/agent/images
-sudo install -m 0644 "/tmp/k3s-airgap-images-${VEN_ARCH}.tar" "/var/lib/rancher/k3s/agent/images/k3s-airgap-images-${VEN_ARCH}.tar"
+# The baseline k3s template (v0.0.10+) sets INSTALL_K3S_BIN_DIR_READ_ONLY=true.
+# In that mode the installer won't copy the binary, so it must already exist in
+# INSTALL_K3S_BIN_DIR. Provide /usr/local/bin/k3s as a stable entrypoint.
+#sudo install -d -m 0755 /usr/local/bin
+#sudo ln -sf /var/lib/rancher/k3s/bin/k3s /usr/local/bin/k3s
+
+#sudo install -d -m 0755 /var/lib/rancher/k3s/agent/images
+#sudo install -m 0644 "/tmp/k3s-airgap-images-${VEN_ARCH}.tar" "/var/lib/rancher/k3s/agent/images/k3s-airgap-images-${VEN_ARCH}.tar"
 EOSSH
 
 # Option 1 (preferred for vEN): patch connect-agent to use a gateway URL that is
@@ -866,7 +927,7 @@ fi
   # tenant UUID used by cluster-tests. Using an arbitrary UUID can cause reconciliation
   # to stall with: "no stubbed response for key: Create:<tenant>:workload".
   # Keep vEN behavior aligned with the in-kind ENiC flow by exporting the default.
-  echo "export NAMESPACE=\"53cd37b9-66b2-4cc8-b080-3722ed7af64a\""
+  echo "export NAMESPACE=\"${NAMESPACE}\""
   echo "export NODEGUID=\"${NODEGUID}\""
   echo "export VEN_SSH_HOST=\"${VEN_SSH_HOST}\""
   echo "export VEN_SSH_USER=\"${SSH_USER}\""

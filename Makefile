@@ -104,6 +104,7 @@ bootstrap: deps ## Bootstrap the test environment before running tests
 		EDGE_NODE_PROVIDER=$${EDGE_NODE_PROVIDER:-ven} \
 		VEN_BOOTSTRAP_CMD=$${VEN_BOOTSTRAP_CMD:-./scripts/ven/bootstrap_vm_cluster_agent.sh} \
 		DISABLE_AUTH=$${DISABLE_AUTH:-true} \
+		PROXY_ENV_FILE="$(PROXY_ENV_FILE)" \
 		mage test:bootstrap
 	kubectl get pods -A -o wide
 	kubectl get deployments -A -o wide
