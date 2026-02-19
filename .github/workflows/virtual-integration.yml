@@ -30,7 +30,7 @@ on:
         description: "Branch/tag/SHA to checkout edge-manageability-framework for ci/ven scripts"
         required: true
         type: string
-        default: v2026.0.0-n20260216
+        default: main
       disable-auth:
         description: "Run cluster-tests with DISABLE_AUTH=true"
         required: true
@@ -86,6 +86,17 @@ jobs:
           token: ${{ secrets.SYS_EMF_GH_TOKEN }}
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Verify EMF VEN scripts exist
+        if: ${{ inputs.use-ven }}
+        run: |
+          if [ ! -d emf/ci/ven ]; then
+            echo "::error::EMF ref '${{ inputs.emf-branch }}' does not contain ci/ven. Set emf-branch to a ref that includes ci/ven (e.g. main)."
+            echo "Workspace EMF contents:" 
+            ls -la emf || true
+            ls -la emf/ci || true
+            exit 1
+          fi
 
       - name: Preserve VEN scripts
         if: ${{ inputs.use-ven }}
