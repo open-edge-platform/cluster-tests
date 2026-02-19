@@ -22,20 +22,20 @@ import (
 
 // Constants for commonly used values
 const (
-	TempKubeconfigPattern    = "/tmp/%s-kubeconfig.yaml"
-	KubeconfigFileName       = "kubeconfig.yaml"
-	LocalGatewayURL          = "http://127.0.0.1:8081/"
+	TempKubeconfigPattern = "/tmp/%s-kubeconfig.yaml"
+	KubeconfigFileName    = "kubeconfig.yaml"
+	LocalGatewayURL       = "http://127.0.0.1:8081/"
 	// NOTE: cluster readiness can be significantly slower on vEN due to VM bring-up
 	// and first-time image pulls. Prefer using clusterReadinessTimeout() rather
 	// than hard-coding this value.
-	DefaultClusterReadinessTimeout  = 5 * time.Minute
-	ClusterReadinessInterval = 10 * time.Second
+	DefaultClusterReadinessTimeout = 5 * time.Minute
+	ClusterReadinessInterval       = 10 * time.Second
 	// Prefer using podReadinessTimeout() rather than hard-coding this value.
-	DefaultPodReadinessTimeout      = 5 * time.Minute
-	PodReadinessInterval     = 10 * time.Second
-	PortForwardTimeout       = 1 * time.Minute
-	PortForwardInterval      = 5 * time.Second
-	PortForwardDelay         = 5 * time.Second
+	DefaultPodReadinessTimeout = 5 * time.Minute
+	PodReadinessInterval       = 10 * time.Second
+	PortForwardTimeout         = 1 * time.Minute
+	PortForwardInterval        = 5 * time.Second
+	PortForwardDelay           = 5 * time.Second
 )
 
 func clusterReadinessTimeout() time.Duration {
@@ -169,11 +169,11 @@ func validateJWTWorkflow(authContext *auth.TestAuthContext, namespace string) {
 	Expect(authContext).NotTo(BeNil())
 
 	By("Confirming JWT authentication usage for cluster operations")
-	fmt.Printf(" JWT authentication confirmed for:\n"+
-		"   - Cluster template import\n"+
-		"   - Cluster creation\n"+
-		"   - Cluster management APIs\n"+
-		"   - Kubeconfig retrieval\n"+
+	fmt.Printf(" JWT authentication confirmed for:\n" +
+		"   - Cluster template import\n" +
+		"   - Cluster creation\n" +
+		"   - Cluster management APIs\n" +
+		"   - Kubeconfig retrieval\n" +
 		"   - Cluster deletion (in AfterEach)\n")
 
 	By("Verifying JWT token structure and claims")
@@ -304,9 +304,12 @@ func validateKubeconfigAndClusterAccess() {
 	Expect(err).NotTo(HaveOccurred())
 
 	By("Getting list of pods")
-	cmd = exec.Command("kubectl", "--kubeconfig", kubeConfigName, "get", "pods")
-	_, err = cmd.Output()
+	cmd = exec.Command("kubectl", "--kubeconfig", kubeConfigName, "get", "pods", "-A")
+	output, err = cmd.Output()
 	Expect(err).NotTo(HaveOccurred())
+	fmt.Printf("List of pods:\n%s\n", string(output))
+	fmt.Println("NOTE: kubeconfig fetched via clusterctl" +
+		" To use kubeconfig from cluster-manager REST API., run with DISABLE_AUTH=false.")
 
 	By("Dumping kubectl client and server version")
 	cmd = exec.Command("kubectl", "version", "--kubeconfig", kubeConfigName)
@@ -395,7 +398,7 @@ var _ = Describe("Single Node K3s Cluster Create and Delete using Cluster Manage
 				return utils.IsClusterTemplateReady(namespace, utils.K3sTemplateName)
 			}, 2*time.Minute, 2*time.Second).Should(BeTrue())
 
-clusterCreateStartTime = time.Now()
+			clusterCreateStartTime = time.Now()
 
 			err = performClusterOperation("create", authDisabled, authContext, namespace, nodeGUID, utils.K3sTemplateName)
 			Expect(err).NotTo(HaveOccurred())
