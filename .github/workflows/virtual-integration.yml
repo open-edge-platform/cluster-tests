@@ -1,0 +1,127 @@
+# SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+---
+
+name: Virtual Integration (VEN)
+
+on:
+  workflow_dispatch:
+    inputs:
+      use-ven:
+        description: "Run VEN prerequisites (dnsmasq + libvirt) before tests"
+        required: true
+        type: boolean
+        default: true
+      emf-branch:
+        description: "Branch/tag/SHA to checkout edge-manageability-framework for ci/ven scripts"
+        required: true
+        type: string
+        default: main
+      disable-auth:
+        description: "Run cluster-tests with DISABLE_AUTH=true"
+        required: true
+        type: boolean
+        default: true
+      skip-delete-cluster:
+        description: "Run cluster-tests with SKIP_DELETE_CLUSTER=true"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  virtual-integration:
+    name: Run cluster-tests (optional VEN setup)
+    runs-on: ubuntu-24.04-16core-64GB
+    timeout-minutes: 120
+
+    env:
+      # These map 1:1 to the Makefile expectations.
+      DISABLE_AUTH: ${{ inputs.disable-auth && 'true' || 'false' }}
+      SKIP_DELETE_CLUSTER: ${{ inputs.skip-delete-cluster && 'true' || 'false' }}
+      # Ensure any libvirt tooling uses the system URI.
+      LIBVIRT_DEFAULT_URI: qemu:///system
+
+    steps:
+      - name: Checkout cluster-tests
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Mask secrets
+        if: ${{ inputs.use-ven }}
+        run: |
+          echo "::add-mask::${{ secrets.SYS_EMF_GH_TOKEN }}"
+
+      - name: Checkout EMF (ci/ven scripts)
+        if: ${{ inputs.use-ven }}
+        uses: actions/checkout@v4
+        with:
+          repository: open-edge-platform/edge-manageability-framework
+          ref: ${{ inputs.emf-branch }}
+          path: emf
+          sparse-checkout: ci/ven
+          token: ${{ secrets.SYS_EMF_GH_TOKEN }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Preserve VEN scripts
+        if: ${{ inputs.use-ven }}
+        run: |
+          cp -r emf/ci/ven /tmp/ven-scripts
+          ls -la /tmp/ven-scripts/
+
+      - name: Install DNSmasq (VEN)
+        if: ${{ inputs.use-ven }}
+        run: |
+          cd /tmp/ven-scripts
+          ./dnsmasq-setup.sh "kind.internal" setup
+
+      - name: Install Libvirt (VEN)
+        if: ${{ inputs.use-ven }}
+        run: |
+          cd /tmp/ven-scripts
+          ./libvirt-setup.sh
+
+      - name: Configure DNSmasq (VEN)
+        if: ${{ inputs.use-ven }}
+        run: |
+          cd /tmp/ven-scripts
+          ./dnsmasq-setup.sh "kind.internal" config
+
+      - name: Install toolchain deps
+        run: |
+          make deps
+
+      - name: Run lint
+        run: |
+          make lint
+
+      - name: Run tests
+        run: |
+          make test
+
+      - name: Collect diagnostics
+        if: ${{ failure() }}
+        run: |
+          mkdir -p diag-logs
+          kubectl get pods -A -o wide > diag-logs/all-pods.log 2>&1 || true
+          kubectl get deployments -A -o wide > diag-logs/all-deployments.log 2>&1 || true
+          kubectl get svc -A -o wide > diag-logs/all-svcs.log 2>&1 || true
+          kubectl get coreproviders -A > diag-logs/capi-coreproviders.log 2>&1 || true
+          kubectl get bootstrapproviders -A > diag-logs/capi-bootstrapproviders.log 2>&1 || true
+          kubectl get controlplaneproviders -A > diag-logs/capi-controlplaneproviders.log 2>&1 || true
+          # VEN/Libvirt diagnostics
+          virsh list --all > diag-logs/virsh-list.log 2>&1 || true
+          virsh net-list --all > diag-logs/virsh-networks.log 2>&1 || true
+
+      - name: Upload diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: diag-logs
+          path: diag-logs/*
