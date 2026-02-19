@@ -44,17 +44,17 @@ const (
 
 	K3sTemplateOnlyName    = "baseline-k3s"
 	K3sTemplateOnlyVersion = "v0.0.1"
-	K3sTemplateName  = "baseline-k3s-v0.0.1"
+	K3sTemplateName        = "baseline-k3s-v0.0.1"
 
 	ClusterTemplateURL = "http://127.0.0.1:8080/v2/templates"
 	ClusterCreateURL   = "http://127.0.0.1:8080/v2/clusters"
 
-	ClusterConfigTemplatePath = "../../configs/cluster-config.json"
-	BaselineClusterTemplatePathK3s  = "../../configs/baseline-cluster-template-k3s.json"
+	ClusterConfigTemplatePath      = "../../configs/cluster-config.json"
+	BaselineClusterTemplatePathK3s = "../../configs/baseline-cluster-template-k3s.json"
 )
 
 const (
-	TemplateTypeK3sBaseline  = "k3s-baseline"
+	TemplateTypeK3sBaseline = "k3s-baseline"
 	// Add more template types as needed
 )
 
