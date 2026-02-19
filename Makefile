@@ -15,8 +15,6 @@ CAPI_OPERATOR_HELM_VERSION ?= 0.23.0
 
 # Providers versions/URLs as needed
 export CAPI_CORE_VERSION="v1.10.7"
-export CAPI_RKE2_VERSION="v0.14.0"
-
 
 export CAPI_OPERATOR_HELM_VERSION
 export CAPI_K3S_BOOTSTRAP_URL
