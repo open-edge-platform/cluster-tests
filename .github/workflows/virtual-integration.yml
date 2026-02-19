@@ -8,6 +8,19 @@ name: Virtual Integration (VEN)
 on:
   workflow_dispatch:
     inputs:
+      deploy-orchestrator:
+        description: "Deploy EMF orchestrator onto Kind before running cluster-tests"
+        required: true
+        type: boolean
+        default: false
+      orchestrator-deployment-type:
+        description: "EMF deploy_kind deployment type"
+        required: true
+        type: choice
+        default: minimal
+        options:
+          - minimal
+          - all
       use-ven:
         description: "Run VEN prerequisites (dnsmasq + libvirt) before tests"
         required: true
@@ -42,6 +55,8 @@ jobs:
       # These map 1:1 to the Makefile expectations.
       DISABLE_AUTH: ${{ inputs.disable-auth && 'true' || 'false' }}
       SKIP_DELETE_CLUSTER: ${{ inputs.skip-delete-cluster && 'true' || 'false' }}
+      # If the workflow deployed a Kind cluster via EMF, our bootstrap should not try to recreate it.
+      SKIP_KIND_CREATE: ${{ inputs.deploy-orchestrator && 'true' || 'false' }}
       # Ensure any libvirt tooling uses the system URI.
       LIBVIRT_DEFAULT_URI: qemu:///system
 
@@ -53,9 +68,12 @@ jobs:
           persist-credentials: false
 
       - name: Mask secrets
-        if: ${{ inputs.use-ven }}
+        if: ${{ inputs.use-ven || inputs.deploy-orchestrator }}
         run: |
           echo "::add-mask::${{ secrets.SYS_EMF_GH_TOKEN }}"
+          echo "::add-mask::${{ secrets.ORCH_DEFAULT_PASSWORD }}"
+          echo "::add-mask::${{ secrets.SYS_DOCKERHUB_RO }}"
+          echo "::add-mask::${{ secrets.SYS_DOCKERHUB_USERNAME }}"
 
       - name: Checkout EMF (ci/ven scripts)
         if: ${{ inputs.use-ven }}
@@ -92,6 +110,24 @@ jobs:
         run: |
           cd /tmp/ven-scripts
           ./dnsmasq-setup.sh "kind.internal" config
+
+      - name: Deploy Kind Orchestrator (EMF baseline)
+        if: ${{ inputs.deploy-orchestrator }}
+        uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@3a2d9869daa26e1925daf159dabb7307fc24e3ed
+        with:
+          orch_version: ${{ inputs.emf-branch }}
+          orch_password: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
+          docker_username: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
+          docker_password: ${{ secrets.SYS_DOCKERHUB_RO }}
+          token: ${{ secrets.SYS_EMF_GH_TOKEN }}
+          deployment_type: ${{ inputs.orchestrator-deployment-type }}
+
+      - name: Re-checkout cluster-tests (after EMF deploy_kind)
+        if: ${{ inputs.deploy-orchestrator }}
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Install toolchain deps
         run: |
