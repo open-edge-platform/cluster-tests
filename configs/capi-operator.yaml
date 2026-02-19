@@ -11,24 +11,14 @@ bootstrap:
     namespace: "capk-system"
     version: ${CAPI_K3S_VERSION}
     providerUrl: ${CAPI_K3S_BOOTSTRAP_URL}
-    # Note: CAPI ProviderURL for K3s seems not been supported like for kubeadm. The field providerURL, however, still is needed.
-  kubeadm:
-    namespace: "kubeadm-bootstrap-system"
-    version: ${CAPI_KUBEADM_VERSION}
+    # Note: The field providerUrl is still required even though it is not used by the K3s provider.
 controlPlane:
   k3s:
     namespace: "capk-system"
     createNamespace: false
     version: ${CAPI_K3S_VERSION}
     providerUrl: ${CAPI_K3S_CONTROLPLANE_URL}
-    # Note: CAPI ProviderURL for K3s seems not been supported like for kubeadm. The field providerURL, however, still is needed.
-  kubeadm:
-    namespace: "kubeadm-control-plane-system"
-    version: ${CAPI_KUBEADM_VERSION}
-infrastructure:
-  docker:
-    namespace: "docker-infrastructure-system"
-    version: ${CAPI_DOCKER_VERSION}
+    # Note: The field providerUrl is still required even though it is not used by the K3s provider.
 manager:
   featureGates:
     core:
