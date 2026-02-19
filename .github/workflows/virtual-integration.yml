@@ -116,6 +116,12 @@ jobs:
           cd /tmp/ven-scripts
           ./libvirt-setup.sh
 
+      - name: Configure DNSmasq (VEN)
+        if: ${{ inputs.use-ven }}
+        run: |
+          cd /tmp/ven-scripts
+          ./dnsmasq-setup.sh "kind.internal" config
+
       - name: Deploy Kind Orchestrator (EMF baseline)
         if: ${{ inputs.deploy-orchestrator }}
         uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@3a2d9869daa26e1925daf159dabb7307fc24e3ed
