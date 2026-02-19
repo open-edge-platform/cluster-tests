@@ -145,6 +145,10 @@ jobs:
 
       - name: Install toolchain deps
         run: |
+          # `make deps` uses `go install` for tools like `mage`. Ensure the default
+          # Go install location is on PATH during this step and subsequent steps.
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+          export PATH="$PATH:$HOME/go/bin"
           make deps
 
       - name: Run lint
