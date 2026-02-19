@@ -30,7 +30,7 @@ on:
         description: "Branch/tag/SHA to checkout edge-manageability-framework for ci/ven scripts"
         required: true
         type: string
-        default: main
+        default: v2026.0.0-n20260216
       disable-auth:
         description: "Run cluster-tests with DISABLE_AUTH=true"
         required: true
