@@ -62,7 +62,7 @@ jobs:
 
     steps:
       - name: Checkout cluster-tests
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -77,7 +77,7 @@ jobs:
 
       - name: Checkout EMF (ci/ven scripts)
         if: ${{ inputs.use-ven }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           repository: open-edge-platform/edge-manageability-framework
           ref: ${{ inputs.emf-branch }}
@@ -138,7 +138,7 @@ jobs:
 
       - name: Re-checkout cluster-tests (after EMF deploy_kind)
         if: ${{ inputs.deploy-orchestrator }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -175,7 +175,7 @@ jobs:
 
       - name: Upload diagnostics
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v4.6.0
         with:
           name: diag-logs
           path: diag-logs/*
