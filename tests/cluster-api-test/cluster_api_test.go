@@ -404,6 +404,13 @@ var _ = Describe("Single Node K3s Cluster Create and Delete using Cluster Manage
 			}
 		})
 
+		It("should verify that a cluster template cannot be deleted if there is a cluster using it", func() {
+			By("Trying to delete the cluster template")
+			err := utils.DeleteTemplate(namespace, utils.K3sTemplateOnlyName, utils.K3sTemplateOnlyVersion)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("in use"))
+		})
+
 		JustAfterEach(func() {
 			if CurrentSpecReport().Failed() {
 				utils.LogCommandOutput("kubectl", []string{"exec", "cluster-agent-0", "--",
