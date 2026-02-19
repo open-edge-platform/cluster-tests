@@ -237,6 +237,21 @@ func runCommand(cmd string) error {
 }
 
 func createKindCluster(configFile string) error {
+	if os.Getenv("SKIP_KIND_CREATE") == "true" {
+		fmt.Println("SKIP_KIND_CREATE=true - skipping kind create cluster")
+		return nil
+	}
+
+	// If a default kind cluster already exists (e.g., provisioned by an external workflow),
+	// do not try to recreate it.
+	if out, err := exec.Command("kind", "get", "clusters").Output(); err == nil {
+		clusters := "\n" + string(out) + "\n"
+		if strings.Contains(clusters, "\nkind\n") {
+			fmt.Println("Kind cluster 'kind' already exists - skipping kind create cluster")
+			return nil
+		}
+	}
+
 	cmd := fmt.Sprintf("kind create cluster --config %s", configFile)
 	return runCommand(cmd)
 }
