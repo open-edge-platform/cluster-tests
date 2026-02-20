@@ -116,20 +116,14 @@ jobs:
           cd /tmp/ven-scripts
           ./libvirt-setup.sh
 
-      - name: Configure DNSmasq (VEN)
-        if: ${{ inputs.use-ven }}
-        run: |
-          cd /tmp/ven-scripts
-          ./dnsmasq-setup.sh "kind.internal" config
-
       - name: Deploy Kind Orchestrator (EMF baseline)
         if: ${{ inputs.deploy-orchestrator }}
         uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@3a2d9869daa26e1925daf159dabb7307fc24e3ed
         with:
           orch_version: ${{ inputs.emf-branch }}
           orch_password: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
-          docker_username: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
-          docker_password: ${{ secrets.SYS_DOCKERHUB_RO }}
+#          docker_username: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
+#          docker_password: ${{ secrets.SYS_DOCKERHUB_RO }}
           token: ${{ secrets.SYS_EMF_GH_TOKEN }}
           deployment_type: ${{ inputs.orchestrator-deployment-type }}
 
@@ -139,6 +133,28 @@ jobs:
           # dnsmasq-setup.sh "config" needs kubectl access and expects the orchestrator
           # LoadBalancer services (argocd/orch-boots/orch-gateway) to exist.
           kind export kubeconfig --name kind
+
+          # Wait for kube-apiserver connectivity (avoids kubectl falling back to localhost:8080).
+          for i in {1..60}; do
+            if kubectl get nodes >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          kubectl get nodes -o wide
+
+          # Wait for expected namespaces/services to exist and obtain external IPs.
+          for i in {1..120}; do
+            if kubectl get svc -n orch-boots >/dev/null 2>&1 && kubectl get svc -n orch-gateway >/dev/null 2>&1; then
+              if kubectl get svc -n orch-boots | grep -q LoadBalancer && kubectl get svc -n orch-gateway | grep -q LoadBalancer; then
+                break
+              fi
+            fi
+            sleep 5
+          done
+
+          kubectl get svc -n orch-boots -o wide
+          kubectl get svc -n orch-gateway -o wide
           cd /tmp/ven-scripts
           ./dnsmasq-setup.sh "kind.internal" config
 
