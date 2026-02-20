@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       deploy-orchestrator:
-        description: "Deploy EMF orchestrator onto Kind before running cluster-tests"
+        description: "Deploy EMF orchestrator onto Kind"
         required: true
         type: boolean
         default: false
@@ -29,32 +29,17 @@ on:
         required: true
         type: string
         default: main
-      disable-auth:
-        description: "Run cluster-tests with DISABLE_AUTH=true"
-        required: true
-        type: boolean
-        default: true
-      skip-delete-cluster:
-        description: "Run cluster-tests with SKIP_DELETE_CLUSTER=true"
-        required: true
-        type: boolean
-        default: false
 
 permissions:
   contents: read
 
 jobs:
   virtual-integration:
-    name: Run cluster-tests (optional VEN setup)
+    name: Run Golden Suite VEN tests (optional EMF deploy)
     runs-on: ubuntu-24.04-16core-64GB
-    timeout-minutes: 120
+    timeout-minutes: 180
 
     env:
-      # These map 1:1 to the Makefile expectations.
-      DISABLE_AUTH: ${{ inputs.disable-auth && 'true' || 'false' }}
-      SKIP_DELETE_CLUSTER: ${{ inputs.skip-delete-cluster && 'true' || 'false' }}
-      # If the workflow deployed a Kind cluster via EMF, our bootstrap should not try to recreate it.
-      SKIP_KIND_CREATE: ${{ inputs.deploy-orchestrator && 'true' || 'false' }}
       # Ensure any libvirt tooling uses the system URI.
       LIBVIRT_DEFAULT_URI: qemu:///system
 
@@ -411,16 +396,86 @@ jobs:
           cd /tmp/ven-scripts
           ./dnsmasq-setup.sh "kind.internal" config
 
-      - name: Re-checkout cluster-tests (after EMF deploy_kind)
+      - name: Setup Orchestrator CA (post EMF deploy_kind)
         if: ${{ inputs.deploy-orchestrator }}
+        run: |
+          set -euo pipefail
+          # Generate orch-ca.crt from the live cluster and install it into the
+          # system trust store. Required so Robot Framework (and curl) trust the
+          # orchestrator TLS certificate when hitting HTTPS endpoints.
+          mage gen:orchCa deploy:orchCa
+
+      - name: Create default multi-tenancy setup (post EMF deploy_kind)
+        if: ${{ inputs.deploy-orchestrator }}
+        id: default-mt-setup
+        run: |
+          set -euo pipefail
+          # Seeds Keycloak with the default org, project, and users that
+          # Robot Framework needs to authenticate against the orchestrator.
+          mage tenantUtils:createDefaultMtSetup
+          echo "Orch org/project/users created!"
+
+      - name: Checkout edge-manage-test-automation
+        if: ${{ inputs.use-ven && inputs.deploy-orchestrator }}
         uses: actions/checkout@v6
         with:
-          fetch-depth: 1
+          repository: open-edge-platform/edge-manage-test-automation
+          ref: '0.3.3'
+          path: edge-manage-test-automation
+          submodules: recursive
+          token: ${{ secrets.SYS_EMF_GH_TOKEN }}
           persist-credentials: false
 
-      - name: Run tests
+      - name: Setup edge-manage-test-automation
+        if: ${{ inputs.use-ven && inputs.deploy-orchestrator }}
+        working-directory: edge-manage-test-automation
         run: |
-          make test
+          set -euo pipefail
+          git submodule update --init --recursive
+          make asdf-install
+          make venv_edge-manage-test-automation
+          pushd repos/ven/pico
+          asdf install
+          popd
+          sudo apt-get install -y --no-install-recommends xsltproc
+
+      - name: Deploy VEN and Edge Cluster via Golden Suite
+        if: ${{ inputs.use-ven && inputs.deploy-orchestrator && steps.default-mt-setup.conclusion == 'success' }}
+        id: deploy-ven
+        working-directory: edge-manage-test-automation
+        timeout-minutes: 60
+        env:
+          REQUESTS_CA_BUNDLE: /usr/local/share/ca-certificates/orch-ca.crt
+          LIBVIRT_DEFAULT_URI: qemu:///system
+          ORCH_DEFAULT_PASSWORD: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KC_ADMIN_PWD=$(kubectl -n orch-platform get secrets platform-keycloak -o jsonpath='{.data.admin-password}' | base64 -d)
+          yq eval ".orchestrator.admin_password = \"${KC_ADMIN_PWD}\"" -i orchestrator-configs/kind.yaml
+          yq eval '.infra.host.edgenode.hw_info.libvirt_pool_name = "default"' -i tests/core_foundation/data/cf_data_2_ven_VEN-libvirt_ubuntu-24.04-lts.yaml
+          yq eval '.infra.host.edgenode.hw_info.libvirt_network_name = "default"' -i tests/core_foundation/data/cf_data_2_ven_VEN-libvirt_ubuntu-24.04-lts.yaml
+          cat orchestrator-configs/kind.yaml
+          cat tests/core_foundation/data/cf_data_2_ven_VEN-libvirt_ubuntu-24.04-lts.yaml
+          source venv_edge-manage-test-automation/bin/activate
+          robot -L DEBUG --pythonpath . \
+            --name "VEN Onboarding and Cluster Lifecycle" \
+            -d robot_output/ven_setup \
+            -V orchestrator-configs/kind.yaml \
+            -V tests/core_foundation/data/cf_data_2_ven_VEN-libvirt_ubuntu-24.04-lts.yaml \
+            --exitonfailure \
+            --include cf1 \
+            --include cf3 \
+            --include cf4 \
+            --include cf9 \
+            tests/core_foundation/core_foundation.robot
+          echo "VEN onboarding, cluster creation, and cluster deletion done!"
+
+      - name: Upload Golden Suite artifacts
+        if: ${{ always() && inputs.use-ven && inputs.deploy-orchestrator }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: golden-suite-report
+          path: edge-manage-test-automation/robot_output/**/*
 
       - name: Collect diagnostics
         if: ${{ failure() }}
@@ -429,9 +484,10 @@ jobs:
           kubectl get pods -A -o wide > diag-logs/all-pods.log 2>&1 || true
           kubectl get deployments -A -o wide > diag-logs/all-deployments.log 2>&1 || true
           kubectl get svc -A -o wide > diag-logs/all-svcs.log 2>&1 || true
-          kubectl get coreproviders -A > diag-logs/capi-coreproviders.log 2>&1 || true
-          kubectl get bootstrapproviders -A > diag-logs/capi-bootstrapproviders.log 2>&1 || true
-          kubectl get controlplaneproviders -A > diag-logs/capi-controlplaneproviders.log 2>&1 || true
+          kubectl -n orch-cluster get pods -o wide > diag-logs/orch-cluster-pods.log 2>&1 || true
+          kubectl logs -n orch-cluster -l app=cluster-manager-cm -c cluster-manager --tail=-1 > diag-logs/cluster-manager.log 2>&1 || true
+          kubectl logs -n orch-cluster -l app.kubernetes.io/name=cluster-connect-gateway --tail=-1 > diag-logs/cluster-connect-gateway.log 2>&1 || true
+          kubectl logs -n orch-cluster -l app=intel-infra-provider-manager -c intel-infra-provider-manager --tail=-1 > diag-logs/intel-infra-provider-manager.log 2>&1 || true
           # VEN/Libvirt diagnostics
           virsh list --all > diag-logs/virsh-list.log 2>&1 || true
           virsh net-list --all > diag-logs/virsh-networks.log 2>&1 || true
