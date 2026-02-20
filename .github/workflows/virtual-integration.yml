@@ -1,8 +1,6 @@
 # SPDX-FileCopyrightText: (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
-
 ---
-
 name: Virtual Integration (VEN)
 
 on:
@@ -181,15 +179,15 @@ jobs:
           sudo install -m 0755 /tmp/argocd /usr/local/bin/argocd
           argocd version --client
 
-      - name: Verify Docker Hub credentials (required for EMF deploy_kind)
-        if: ${{ inputs.deploy-orchestrator }}
-        run: |
-          set -euo pipefail
-          if [ -z "${{ secrets.SYS_DOCKERHUB_USERNAME }}" ] || [ -z "${{ secrets.SYS_DOCKERHUB_RO }}" ]; then
-            echo "::error::Missing SYS_DOCKERHUB_USERNAME and/or SYS_DOCKERHUB_RO secrets."
-            echo "EMF deploy_kind pulls multiple images from docker.io and may hit rate limits without auth."
-            exit 1
-          fi
+#      - name: Verify Docker Hub credentials (required for EMF deploy_kind)
+#        if: ${{ inputs.deploy-orchestrator }}
+#        run: |
+#          set -euo pipefail
+#          if [ -z "${{ secrets.SYS_DOCKERHUB_USERNAME }}" ] || [ -z "${{ secrets.SYS_DOCKERHUB_RO }}" ]; then
+#            echo "::error::Missing SYS_DOCKERHUB_USERNAME and/or SYS_DOCKERHUB_RO secrets."
+#            echo "EMF deploy_kind pulls multiple images from docker.io and may hit rate limits without auth."
+#            exit 1
+#          fi
 
       - name: Deploy Kind Orchestrator (EMF baseline)
         if: ${{ inputs.deploy-orchestrator }}
@@ -205,8 +203,6 @@ jobs:
         with:
           orch_version: ${{ inputs.emf-branch }}
           orch_password: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
-          docker_username: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
-          docker_password: ${{ secrets.SYS_DOCKERHUB_RO }}
           token: ${{ secrets.SYS_EMF_GH_TOKEN }}
           deployment_type: ${{ inputs.orchestrator-deployment-type }}
 
