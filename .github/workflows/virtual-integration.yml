@@ -34,6 +34,11 @@ on:
         required: true
         type: string
         default: "cf1,cf3,cf4,cf9"
+      deployment-timeout:
+        description: "EMF deployment timeout (Go duration, e.g. 3600s, 45m)"
+        required: true
+        type: string
+        default: "25m"
 
 permissions:
   contents: read
@@ -309,6 +314,10 @@ jobs:
           # Ensure EMF's mage targets don't enable kubectl debug output that can
           # pollute JSON parsing in post-deploy generators.
           MAGEFILE_DEBUG: "0"
+          # Best-effort: many EMF mage deploy/wait helpers honor DEPLOYMENT_TIMEOUT.
+          # Setting this helps ensure the deploy action fails fast enough that we
+          # can run diagnostics steps (instead of hitting the job timeout).
+          DEPLOYMENT_TIMEOUT: ${{ inputs['deployment-timeout'] }}
 #          DOCKERHUB_USERNAME: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
 #          DOCKERHUB_TOKEN: ${{ secrets.SYS_DOCKERHUB_RO }}
         with:
@@ -316,6 +325,47 @@ jobs:
           orch_password: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
           token: ${{ secrets.SYS_EMF_GH_TOKEN }}
           deployment_type: ${{ inputs.orchestrator-deployment-type }}
+
+      - name: Collect diagnostics (deploy_kind failure)
+        if: ${{ inputs.deploy-orchestrator && steps.deploy_emf.outcome != 'success' }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p diag-logs/deploy-kind
+
+          # Export kubeconfig if a kind cluster exists.
+          kind export kubeconfig --name kind >/dev/null 2>&1 || true
+
+          echo "deploy_kind outcome: ${{ steps.deploy_emf.outcome }}" | tee diag-logs/deploy-kind/outcome.txt
+
+          kubectl version --short > diag-logs/deploy-kind/kubectl-version.txt 2>&1 || true
+          kubectl get nodes -o wide > diag-logs/deploy-kind/nodes.txt 2>&1 || true
+          kubectl get ns -A > diag-logs/deploy-kind/namespaces.txt 2>&1 || true
+          kubectl get pods -A -o wide > diag-logs/deploy-kind/pods-wide.txt 2>&1 || true
+          kubectl get deployments -A -o wide > diag-logs/deploy-kind/deployments-wide.txt 2>&1 || true
+          kubectl get svc -A -o wide > diag-logs/deploy-kind/services-wide.txt 2>&1 || true
+          kubectl get events -A --sort-by=.lastTimestamp > diag-logs/deploy-kind/events.txt 2>&1 || true
+
+          # Argo CD (if present)
+          kubectl -n argocd get applications -o wide > diag-logs/deploy-kind/argocd-applications.txt 2>&1 || true
+          kubectl -n argocd get appprojects -o wide > diag-logs/deploy-kind/argocd-appprojects.txt 2>&1 || true
+
+          # Describe pods that are not Ready.
+          kubectl get pods -A -o json > diag-logs/deploy-kind/pods.json 2>&1 || true
+          if command -v jq >/dev/null 2>&1; then
+            jq -r '
+              .items[]
+              | select(.status.phase != "Succeeded")
+              | select(((.status.conditions // []) | map(select(.type=="Ready" and .status=="True")) | length) == 0)
+              | "\(.metadata.namespace) \(.metadata.name)"' \
+              diag-logs/deploy-kind/pods.json \
+              | head -n 60 \
+              | while read -r ns name; do
+                  echo "===== kubectl describe pod -n ${ns} ${name} =====" >> diag-logs/deploy-kind/pods-describe.txt
+                  kubectl describe pod -n "$ns" "$name" >> diag-logs/deploy-kind/pods-describe.txt 2>&1 || true
+                  echo >> diag-logs/deploy-kind/pods-describe.txt
+                done
+          fi
 
       - name: Validate Orchestrator endpoints (post EMF deploy_kind)
         if: ${{ inputs.deploy-orchestrator }}
@@ -522,10 +572,35 @@ jobs:
       - name: Collect diagnostics
         if: ${{ failure() }}
         run: |
+          set -euo pipefail
+
           mkdir -p diag-logs
+
+          # Best-effort: if the kind cluster exists, ensure kubectl can talk to it.
+          kind export kubeconfig --name kind >/dev/null 2>&1 || true
+
           kubectl get pods -A -o wide > diag-logs/all-pods.log 2>&1 || true
           kubectl get deployments -A -o wide > diag-logs/all-deployments.log 2>&1 || true
           kubectl get svc -A -o wide > diag-logs/all-svcs.log 2>&1 || true
+          kubectl get events -A --sort-by=.lastTimestamp > diag-logs/all-events.log 2>&1 || true
+
+          # Describe a limited set of non-ready pods for quick triage.
+          kubectl get pods -A -o json > diag-logs/all-pods.json 2>&1 || true
+          if command -v jq >/dev/null 2>&1; then
+            jq -r '
+              .items[]
+              | select(.status.phase != "Succeeded")
+              | select(((.status.conditions // []) | map(select(.type=="Ready" and .status=="True")) | length) == 0)
+              | "\(.metadata.namespace) \(.metadata.name)"' \
+              diag-logs/all-pods.json \
+              | head -n 60 \
+              | while read -r ns name; do
+                  echo "===== kubectl describe pod -n ${ns} ${name} =====" >> diag-logs/nonready-pods-describe.log
+                  kubectl describe pod -n "$ns" "$name" >> diag-logs/nonready-pods-describe.log 2>&1 || true
+                  echo >> diag-logs/nonready-pods-describe.log
+                done
+          fi
+
           kubectl -n orch-cluster get pods -o wide > diag-logs/orch-cluster-pods.log 2>&1 || true
           kubectl logs -n orch-cluster -l app=cluster-manager-cm -c cluster-manager --tail=-1 > diag-logs/cluster-manager.log 2>&1 || true
           kubectl logs -n orch-cluster -l app.kubernetes.io/name=cluster-connect-gateway --tail=-1 > diag-logs/cluster-connect-gateway.log 2>&1 || true
@@ -539,4 +614,4 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: diag-logs
-          path: diag-logs/*
+          path: diag-logs/**
