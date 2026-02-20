@@ -181,14 +181,32 @@ jobs:
           sudo install -m 0755 /tmp/argocd /usr/local/bin/argocd
           argocd version --client
 
+      - name: Verify Docker Hub credentials (required for EMF deploy_kind)
+        if: ${{ inputs.deploy-orchestrator }}
+        run: |
+          set -euo pipefail
+          if [ -z "${{ secrets.SYS_DOCKERHUB_USERNAME }}" ] || [ -z "${{ secrets.SYS_DOCKERHUB_RO }}" ]; then
+            echo "::error::Missing SYS_DOCKERHUB_USERNAME and/or SYS_DOCKERHUB_RO secrets."
+            echo "EMF deploy_kind pulls multiple images from docker.io and may hit rate limits without auth."
+            exit 1
+          fi
+
       - name: Deploy Kind Orchestrator (EMF baseline)
         if: ${{ inputs.deploy-orchestrator }}
         uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@3a2d9869daa26e1925daf159dabb7307fc24e3ed
+        env:
+          # EMF's kind deployment flow can optionally run a local docker-compose based
+          # router (Traefik) to expose services via hostnames. GitHub-hosted runners
+          # don't reliably provide a `docker-compose` binary, and the router isn't
+          # required for cluster-tests (we configure DNSmasq later).
+          SKIP_ROUTER: "1"
+          DOCKERHUB_USERNAME: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.SYS_DOCKERHUB_RO }}
         with:
           orch_version: ${{ inputs.emf-branch }}
           orch_password: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
-#          docker_username: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
-#          docker_password: ${{ secrets.SYS_DOCKERHUB_RO }}
+          docker_username: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
+          docker_password: ${{ secrets.SYS_DOCKERHUB_RO }}
           token: ${{ secrets.SYS_EMF_GH_TOKEN }}
           deployment_type: ${{ inputs.orchestrator-deployment-type }}
 
