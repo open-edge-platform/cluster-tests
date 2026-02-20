@@ -114,6 +114,33 @@ jobs:
           restore-keys: |
             go-${{ runner.os }}-
 
+      - name: Install and activate asdf (ensure shims first)
+        if: ${{ inputs.deploy-orchestrator }}
+        run: |
+          set -euo pipefail
+
+          # EMF's mage targets install and expect tools (including kubectl) via asdf.
+          # On GitHub-hosted runners, asdf may not be installed or activated for
+          # non-interactive shells, causing mage to pick up the runner kubectl.
+          # Ensure asdf is installed and ~/.asdf/shims is ahead of /usr/bin.
+
+          ASDF_DIR="$HOME/.asdf"
+          if [ ! -d "$ASDF_DIR" ]; then
+            git clone https://github.com/asdf-vm/asdf.git "$ASDF_DIR" --branch v0.15.0
+          fi
+
+          # Persist for subsequent steps (including composite actions).
+          echo "ASDF_DIR=$ASDF_DIR" >> "$GITHUB_ENV"
+          echo "ASDF_DATA_DIR=$ASDF_DIR" >> "$GITHUB_ENV"
+
+          # Prepend shims and bin to PATH for subsequent steps.
+          echo "$ASDF_DIR/shims" >> "$GITHUB_PATH"
+          echo "$ASDF_DIR/bin" >> "$GITHUB_PATH"
+
+          # Verify asdf works in the current step.
+          . "$ASDF_DIR/asdf.sh"
+          asdf --version
+
       - name: Install toolchain deps
         run: |
           # `make deps` uses `go install` for tools like `mage`. Ensure the default
@@ -178,6 +205,80 @@ jobs:
           curl -fsSL -o /tmp/argocd "https://github.com/argoproj/argo-cd/releases/download/v${ARGOCD_VERSION}/argocd-linux-amd64"
           sudo install -m 0755 /tmp/argocd /usr/local/bin/argocd
           argocd version --client
+
+      - name: Install kubectl stdout sanitizer (workaround for EMF mage JSON parsing)
+        if: ${{ inputs.deploy-orchestrator }}
+        run: |
+          set -euo pipefail
+
+          WRAP_DIR="${RUNNER_TEMP}/kubectl-wrap/bin"
+          mkdir -p "$WRAP_DIR"
+
+          cat >"$WRAP_DIR/kubectl" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          # Resolve the *next* kubectl in PATH (avoids recursion and avoids pinning
+          # to the runner kubectl when asdf installs a pinned kubectl later).
+          self_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+          filtered_path="$(printf '%s' "${PATH}" | tr ':' '\n' | awk -v s="$self_dir" '$0 != s' | paste -sd: -)"
+          REAL_KUBECTL="$(PATH="$filtered_path" command -v kubectl || true)"
+          if [ -z "${REAL_KUBECTL}" ]; then
+            echo "kubectl not found in PATH (after filtering wrapper dir)" >&2
+            exit 127
+          fi
+
+          # If kubectl is being used interactively (e.g. exec -it / attach), do not
+          # capture output or sanitize anything. This preserves TTY behavior.
+          for a in "$@"; do
+            case "$a" in
+              exec|attach)
+                interactive_cmd=1
+                ;;
+              -t|--tty|-i|--stdin|-it|-ti)
+                interactive_flag=1
+                ;;
+            esac
+          done
+          if [ "${interactive_cmd:-0}" = "1" ] && [ "${interactive_flag:-0}" = "1" ]; then
+            exec "${REAL_KUBECTL}" "$@"
+          fi
+
+          stdout_file="$(mktemp)"
+          stderr_file="$(mktemp)"
+          trap 'rm -f "$stdout_file" "$stderr_file"' EXIT
+
+          "${REAL_KUBECTL}" "$@" >"$stdout_file" 2>"$stderr_file" || rc=$?
+          rc="${rc:-0}"
+
+          # EMF mage targets parse kubectl output as strict JSON via gojq. On some
+          # runners, kubectl can emit klog-style info lines (starting with 'I....')
+          # to STDOUT when verbosity is enabled, corrupting the JSON stream.
+          if grep -qE '^[IWEF][0-9]{4}' "$stdout_file"; then
+            # If this looks like structured output, drop everything before the first
+            # JSON object/array or YAML document start.
+            if grep -qE '^[[:space:]]*[{[]' "$stdout_file"; then
+              awk 'BEGIN{p=0} /^[[:space:]]*[{[]/{p=1} {if(p)print}' "$stdout_file" >"${stdout_file}.clean" || true
+              mv "${stdout_file}.clean" "$stdout_file"
+            elif grep -qE '^[[:space:]]*apiVersion:' "$stdout_file"; then
+              awk 'BEGIN{p=0} /^[[:space:]]*apiVersion:/{p=1} {if(p)print}' "$stdout_file" >"${stdout_file}.clean" || true
+              mv "${stdout_file}.clean" "$stdout_file"
+            fi
+
+            # As a last pass, remove any remaining klog-style lines.
+            grep -vE '^[IWEF][0-9]{4}' "$stdout_file" >"${stdout_file}.clean" || true
+            mv "${stdout_file}.clean" "$stdout_file"
+          fi
+
+          cat "$stdout_file"
+          cat "$stderr_file" >&2
+          exit "$rc"
+          EOF
+
+          chmod +x "$WRAP_DIR/kubectl"
+          echo "$WRAP_DIR" >> "$GITHUB_PATH"
+
+          echo "kubectl wrapper installed at: $WRAP_DIR/kubectl"
 
 #      - name: Verify Docker Hub credentials (required for EMF deploy_kind)
 #        if: ${{ inputs.deploy-orchestrator }}
@@ -259,6 +360,13 @@ jobs:
           await_lb_ip orch-boots ingress-haproxy-kubernetes-ingress 900
           await_lb_ip argocd argocd-server 900
           await_lb_ip gitea gitea-http 900
+
+          # Sanity-check the exact kubectl JSON outputs that EMF's mage generators parse.
+          # If these aren't strict JSON, mage will fail with: invalid character 'I'...
+          echo "Validating kubectl JSON for EMF mage generators..."
+          kubectl --v=1 -n orch-gateway get configmap kubernetes-docker-internal -o json | jq -e . >/dev/null
+          kubectl --v=1 -n orch-boots get cert tls-boots -o json | jq -e . >/dev/null
+          kubectl -v 1 -n orch-sre get cert kubernetes-docker-internal -o json | jq -e . >/dev/null
 
       - name: Configure DNSmasq (VEN)
         if: ${{ inputs.use-ven && inputs.deploy-orchestrator }}
