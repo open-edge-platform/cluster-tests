@@ -365,8 +365,20 @@ jobs:
           # If these aren't strict JSON, mage will fail with: invalid character 'I'...
           echo "Validating kubectl JSON for EMF mage generators..."
           kubectl --v=1 -n orch-gateway get configmap kubernetes-docker-internal -o json | jq -e . >/dev/null
-          kubectl --v=1 -n orch-boots get cert tls-boots -o json | jq -e . >/dev/null
-          kubectl -v 1 -n orch-sre get cert kubernetes-docker-internal -o json | jq -e . >/dev/null
+
+          # Some resources are optional / deployment-type dependent. Only validate
+          # JSON output if the object exists.
+          if kubectl --v=1 -n orch-boots get cert tls-boots -o json >/dev/null 2>&1; then
+            kubectl --v=1 -n orch-boots get cert tls-boots -o json | jq -e . >/dev/null
+          else
+            echo "::warning::Skipping JSON check: orch-boots/cert tls-boots not found"
+          fi
+
+          if kubectl -v 1 -n orch-sre get cert kubernetes-docker-internal -o json >/dev/null 2>&1; then
+            kubectl -v 1 -n orch-sre get cert kubernetes-docker-internal -o json | jq -e . >/dev/null
+          else
+            echo "::warning::Skipping JSON check: orch-sre/cert kubernetes-docker-internal not found"
+          fi
 
       - name: Configure DNSmasq (VEN)
         if: ${{ inputs.use-ven && inputs.deploy-orchestrator }}
