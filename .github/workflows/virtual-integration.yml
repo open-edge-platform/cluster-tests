@@ -62,7 +62,7 @@ jobs:
 
     steps:
       - name: Checkout cluster-tests
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -77,7 +77,7 @@ jobs:
 
       - name: Checkout EMF (ci/ven scripts)
         if: ${{ inputs.use-ven }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: open-edge-platform/edge-manageability-framework
           ref: ${{ inputs.emf-branch }}
@@ -124,7 +124,7 @@ jobs:
 
       - name: Re-checkout cluster-tests (after EMF deploy_kind)
         if: ${{ inputs.deploy-orchestrator }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
           persist-credentials: false
