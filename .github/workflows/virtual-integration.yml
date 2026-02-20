@@ -1,15 +1,13 @@
 # SPDX-FileCopyrightText: (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
-
 ---
-
 name: Virtual Integration (VEN)
 
 on:
   workflow_dispatch:
     inputs:
       deploy-orchestrator:
-        description: "Deploy EMF orchestrator onto Kind before running cluster-tests"
+        description: "Deploy EMF orchestrator onto Kind (required for Golden Suite)"
         required: true
         type: boolean
         default: false
@@ -22,7 +20,7 @@ on:
           - minimal
           - all
       use-ven:
-        description: "Run VEN prerequisites (dnsmasq + libvirt) before tests"
+        description: "Run VEN prerequisites (dnsmasq + libvirt) before Golden Suite"
         required: true
         type: boolean
         default: true
@@ -30,33 +28,32 @@ on:
         description: "Branch/tag/SHA to checkout edge-manageability-framework for ci/ven scripts"
         required: true
         type: string
-        default: v2026.0.0-n20260216
-      disable-auth:
-        description: "Run cluster-tests with DISABLE_AUTH=true"
+        default: main
+      robot-tags:
+        description: "Comma-separated Robot Framework include tags (e.g. cf1,cf3,cf4,cf9)"
         required: true
-        type: boolean
-        default: true
-      skip-delete-cluster:
-        description: "Run cluster-tests with SKIP_DELETE_CLUSTER=true"
+        type: string
+        default: "cf1,cf3,cf4,cf9"
+      deployment-timeout:
+        description: "EMF deployment timeout (Go duration, e.g. 3600s, 45m)"
         required: true
-        type: boolean
-        default: false
+        type: string
+        default: "25m"
 
 permissions:
   contents: read
 
 jobs:
   virtual-integration:
-    name: Run cluster-tests (optional VEN setup)
+    name: Run Golden Suite VEN tests (optional EMF deploy)
     runs-on: ubuntu-24.04-16core-64GB
-    timeout-minutes: 120
+    timeout-minutes: 180
+
+    concurrency:
+      group: ven-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
 
     env:
-      # These map 1:1 to the Makefile expectations.
-      DISABLE_AUTH: ${{ inputs.disable-auth && 'true' || 'false' }}
-      SKIP_DELETE_CLUSTER: ${{ inputs.skip-delete-cluster && 'true' || 'false' }}
-      # If the workflow deployed a Kind cluster via EMF, our bootstrap should not try to recreate it.
-      SKIP_KIND_CREATE: ${{ inputs.deploy-orchestrator && 'true' || 'false' }}
       # Ensure any libvirt tooling uses the system URI.
       LIBVIRT_DEFAULT_URI: qemu:///system
 
@@ -75,6 +72,171 @@ jobs:
           echo "::add-mask::${{ secrets.SYS_DOCKERHUB_RO }}"
           echo "::add-mask::${{ secrets.SYS_DOCKERHUB_USERNAME }}"
 
+      - name: Install system prerequisites (toolchain)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            curl \
+            git \
+            libbz2-dev \
+            libffi-dev \
+            liblzma-dev \
+            libncursesw5-dev \
+            libreadline-dev \
+            libsqlite3-dev \
+            libssl-dev \
+            tk-dev \
+            xz-utils \
+            zlib1g-dev
+
+      - name: Install kubectl stdout sanitizer (workaround for EMF mage JSON parsing)
+        if: ${{ inputs.deploy-orchestrator }}
+        run: |
+          set -euo pipefail
+
+          WRAP_DIR="${RUNNER_TEMP}/kubectl-wrap/bin"
+          mkdir -p "$WRAP_DIR"
+
+          cat >"$WRAP_DIR/kubectl" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          # Resolve the *next* kubectl in PATH (avoids recursion and avoids pinning
+          # to the runner kubectl when asdf installs a pinned kubectl later).
+          self_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+          filtered_path="$(printf '%s' "${PATH}" | tr ':' '\n' | awk -v s="$self_dir" '$0 != s' | paste -sd: -)"
+          REAL_KUBECTL="$(PATH="$filtered_path" command -v kubectl || true)"
+          if [ -z "${REAL_KUBECTL}" ]; then
+            echo "kubectl not found in PATH (after filtering wrapper dir)" >&2
+            exit 127
+          fi
+
+          # If kubectl is being used interactively (e.g. exec -it / attach), do not
+          # capture output or sanitize anything. This preserves TTY behavior.
+          for a in "$@"; do
+            case "$a" in
+              exec|attach)
+                interactive_cmd=1
+                ;;
+              -t|--tty|-i|--stdin|-it|-ti)
+                interactive_flag=1
+                ;;
+            esac
+          done
+          if [ "${interactive_cmd:-0}" = "1" ] && [ "${interactive_flag:-0}" = "1" ]; then
+            exec "${REAL_KUBECTL}" "$@"
+          fi
+
+          stdout_file="$(mktemp)"
+          stderr_file="$(mktemp)"
+          trap 'rm -f "$stdout_file" "$stderr_file"' EXIT
+
+          "${REAL_KUBECTL}" "$@" >"$stdout_file" 2>"$stderr_file" || rc=$?
+          rc="${rc:-0}"
+
+          # EMF mage targets parse kubectl output as strict JSON via gojq. On some
+          # runners, kubectl can emit klog-style info lines (starting with 'I....')
+          # to STDOUT when verbosity is enabled, corrupting the JSON stream.
+          if grep -qE '^[IWEF][0-9]{4}' "$stdout_file"; then
+            # If this looks like structured output, drop everything before the first
+            # JSON object/array or YAML document start.
+            if grep -qE '^[[:space:]]*[{[]' "$stdout_file"; then
+              awk 'BEGIN{p=0} /^[[:space:]]*[{[]/{p=1} {if(p)print}' "$stdout_file" >"${stdout_file}.clean" || true
+              mv "${stdout_file}.clean" "$stdout_file"
+            elif grep -qE '^[[:space:]]*apiVersion:' "$stdout_file"; then
+              awk 'BEGIN{p=0} /^[[:space:]]*apiVersion:/{p=1} {if(p)print}' "$stdout_file" >"${stdout_file}.clean" || true
+              mv "${stdout_file}.clean" "$stdout_file"
+            fi
+
+            # As a last pass, remove any remaining klog-style lines.
+            grep -vE '^[IWEF][0-9]{4}' "$stdout_file" >"${stdout_file}.clean" || true
+            mv "${stdout_file}.clean" "$stdout_file"
+          fi
+
+          cat "$stdout_file"
+          cat "$stderr_file" >&2
+          exit "$rc"
+          EOF
+
+          chmod +x "$WRAP_DIR/kubectl"
+          # Add the wrapper directory to PATH early, so it stays ahead of asdf shims.
+          echo "$WRAP_DIR" >> "$GITHUB_PATH"
+
+          echo "kubectl wrapper installed at: $WRAP_DIR/kubectl"
+
+      - name: Cache asdf installs
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57  # v4.2.0
+        with:
+          path: |
+            ~/.asdf/plugins
+            ~/.asdf/installs
+            ~/.asdf/downloads
+            ~/.asdf/shims
+          key: asdf-${{ runner.os }}-${{ hashFiles('.tool-versions') }}
+          restore-keys: |
+            asdf-${{ runner.os }}-
+
+      - name: Cache Go modules
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57  # v4.2.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-
+
+      - name: Install and activate asdf (ensure shims first)
+        if: ${{ inputs.deploy-orchestrator }}
+        run: |
+          set -euo pipefail
+
+          # EMF's mage targets install and expect tools (including kubectl) via asdf.
+          # On GitHub-hosted runners, asdf may not be installed or activated for
+          # non-interactive shells, causing mage to pick up the runner kubectl.
+          # Ensure asdf is installed and ~/.asdf/shims is ahead of /usr/bin.
+
+          ASDF_DIR="$HOME/.asdf"
+          if [ ! -d "$ASDF_DIR" ]; then
+            git clone https://github.com/asdf-vm/asdf.git "$ASDF_DIR" --branch v0.15.0
+          fi
+
+          # Persist for subsequent steps (including composite actions).
+          echo "ASDF_DIR=$ASDF_DIR" >> "$GITHUB_ENV"
+          echo "ASDF_DATA_DIR=$ASDF_DIR" >> "$GITHUB_ENV"
+
+          # Prepend shims and bin to PATH for subsequent steps.
+          echo "$ASDF_DIR/shims" >> "$GITHUB_PATH"
+          echo "$ASDF_DIR/bin" >> "$GITHUB_PATH"
+
+          # Verify asdf works in the current step.
+          . "$ASDF_DIR/asdf.sh"
+          asdf --version
+
+      - name: Pin kubectl in asdf (required by VEN scripts)
+        if: ${{ inputs.deploy-orchestrator }}
+        run: |
+          set -euo pipefail
+          . "$ASDF_DIR/asdf.sh"
+
+          # Some VEN scripts execute kubectl from within /tmp, where no
+          # .tool-versions is present. If asdf shims are on PATH, kubectl can fail
+          # with: "No version is set for command kubectl".
+          # Set a global kubectl version so the shim works everywhere.
+          asdf plugin add kubectl https://github.com/Banno/asdf-kubectl.git || true
+          asdf install kubectl 1.34.1 || true
+          asdf global kubectl 1.34.1
+
+      - name: Install toolchain deps
+        run: |
+          # `make deps` uses `go install` for tools like `mage`. Ensure the default
+          # Go install location is on PATH during this step and subsequent steps.
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+          export PATH="$PATH:$HOME/go/bin"
+          make deps
+
       - name: Checkout EMF (ci/ven scripts)
         if: ${{ inputs.use-ven }}
         uses: actions/checkout@v6
@@ -86,6 +248,17 @@ jobs:
           token: ${{ secrets.SYS_EMF_GH_TOKEN }}
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Verify EMF VEN scripts exist
+        if: ${{ inputs.use-ven }}
+        run: |
+          if [ ! -d emf/ci/ven ]; then
+            echo "::error::EMF ref '${{ inputs.emf-branch }}' does not contain ci/ven. Set emf-branch to a ref that includes ci/ven (e.g. main)."
+            echo "Workspace EMF contents:" 
+            ls -la emf || true
+            ls -la emf/ci || true
+            exit 1
+          fi
 
       - name: Preserve VEN scripts
         if: ${{ inputs.use-ven }}
@@ -105,52 +278,333 @@ jobs:
           cd /tmp/ven-scripts
           ./libvirt-setup.sh
 
-      - name: Configure DNSmasq (VEN)
-        if: ${{ inputs.use-ven }}
+      - name: Install Argo CD CLI (required by EMF deploy_kind)
+        if: ${{ inputs.deploy-orchestrator }}
         run: |
-          cd /tmp/ven-scripts
-          ./dnsmasq-setup.sh "kind.internal" config
+          set -euo pipefail
+          # Install the latest stable Argo CD CLI.
+          ARGOCD_VERSION="$(curl -fsSL https://raw.githubusercontent.com/argoproj/argo-cd/stable/VERSION)"
+          echo "Resolved Argo CD CLI version: v${ARGOCD_VERSION}"
+          echo "::notice::Resolved Argo CD CLI version: v${ARGOCD_VERSION}"
+          curl -fsSL -o /tmp/argocd "https://github.com/argoproj/argo-cd/releases/download/v${ARGOCD_VERSION}/argocd-linux-amd64"
+          sudo install -m 0755 /tmp/argocd /usr/local/bin/argocd
+          argocd version --client
+
+#      - name: Verify Docker Hub credentials (required for EMF deploy_kind)
+#        if: ${{ inputs.deploy-orchestrator }}
+#        run: |
+#          set -euo pipefail
+#          if [ -z "${{ secrets.SYS_DOCKERHUB_USERNAME }}" ] || [ -z "${{ secrets.SYS_DOCKERHUB_RO }}" ]; then
+#            echo "::error::Missing SYS_DOCKERHUB_USERNAME and/or SYS_DOCKERHUB_RO secrets."
+#            echo "EMF deploy_kind pulls multiple images from docker.io and may hit rate limits without auth."
+#            exit 1
+#          fi
 
       - name: Deploy Kind Orchestrator (EMF baseline)
         if: ${{ inputs.deploy-orchestrator }}
+        id: deploy_emf
+        continue-on-error: true
         uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@3a2d9869daa26e1925daf159dabb7307fc24e3ed
+        env:
+          # EMF's kind deployment flow can optionally run a local docker-compose based
+          # router (Traefik) to expose services via hostnames. GitHub-hosted runners
+          # don't reliably provide a `docker-compose` binary, and the router isn't
+          # required for cluster-tests (we configure DNSmasq later).
+          SKIP_ROUTER: "1"
+          # Ensure EMF's mage targets don't enable kubectl debug output that can
+          # pollute JSON parsing in post-deploy generators.
+          MAGEFILE_DEBUG: "0"
+          # Best-effort: many EMF mage deploy/wait helpers honor DEPLOYMENT_TIMEOUT.
+          # Setting this helps ensure the deploy action fails fast enough that we
+          # can run diagnostics steps (instead of hitting the job timeout).
+          DEPLOYMENT_TIMEOUT: ${{ inputs['deployment-timeout'] }}
+#          DOCKERHUB_USERNAME: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
+#          DOCKERHUB_TOKEN: ${{ secrets.SYS_DOCKERHUB_RO }}
         with:
           orch_version: ${{ inputs.emf-branch }}
           orch_password: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
-          docker_username: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
-          docker_password: ${{ secrets.SYS_DOCKERHUB_RO }}
           token: ${{ secrets.SYS_EMF_GH_TOKEN }}
           deployment_type: ${{ inputs.orchestrator-deployment-type }}
 
-      - name: Re-checkout cluster-tests (after EMF deploy_kind)
+      - name: Collect diagnostics (deploy_kind failure)
+        if: ${{ inputs.deploy-orchestrator && steps.deploy_emf.outcome != 'success' }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p diag-logs/deploy-kind
+
+          # Export kubeconfig if a kind cluster exists.
+          kind export kubeconfig --name kind >/dev/null 2>&1 || true
+
+          echo "deploy_kind outcome: ${{ steps.deploy_emf.outcome }}" | tee diag-logs/deploy-kind/outcome.txt
+
+          kubectl version --short > diag-logs/deploy-kind/kubectl-version.txt 2>&1 || true
+          kubectl get nodes -o wide > diag-logs/deploy-kind/nodes.txt 2>&1 || true
+          kubectl get ns -A > diag-logs/deploy-kind/namespaces.txt 2>&1 || true
+          kubectl get pods -A -o wide > diag-logs/deploy-kind/pods-wide.txt 2>&1 || true
+          kubectl get deployments -A -o wide > diag-logs/deploy-kind/deployments-wide.txt 2>&1 || true
+          kubectl get svc -A -o wide > diag-logs/deploy-kind/services-wide.txt 2>&1 || true
+          kubectl get events -A --sort-by=.lastTimestamp > diag-logs/deploy-kind/events.txt 2>&1 || true
+
+          # Argo CD (if present)
+          kubectl -n argocd get applications -o wide > diag-logs/deploy-kind/argocd-applications.txt 2>&1 || true
+          kubectl -n argocd get appprojects -o wide > diag-logs/deploy-kind/argocd-appprojects.txt 2>&1 || true
+
+          # Describe pods that are not Ready.
+          kubectl get pods -A -o json > diag-logs/deploy-kind/pods.json 2>&1 || true
+          if command -v jq >/dev/null 2>&1; then
+            jq -r '
+              .items[]
+              | select(.status.phase != "Succeeded")
+              | select(((.status.conditions // []) | map(select(.type=="Ready" and .status=="True")) | length) == 0)
+              | "\(.metadata.namespace) \(.metadata.name)"' \
+              diag-logs/deploy-kind/pods.json \
+              | head -n 60 \
+              | while read -r ns name; do
+                  echo "===== kubectl describe pod -n ${ns} ${name} =====" >> diag-logs/deploy-kind/pods-describe.txt
+                  kubectl describe pod -n "$ns" "$name" >> diag-logs/deploy-kind/pods-describe.txt 2>&1 || true
+                  echo >> diag-logs/deploy-kind/pods-describe.txt
+                done
+          fi
+
+      - name: Validate Orchestrator endpoints (post EMF deploy_kind)
         if: ${{ inputs.deploy-orchestrator }}
+        run: |
+          set -euo pipefail
+
+          if [ "${{ steps.deploy_emf.outcome }}" != "success" ]; then
+            echo "::warning::EMF deploy_kind step ended with outcome '${{ steps.deploy_emf.outcome }}' (continuing). Verifying cluster health manually..."
+          fi
+
+          kind export kubeconfig --name kind
+
+          # Wait for API connectivity.
+          for i in {1..60}; do
+            if kubectl get nodes >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          kubectl get nodes -o wide
+
+          # Wait for required service IPs to be assigned.
+          await_lb_ip() {
+            local ns="$1"
+            local svc="$2"
+            local timeout_secs="$3"
+            local start
+            start="$(date +%s)"
+            while true; do
+              ip="$(kubectl -n "$ns" get svc "$svc" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+              if [ -n "$ip" ]; then
+                echo "${ns}/${svc} external IP: ${ip}"
+                return 0
+              fi
+              now="$(date +%s)"
+              if [ $((now - start)) -ge "$timeout_secs" ]; then
+                echo "::error::Timed out waiting for LoadBalancer IP on ${ns}/${svc}"
+                kubectl -n "$ns" get svc "$svc" -o wide || true
+                kubectl -n "$ns" describe svc "$svc" || true
+                return 1
+              fi
+              sleep 10
+            done
+          }
+
+          await_lb_ip orch-gateway traefik 900
+          await_lb_ip orch-boots ingress-haproxy-kubernetes-ingress 900
+          await_lb_ip argocd argocd-server 900
+          await_lb_ip gitea gitea-http 900
+
+          # Sanity-check the exact kubectl JSON outputs that EMF's mage generators parse.
+          # If these aren't strict JSON, mage will fail with: invalid character 'I'...
+          echo "Validating kubectl JSON for EMF mage generators..."
+          kubectl --v=1 -n orch-gateway get configmap kubernetes-docker-internal -o json | jq -e . >/dev/null
+
+          # Some resources are optional / deployment-type dependent. Only validate
+          # JSON output if the object exists.
+          if kubectl --v=1 -n orch-boots get cert tls-boots -o json >/dev/null 2>&1; then
+            kubectl --v=1 -n orch-boots get cert tls-boots -o json | jq -e . >/dev/null
+          else
+            echo "::warning::Skipping JSON check: orch-boots/cert tls-boots not found"
+          fi
+
+          if kubectl -v 1 -n orch-sre get cert kubernetes-docker-internal -o json >/dev/null 2>&1; then
+            kubectl -v 1 -n orch-sre get cert kubernetes-docker-internal -o json | jq -e . >/dev/null
+          else
+            echo "::warning::Skipping JSON check: orch-sre/cert kubernetes-docker-internal not found"
+          fi
+
+      - name: Configure DNSmasq (VEN)
+        if: ${{ inputs.use-ven && inputs.deploy-orchestrator }}
+        run: |
+          # dnsmasq-setup.sh "config" needs kubectl access and expects the orchestrator
+          # LoadBalancer services (argocd/orch-boots/orch-gateway) to exist.
+          kind export kubeconfig --name kind
+
+          # Wait for kube-apiserver connectivity (avoids kubectl falling back to localhost:8080).
+          for i in {1..60}; do
+            if kubectl get nodes >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          kubectl get nodes -o wide
+
+          # Wait for expected namespaces/services to exist and obtain external IPs.
+          for i in {1..120}; do
+            if kubectl get svc -n orch-boots >/dev/null 2>&1 && kubectl get svc -n orch-gateway >/dev/null 2>&1; then
+              if kubectl get svc -n orch-boots | grep -q LoadBalancer && kubectl get svc -n orch-gateway | grep -q LoadBalancer; then
+                break
+              fi
+            fi
+            sleep 5
+          done
+
+          kubectl get svc -n orch-boots -o wide
+          kubectl get svc -n orch-gateway -o wide
+          cd /tmp/ven-scripts
+          ./dnsmasq-setup.sh "kind.internal" config
+
+      - name: Assert EMF workspace (post EMF deploy_kind)
+        if: ${{ inputs.deploy-orchestrator }}
+        run: |
+          set -euo pipefail
+
+          echo "Workspace: $(pwd)"
+          ls -la
+
+          # The deploy_kind action replaces the workspace contents with the EMF repo.
+          # Ensure we are in the EMF repo before running mage targets.
+          test -f Magefile.go
+          command -v mage
+          mage -version || mage --version
+
+      - name: Setup Orchestrator CA (post EMF deploy_kind)
+        if: ${{ inputs.deploy-orchestrator }}
+        run: |
+          set -euo pipefail
+          # Generate orch-ca.crt from the live cluster and install it into the
+          # system trust store. Required so Robot Framework (and curl) trust the
+          # orchestrator TLS certificate when hitting HTTPS endpoints.
+          mage gen:orchCa deploy:orchCa
+
+      - name: Create default multi-tenancy setup (post EMF deploy_kind)
+        if: ${{ inputs.deploy-orchestrator }}
+        id: default-mt-setup
+        run: |
+          set -euo pipefail
+          # Seeds Keycloak with the default org, project, and users that
+          # Robot Framework needs to authenticate against the orchestrator.
+          mage tenantUtils:createDefaultMtSetup
+          echo "Orch org/project/users created!"
+
+      - name: Checkout edge-manage-test-automation
+        if: ${{ inputs.use-ven && inputs.deploy-orchestrator }}
         uses: actions/checkout@v6
         with:
-          fetch-depth: 1
+          repository: open-edge-platform/edge-manage-test-automation
+          ref: '0.3.3'
+          path: edge-manage-test-automation
+          submodules: recursive
+          token: ${{ secrets.SYS_EMF_GH_TOKEN }}
           persist-credentials: false
 
-      - name: Install toolchain deps
+      - name: Setup edge-manage-test-automation
+        if: ${{ inputs.use-ven && inputs.deploy-orchestrator }}
+        working-directory: edge-manage-test-automation
         run: |
-          make deps
+          set -euo pipefail
+          git submodule update --init --recursive
+          make asdf-install
+          make venv_edge-manage-test-automation
+          pushd repos/ven/pico
+          asdf install
+          popd
+          sudo apt-get install -y --no-install-recommends xsltproc
 
-      - name: Run lint
+      - name: Deploy VEN and Edge Cluster via Golden Suite
+        if: ${{ inputs.use-ven && inputs.deploy-orchestrator && steps.default-mt-setup.conclusion == 'success' }}
+        id: deploy-ven
+        working-directory: edge-manage-test-automation
+        timeout-minutes: 60
+        env:
+          REQUESTS_CA_BUNDLE: /usr/local/share/ca-certificates/orch-ca.crt
+          LIBVIRT_DEFAULT_URI: qemu:///system
+          ORCH_DEFAULT_PASSWORD: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
+          ROBOT_TAGS: ${{ inputs['robot-tags'] }}
         run: |
-          make lint
+          set -euo pipefail
+          KC_ADMIN_PWD=$(kubectl -n orch-platform get secrets platform-keycloak -o jsonpath='{.data.admin-password}' | base64 -d)
+          yq eval ".orchestrator.admin_password = \"${KC_ADMIN_PWD}\"" -i orchestrator-configs/kind.yaml
+          yq eval '.infra.host.edgenode.hw_info.libvirt_pool_name = "default"' -i tests/core_foundation/data/cf_data_2_ven_VEN-libvirt_ubuntu-24.04-lts.yaml
+          yq eval '.infra.host.edgenode.hw_info.libvirt_network_name = "default"' -i tests/core_foundation/data/cf_data_2_ven_VEN-libvirt_ubuntu-24.04-lts.yaml
+          cat orchestrator-configs/kind.yaml
+          cat tests/core_foundation/data/cf_data_2_ven_VEN-libvirt_ubuntu-24.04-lts.yaml
+          source venv_edge-manage-test-automation/bin/activate
 
-      - name: Run tests
-        run: |
-          make test
+          include_args=()
+          IFS=',' read -r -a tags <<<"${ROBOT_TAGS}"
+          for t in "${tags[@]}"; do
+            t="${t//[[:space:]]/}"
+            if [ -n "${t}" ]; then
+              include_args+=("--include" "${t}")
+            fi
+          done
+
+          robot -L DEBUG --pythonpath . \
+            --name "VEN Onboarding and Cluster Lifecycle" \
+            -d robot_output/ven_setup \
+            -V orchestrator-configs/kind.yaml \
+            -V tests/core_foundation/data/cf_data_2_ven_VEN-libvirt_ubuntu-24.04-lts.yaml \
+            --exitonfailure \
+            "${include_args[@]}" \
+            tests/core_foundation/core_foundation.robot
+          echo "VEN onboarding, cluster creation, and cluster deletion done!"
+
+      - name: Upload Golden Suite artifacts
+        if: ${{ always() && inputs.use-ven && inputs.deploy-orchestrator }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: golden-suite-report
+          path: edge-manage-test-automation/robot_output/**/*
 
       - name: Collect diagnostics
         if: ${{ failure() }}
         run: |
+          set -euo pipefail
+
           mkdir -p diag-logs
+
+          # Best-effort: if the kind cluster exists, ensure kubectl can talk to it.
+          kind export kubeconfig --name kind >/dev/null 2>&1 || true
+
           kubectl get pods -A -o wide > diag-logs/all-pods.log 2>&1 || true
           kubectl get deployments -A -o wide > diag-logs/all-deployments.log 2>&1 || true
           kubectl get svc -A -o wide > diag-logs/all-svcs.log 2>&1 || true
-          kubectl get coreproviders -A > diag-logs/capi-coreproviders.log 2>&1 || true
-          kubectl get bootstrapproviders -A > diag-logs/capi-bootstrapproviders.log 2>&1 || true
-          kubectl get controlplaneproviders -A > diag-logs/capi-controlplaneproviders.log 2>&1 || true
+          kubectl get events -A --sort-by=.lastTimestamp > diag-logs/all-events.log 2>&1 || true
+
+          # Describe a limited set of non-ready pods for quick triage.
+          kubectl get pods -A -o json > diag-logs/all-pods.json 2>&1 || true
+          if command -v jq >/dev/null 2>&1; then
+            jq -r '
+              .items[]
+              | select(.status.phase != "Succeeded")
+              | select(((.status.conditions // []) | map(select(.type=="Ready" and .status=="True")) | length) == 0)
+              | "\(.metadata.namespace) \(.metadata.name)"' \
+              diag-logs/all-pods.json \
+              | head -n 60 \
+              | while read -r ns name; do
+                  echo "===== kubectl describe pod -n ${ns} ${name} =====" >> diag-logs/nonready-pods-describe.log
+                  kubectl describe pod -n "$ns" "$name" >> diag-logs/nonready-pods-describe.log 2>&1 || true
+                  echo >> diag-logs/nonready-pods-describe.log
+                done
+          fi
+
+          kubectl -n orch-cluster get pods -o wide > diag-logs/orch-cluster-pods.log 2>&1 || true
+          kubectl logs -n orch-cluster -l app=cluster-manager-cm -c cluster-manager --tail=-1 > diag-logs/cluster-manager.log 2>&1 || true
+          kubectl logs -n orch-cluster -l app.kubernetes.io/name=cluster-connect-gateway --tail=-1 > diag-logs/cluster-connect-gateway.log 2>&1 || true
+          kubectl logs -n orch-cluster -l app=intel-infra-provider-manager -c intel-infra-provider-manager --tail=-1 > diag-logs/intel-infra-provider-manager.log 2>&1 || true
           # VEN/Libvirt diagnostics
           virsh list --all > diag-logs/virsh-list.log 2>&1 || true
           virsh net-list --all > diag-logs/virsh-networks.log 2>&1 || true
@@ -160,4 +614,4 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: diag-logs
-          path: diag-logs/*
+          path: diag-logs/**
