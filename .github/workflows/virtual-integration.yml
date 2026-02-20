@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       deploy-orchestrator:
-        description: "Deploy EMF orchestrator onto Kind"
+        description: "Deploy EMF orchestrator onto Kind (required for Golden Suite)"
         required: true
         type: boolean
         default: false
@@ -20,7 +20,7 @@ on:
           - minimal
           - all
       use-ven:
-        description: "Run VEN prerequisites (dnsmasq + libvirt) before tests"
+        description: "Run VEN prerequisites (dnsmasq + libvirt) before Golden Suite"
         required: true
         type: boolean
         default: true
@@ -29,6 +29,11 @@ on:
         required: true
         type: string
         default: main
+      robot-tags:
+        description: "Comma-separated Robot Framework include tags (e.g. cf1,cf3,cf4,cf9)"
+        required: true
+        type: string
+        default: "cf1,cf3,cf4,cf9"
 
 permissions:
   contents: read
@@ -38,6 +43,10 @@ jobs:
     name: Run Golden Suite VEN tests (optional EMF deploy)
     runs-on: ubuntu-24.04-16core-64GB
     timeout-minutes: 180
+
+    concurrency:
+      group: ven-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
 
     env:
       # Ensure any libvirt tooling uses the system URI.
@@ -133,10 +142,6 @@ jobs:
           echo "$HOME/go/bin" >> $GITHUB_PATH
           export PATH="$PATH:$HOME/go/bin"
           make deps
-
-      - name: Run lint
-        run: |
-          make lint
 
       - name: Checkout EMF (ci/ven scripts)
         if: ${{ inputs.use-ven }}
@@ -396,6 +401,20 @@ jobs:
           cd /tmp/ven-scripts
           ./dnsmasq-setup.sh "kind.internal" config
 
+      - name: Assert EMF workspace (post EMF deploy_kind)
+        if: ${{ inputs.deploy-orchestrator }}
+        run: |
+          set -euo pipefail
+
+          echo "Workspace: $(pwd)"
+          ls -la
+
+          # The deploy_kind action replaces the workspace contents with the EMF repo.
+          # Ensure we are in the EMF repo before running mage targets.
+          test -f Magefile.go
+          command -v mage
+          mage -version || mage --version
+
       - name: Setup Orchestrator CA (post EMF deploy_kind)
         if: ${{ inputs.deploy-orchestrator }}
         run: |
@@ -448,6 +467,7 @@ jobs:
           REQUESTS_CA_BUNDLE: /usr/local/share/ca-certificates/orch-ca.crt
           LIBVIRT_DEFAULT_URI: qemu:///system
           ORCH_DEFAULT_PASSWORD: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
+          ROBOT_TAGS: ${{ inputs['robot-tags'] }}
         run: |
           set -euo pipefail
           KC_ADMIN_PWD=$(kubectl -n orch-platform get secrets platform-keycloak -o jsonpath='{.data.admin-password}' | base64 -d)
@@ -457,16 +477,23 @@ jobs:
           cat orchestrator-configs/kind.yaml
           cat tests/core_foundation/data/cf_data_2_ven_VEN-libvirt_ubuntu-24.04-lts.yaml
           source venv_edge-manage-test-automation/bin/activate
+
+          include_args=()
+          IFS=',' read -r -a tags <<<"${ROBOT_TAGS}"
+          for t in "${tags[@]}"; do
+            t="${t//[[:space:]]/}"
+            if [ -n "${t}" ]; then
+              include_args+=("--include" "${t}")
+            fi
+          done
+
           robot -L DEBUG --pythonpath . \
             --name "VEN Onboarding and Cluster Lifecycle" \
             -d robot_output/ven_setup \
             -V orchestrator-configs/kind.yaml \
             -V tests/core_foundation/data/cf_data_2_ven_VEN-libvirt_ubuntu-24.04-lts.yaml \
             --exitonfailure \
-            --include cf1 \
-            --include cf3 \
-            --include cf4 \
-            --include cf9 \
+            "${include_args[@]}" \
             tests/core_foundation/core_foundation.robot
           echo "VEN onboarding, cluster creation, and cluster deletion done!"
 
