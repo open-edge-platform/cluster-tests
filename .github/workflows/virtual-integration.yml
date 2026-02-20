@@ -191,6 +191,8 @@ jobs:
 
       - name: Deploy Kind Orchestrator (EMF baseline)
         if: ${{ inputs.deploy-orchestrator }}
+        id: deploy_emf
+        continue-on-error: true
         uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@3a2d9869daa26e1925daf159dabb7307fc24e3ed
         env:
           # EMF's kind deployment flow can optionally run a local docker-compose based
@@ -198,13 +200,65 @@ jobs:
           # don't reliably provide a `docker-compose` binary, and the router isn't
           # required for cluster-tests (we configure DNSmasq later).
           SKIP_ROUTER: "1"
-          DOCKERHUB_USERNAME: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.SYS_DOCKERHUB_RO }}
+          # Ensure EMF's mage targets don't enable kubectl debug output that can
+          # pollute JSON parsing in post-deploy generators.
+          MAGEFILE_DEBUG: "0"
+#          DOCKERHUB_USERNAME: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
+#          DOCKERHUB_TOKEN: ${{ secrets.SYS_DOCKERHUB_RO }}
         with:
           orch_version: ${{ inputs.emf-branch }}
           orch_password: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
           token: ${{ secrets.SYS_EMF_GH_TOKEN }}
           deployment_type: ${{ inputs.orchestrator-deployment-type }}
+
+      - name: Validate Orchestrator endpoints (post EMF deploy_kind)
+        if: ${{ inputs.deploy-orchestrator }}
+        run: |
+          set -euo pipefail
+
+          if [ "${{ steps.deploy_emf.outcome }}" != "success" ]; then
+            echo "::warning::EMF deploy_kind step ended with outcome '${{ steps.deploy_emf.outcome }}' (continuing). Verifying cluster health manually..."
+          fi
+
+          kind export kubeconfig --name kind
+
+          # Wait for API connectivity.
+          for i in {1..60}; do
+            if kubectl get nodes >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          kubectl get nodes -o wide
+
+          # Wait for required service IPs to be assigned.
+          await_lb_ip() {
+            local ns="$1"
+            local svc="$2"
+            local timeout_secs="$3"
+            local start
+            start="$(date +%s)"
+            while true; do
+              ip="$(kubectl -n "$ns" get svc "$svc" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+              if [ -n "$ip" ]; then
+                echo "${ns}/${svc} external IP: ${ip}"
+                return 0
+              fi
+              now="$(date +%s)"
+              if [ $((now - start)) -ge "$timeout_secs" ]; then
+                echo "::error::Timed out waiting for LoadBalancer IP on ${ns}/${svc}"
+                kubectl -n "$ns" get svc "$svc" -o wide || true
+                kubectl -n "$ns" describe svc "$svc" || true
+                return 1
+              fi
+              sleep 10
+            done
+          }
+
+          await_lb_ip orch-gateway traefik 900
+          await_lb_ip orch-boots ingress-haproxy-kubernetes-ingress 900
+          await_lb_ip argocd argocd-server 900
+          await_lb_ip gitea gitea-http 900
 
       - name: Configure DNSmasq (VEN)
         if: ${{ inputs.use-ven && inputs.deploy-orchestrator }}
