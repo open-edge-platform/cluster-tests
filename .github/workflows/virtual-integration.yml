@@ -169,6 +169,18 @@ jobs:
           cd /tmp/ven-scripts
           ./libvirt-setup.sh
 
+      - name: Install Argo CD CLI (required by EMF deploy_kind)
+        if: ${{ inputs.deploy-orchestrator }}
+        run: |
+          set -euo pipefail
+          # Install the latest stable Argo CD CLI.
+          ARGOCD_VERSION="$(curl -fsSL https://raw.githubusercontent.com/argoproj/argo-cd/stable/VERSION)"
+          echo "Resolved Argo CD CLI version: v${ARGOCD_VERSION}"
+          echo "::notice::Resolved Argo CD CLI version: v${ARGOCD_VERSION}"
+          curl -fsSL -o /tmp/argocd "https://github.com/argoproj/argo-cd/releases/download/v${ARGOCD_VERSION}/argocd-linux-amd64"
+          sudo install -m 0755 /tmp/argocd /usr/local/bin/argocd
+          argocd version --client
+
       - name: Deploy Kind Orchestrator (EMF baseline)
         if: ${{ inputs.deploy-orchestrator }}
         uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@3a2d9869daa26e1925daf159dabb7307fc24e3ed
