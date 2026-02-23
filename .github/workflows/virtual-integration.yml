@@ -572,6 +572,11 @@ jobs:
             done
           } | tee diag-logs/cluster-orch-revision/app-refs.txt
 
+          # Persist per-app refs for subsequent steps.
+          echo "CLUSTER_MANAGER_GIT_REF=${refs[0]}" >> "$GITHUB_ENV"
+          echo "CLUSTER_CONNECT_GATEWAY_GIT_REF=${refs[1]}" >> "$GITHUB_ENV"
+          echo "INTEL_INFRA_PROVIDER_GIT_REF=${refs[2]}" >> "$GITHUB_ENV"
+
           # Find which namespace the EMF Argo Applications are created in.
           # Most deployments use the argocd namespace, but the root-app may live
           # in a different namespace.
@@ -605,25 +610,56 @@ jobs:
                   ((.spec.source?.path? // "") != "") or
                   ((.spec.sources? // []) | any(.path? != null and .path != ""))
                 )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
-                echo "::notice::${apps_ns}/${app} has no git/path sources; rewriting Application sources to git/path charts for pinning" >&2
+                echo "::notice::${apps_ns}/${app} has no git/path sources; converting chart sources to git/path for pinning" >&2
 
                 jq --arg rev "${app_ref}" '
-                  .spec.sources = [
-                    (
-                      {
-                        repoURL: "https://github.com/open-edge-platform/cluster-manager",
-                        path: "deployment/charts/cluster-manager",
-                        targetRevision: $rev
-                      }
-                      + (if .spec.source?.helm? then {helm: .spec.source.helm} else {} end)
-                    ),
-                    {
-                      repoURL: "https://github.com/open-edge-platform/cluster-manager",
-                      path: "deployment/charts/cluster-template-crd",
-                      targetRevision: $rev
-                    }
-                  ]
-                  | del(.spec.source)
+                  def cm_repo: "https://github.com/open-edge-platform/cluster-manager";
+
+                  def to_git_path($path):
+                    .repoURL = cm_repo
+                    | .path = $path
+                    | .targetRevision = $rev
+                    | del(.chart);
+
+                  # Convert known chart sources to git/path while preserving any existing fields
+                  # (e.g., helm values/parameters, ref, etc.) and leaving unrelated sources intact.
+                  if (.spec.sources? and (.spec.sources|length) > 0) then
+                    .spec.sources = (
+                      .spec.sources
+                      | map(
+                          if (.chart? == "cluster-manager") then
+                            to_git_path("deployment/charts/cluster-manager")
+                          elif (.chart? == "cluster-template-crd") then
+                            to_git_path("deployment/charts/cluster-template-crd")
+                          else
+                            .
+                          end
+                        )
+                    )
+                    # Ensure both git/path chart sources exist (in case the original app only had one).
+                    | (if (.spec.sources | any(.path? == "deployment/charts/cluster-manager"))
+                       then .
+                       else .spec.sources += [{repoURL: cm_repo, path: "deployment/charts/cluster-manager", targetRevision: $rev}]
+                       end)
+                    | (if (.spec.sources | any(.path? == "deployment/charts/cluster-template-crd"))
+                       then .
+                       else .spec.sources += [{repoURL: cm_repo, path: "deployment/charts/cluster-template-crd", targetRevision: $rev}]
+                       end)
+                    | del(.spec.source)
+                  elif (.spec.source?) then
+                    # Single-source Application: if it's chart-based, convert it and add the CRD chart.
+                    if (.spec.source.chart? == "cluster-manager") then
+                      .spec.sources = [
+                        (.spec.source | to_git_path("deployment/charts/cluster-manager")),
+                        {repoURL: cm_repo, path: "deployment/charts/cluster-template-crd", targetRevision: $rev}
+                      ]
+                      | del(.spec.source)
+                    else
+                      .
+                    end
+                  else
+                    .
+                  end
                 ' "diag-logs/cluster-orch-revision/${app}.before.json" \
                   | kubectl apply -f -
 
@@ -680,6 +716,54 @@ jobs:
               | kubectl apply -f -
 
             kubectl get application "${app}" -n "${apps_ns}" -o json > "diag-logs/cluster-orch-revision/${app}.after.json"
+          done
+
+      - name: Checkout cluster-manager (for image build)
+        if: ${{ inputs.deploy-orchestrator && steps.pin-cluster-orch.conclusion == 'success' }}
+        uses: actions/checkout@v6
+        with:
+          repository: open-edge-platform/cluster-manager
+          ref: ${{ env.CLUSTER_MANAGER_GIT_REF }}
+          path: cluster-manager-src
+          token: ${{ secrets.SYS_EMF_GH_TOKEN }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Build and load cluster-manager images into Kind
+        if: ${{ inputs.deploy-orchestrator && steps.pin-cluster-orch.conclusion == 'success' }}
+        run: |
+          set -euo pipefail
+
+          # Ensure kube access (kind cluster created by EMF deploy_kind).
+          kind export kubeconfig --name kind
+
+          cd cluster-manager-src
+
+          # Align image tags with the chart's appVersion (default used by templates when tag is empty).
+          CM_TAG="$(awk -F': *' '/^appVersion:/{print $2; exit}' deployment/charts/cluster-manager/Chart.yaml | tr -d '"' | tr -d '\r')"
+          if [ -z "${CM_TAG}" ]; then
+            echo "::error::Unable to determine cluster-manager appVersion from Chart.yaml" >&2
+            exit 1
+          fi
+
+          CM_IMG="registry-rs.edgeorchestration.intel.com/edge-orch/cluster/cluster-manager:${CM_TAG}"
+          TC_IMG="registry-rs.edgeorchestration.intel.com/edge-orch/cluster/template-controller:${CM_TAG}"
+
+          echo "Building images:" >&2
+          echo "- ${CM_IMG}" >&2
+          echo "- ${TC_IMG}" >&2
+
+          # Build locally and preload into kind so kubelet doesn't need to pull from the registry.
+          DOCKER_BUILDKIT=1 docker build -t "${CM_IMG}" -f deployment/images/Dockerfile.cluster-manager .
+          DOCKER_BUILDKIT=1 docker build -t "${TC_IMG}" -f deployment/images/Dockerfile.cluster-template-controller .
+
+          kind load docker-image "${CM_IMG}" --name kind
+          kind load docker-image "${TC_IMG}" --name kind
+
+          # Restart cluster-manager deployments so they pick up the now-available images quickly.
+          kubectl -n orch-cluster get deploy -o name | grep -E 'cluster-manager' | while read -r d; do
+            echo "Restarting: orch-cluster/${d}" >&2
+            kubectl -n orch-cluster rollout restart "${d}"
           done
 
       - name: Wait for cluster-orch Applications to stabilize
