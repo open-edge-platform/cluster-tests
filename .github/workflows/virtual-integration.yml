@@ -40,6 +40,12 @@ on:
         type: string
         default: "25m"
 
+      cluster-orch-git-ref:
+        description: "Cluster-orch git refs (branch/tag/SHA), comma-separated, in order: cluster-manager,cluster-connect-gateway,intel-infra-provider"
+        required: true
+        type: string
+        default: "main,main,main"
+
 permissions:
   contents: read
 
@@ -47,7 +53,7 @@ jobs:
   virtual-integration:
     name: Run Golden Suite VEN tests (optional EMF deploy)
     runs-on: ubuntu-24.04-16core-64GB
-    timeout-minutes: 180
+    timeout-minutes: 60
 
     concurrency:
       group: ven-${{ github.workflow }}-${{ github.ref }}
@@ -499,6 +505,204 @@ jobs:
           mage tenantUtils:createDefaultMtSetup
           echo "Orch org/project/users created!"
 
+      - name: Pin cluster-orch Applications to git ref
+        if: ${{ inputs.deploy-orchestrator && steps.default-mt-setup.conclusion == 'success' }}
+        id: pin-cluster-orch
+        env:
+          CLUSTER_ORCH_GIT_REF: ${{ inputs['cluster-orch-git-ref'] }}
+        run: |
+          set -euo pipefail
+          kind export kubeconfig --name kind
+          mkdir -p diag-logs/cluster-orch-revision
+          echo "Cluster-orch git ref override: ${CLUSTER_ORCH_GIT_REF}" | tee diag-logs/cluster-orch-revision/inputs.txt
+
+          # Discover the namespace where root-app lives (varies by deployment type).
+          root_ns="$(kubectl get applications -A -o jsonpath='{range .items[?(@.metadata.name=="root-app")]}{.metadata.namespace}{"\n"}{end}' | head -n 1 || true)"
+          if [ -n "${root_ns}" ]; then
+            echo "Disabling root-app auto-sync in namespace: ${root_ns}" | tee diag-logs/cluster-orch-revision/root-app.txt
+            kubectl get application root-app -n "${root_ns}" -o json > diag-logs/cluster-orch-revision/root-app.before.json
+            kubectl get application root-app -n "${root_ns}" -o json \
+              | jq 'del(.spec.syncPolicy.automated)' \
+              | kubectl apply -f -
+            kubectl get application root-app -n "${root_ns}" -o json > diag-logs/cluster-orch-revision/root-app.after.json
+          else
+            echo "Skipping root-app autosync patch (root_ns not found)" \
+              | tee diag-logs/cluster-orch-revision/root-app.txt
+          fi
+
+          apps=(
+            cluster-manager
+            cluster-connect-gateway
+            intel-infra-provider
+          )
+
+          # Parse the comma-separated refs (mirrors the Robot tags pattern).
+          refs=()
+          IFS=',' read -r -a refs_raw <<<"${CLUSTER_ORCH_GIT_REF}"
+          for r in "${refs_raw[@]}"; do
+            r="${r//[[:space:]]/}"
+            if [ -n "${r}" ]; then
+              refs+=("${r}")
+            fi
+          done
+
+          if [ "${#refs[@]}" -ne "${#apps[@]}" ]; then
+            echo "::error::cluster-orch-git-ref must provide ${#apps[@]} refs (one per app). Got '${CLUSTER_ORCH_GIT_REF}'" >&2
+            echo "Expected order: cluster-manager,cluster-connect-gateway,intel-infra-provider" >&2
+            exit 1
+          fi
+
+          {
+            echo "Resolved per-app refs (in-order):"
+            for i in "${!apps[@]}"; do
+              echo "- ${apps[$i]}=${refs[$i]}"
+            done
+          } | tee diag-logs/cluster-orch-revision/app-refs.txt
+
+          # Find which namespace the EMF Argo Applications are created in.
+          # Most deployments use the argocd namespace, but the root-app may live
+          # in a different namespace.
+          apps_ns="$(kubectl get applications -A -o jsonpath='{range .items[?(@.metadata.name=="cluster-manager")]}{.metadata.namespace}{"\n"}{end}' | head -n 1 || true)"
+          if [ -z "${apps_ns}" ]; then
+            echo "::warning::cluster-manager Application not found; falling back to argocd namespace"
+            apps_ns="argocd"
+          fi
+
+          echo "Detected Applications namespace: ${apps_ns}" | tee diag-logs/cluster-orch-revision/apps-namespace.txt
+          # Persist for subsequent steps (e.g. stabilization wait/version summary).
+          echo "CLUSTER_ORCH_APPS_NS=${apps_ns}" >> "$GITHUB_ENV"
+          kubectl get applications -n "${apps_ns}" -o wide > diag-logs/cluster-orch-revision/applications.txt || true
+
+          for i in "${!apps[@]}"; do
+            app="${apps[$i]}"
+            app_ref="${refs[$i]}"
+
+            if ! kubectl get application "${app}" -n "${apps_ns}" >/dev/null 2>&1; then
+              echo "Skipping missing Application: ${apps_ns}/${app}" | tee -a diag-logs/cluster-orch-revision/patch.log
+              continue
+            fi
+
+            echo "Patching Application: ${apps_ns}/${app}" | tee -a diag-logs/cluster-orch-revision/patch.log
+            kubectl get application "${app}" -n "${apps_ns}" -o json > "diag-logs/cluster-orch-revision/${app}.before.json"
+
+            # Enforce: source must be a Helm chart in git (path-based), not OCI/Helm-repo chart sources.
+            if jq -e '(
+                (.spec.source? | has("chart")) or
+                (.spec.source?.repoURL? // "" | startswith("oci://")) or
+                ((.spec.sources? // []) | any(.chart? != null)) or
+                ((.spec.sources? // []) | any((.repoURL? // "") | startswith("oci://")))
+              )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
+              echo "::error::${apps_ns}/${app} uses an OCI/Helm-repo chart source; expected a Helm chart in git (repoURL+path)." >&2
+              jq -r '.spec.source // {sources: .spec.sources}' "diag-logs/cluster-orch-revision/${app}.before.json" \
+                | tee "diag-logs/cluster-orch-revision/${app}.source.txt" >/dev/null
+              exit 1
+            fi
+
+            jq --arg rev "${app_ref}" '
+              if .spec.sources? and (.spec.sources | length) > 0 then
+                .spec.sources = (
+                  .spec.sources
+                  | map(
+                      if (.path? != null and .path != "") then
+                        .targetRevision = $rev
+                      else
+                        .
+                      end
+                    )
+                )
+              else
+                if (.spec.source? and (.spec.source.path? != null and .spec.source.path != "")) then
+                  .spec.source.targetRevision = $rev
+                else
+                  .
+                end
+              end
+            ' "diag-logs/cluster-orch-revision/${app}.before.json" \
+              | kubectl apply -f -
+
+            kubectl get application "${app}" -n "${apps_ns}" -o json > "diag-logs/cluster-orch-revision/${app}.after.json"
+          done
+
+      - name: Wait for cluster-orch Applications to stabilize
+        if: ${{ inputs.deploy-orchestrator && steps.default-mt-setup.conclusion == 'success' && steps.pin-cluster-orch.conclusion == 'success' }}
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          kind export kubeconfig --name kind
+
+          # Use the namespace detected and persisted in the patch step.
+          apps_ns="${CLUSTER_ORCH_APPS_NS}"
+
+          apps=(
+            cluster-manager
+            cluster-connect-gateway
+            intel-infra-provider
+          )
+
+          deadline="$(( $(date +%s) + 15*60 ))"
+          while true; do
+            all_ok=1
+            for app in "${apps[@]}"; do
+              if ! kubectl get application "${app}" -n "${apps_ns}" >/dev/null 2>&1; then
+                continue
+              fi
+
+              sync_status="$(kubectl get application "${app}" -n "${apps_ns}" -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
+              health_status="$(kubectl get application "${app}" -n "${apps_ns}" -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
+
+              if [ "${sync_status}" != "Synced" ] || [ "${health_status}" != "Healthy" ]; then
+                all_ok=0
+                echo "${apps_ns}/${app}: sync=${sync_status:-?} health=${health_status:-?}" >&2
+              fi
+            done
+
+            if [ "${all_ok}" = "1" ]; then
+              echo "cluster-orch Applications are Synced/Healthy"
+              break
+            fi
+
+            if [ "$(date +%s)" -ge "${deadline}" ]; then
+              echo "::error::Timed out waiting for cluster-orch Applications to stabilize" >&2
+              kubectl get applications -n "${apps_ns}" -o wide || true
+              exit 1
+            fi
+
+            sleep 15
+          done
+
+          echo
+          echo "===== cluster-orch Application versions (desired vs actual) ====="
+          for app in "${apps[@]}"; do
+            if ! kubectl get application "${app}" -n "${apps_ns}" >/dev/null 2>&1; then
+              continue
+            fi
+
+            kubectl get application "${app}" -n "${apps_ns}" -o json \
+              | jq -r '
+                  def desired_ref:
+                    if (.spec.sources? and (.spec.sources|length)>0) then
+                      ([.spec.sources[]? | select(.path? != null and .path != "") | .targetRevision] | join(","))
+                    else
+                      (.spec.source.targetRevision // "")
+                    end;
+
+                  def desired_repo:
+                    if (.spec.sources? and (.spec.sources|length)>0) then
+                      ([.spec.sources[]? | select(.path? != null and .path != "") | (.repoURL + " path=" + (.path // ""))] | join(" | "))
+                    else
+                      ((.spec.source.repoURL // "") + " path=" + (.spec.source.path // ""))
+                    end;
+
+                  def actual_rev:
+                    if (.status.sync.revisions? and (.status.sync.revisions|length)>0) then
+                      (.status.sync.revisions | join(","))
+                    else
+                      (.status.sync.revision // "")
+                    end;
+
+                  "- \(.metadata.namespace)/\(.metadata.name): desired_ref=\(desired_ref) actual_rev=\(actual_rev) sync=\(.status.sync.status // "?") health=\(.status.health.status // "?") source=\(desired_repo)"'
+          done
+
       - name: Checkout edge-manage-test-automation
         if: ${{ inputs.use-ven && inputs.deploy-orchestrator }}
         uses: actions/checkout@v6
@@ -524,7 +728,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends xsltproc
 
       - name: Deploy VEN and Edge Cluster via Golden Suite
-        if: ${{ inputs.use-ven && inputs.deploy-orchestrator && steps.default-mt-setup.conclusion == 'success' }}
+        if: ${{ inputs.use-ven && inputs.deploy-orchestrator && steps.default-mt-setup.conclusion == 'success' && steps.pin-cluster-orch.conclusion == 'success' }}
         id: deploy-ven
         working-directory: edge-manage-test-automation
         timeout-minutes: 60
