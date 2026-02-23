@@ -5,7 +5,8 @@
 #
 SHELL       := bash -e -o pipefail
 
-ENV_PATH = "$(shell echo "${PATH}")":${HOME}/.asdf/shims
+ASDF_DIR ?= ${HOME}/.asdf
+ENV_PATH = ${PATH}:${ASDF_DIR}/bin:${ASDF_DIR}/shims
 
 CLUSTERCTL_VERSION = v1.10.7
 
@@ -76,9 +77,11 @@ deps: ## Install dependencies
 	fi;
 	@if ! command -v asdf &> /dev/null; then \
 		echo "asdf not found, installing..."; \
-		go install github.com/asdf-vm/asdf/cmd/asdf@v0.16.3; \
+		if [ ! -d "${ASDF_DIR}" ]; then \
+			git clone https://github.com/asdf-vm/asdf.git "${ASDF_DIR}" --branch v0.16.3; \
+		fi; \
 	fi
-	mage asdfPlugins
+	PATH=${ENV_PATH} mage asdfPlugins
 
 .PHONY: lint
 lint: deps ## Run linters
