@@ -204,17 +204,21 @@ jobs:
           # non-interactive shells, causing mage to pick up the runner kubectl.
           # Ensure asdf is installed and ~/.asdf/shims is ahead of /usr/bin.
 
-          ASDF_DIR="$HOME/.asdf"
-          if [ ! -d "$ASDF_DIR" ]; then
-            git clone https://github.com/asdf-vm/asdf.git "$ASDF_DIR" --branch v0.15.0
+          # Cache restore can create ~/.asdf (plugins/installs/shims) without the asdf
+          # core repo, which would make sourcing ~/.asdf/asdf.sh fail. Keep the core
+          # repo separate from the data dir to avoid that footgun.
+          ASDF_DIR="$HOME/.asdf-core"
+          ASDF_DATA_DIR="$HOME/.asdf"
+          if [ ! -f "$ASDF_DIR/asdf.sh" ]; then
+            git clone https://github.com/asdf-vm/asdf.git "$ASDF_DIR" --branch v0.15.0 --depth 1
           fi
 
           # Persist for subsequent steps (including composite actions).
           echo "ASDF_DIR=$ASDF_DIR" >> "$GITHUB_ENV"
-          echo "ASDF_DATA_DIR=$ASDF_DIR" >> "$GITHUB_ENV"
+          echo "ASDF_DATA_DIR=$ASDF_DATA_DIR" >> "$GITHUB_ENV"
 
           # Prepend shims and bin to PATH for subsequent steps.
-          echo "$ASDF_DIR/shims" >> "$GITHUB_PATH"
+          echo "$ASDF_DATA_DIR/shims" >> "$GITHUB_PATH"
           echo "$ASDF_DIR/bin" >> "$GITHUB_PATH"
 
           # Verify asdf works in the current step.
