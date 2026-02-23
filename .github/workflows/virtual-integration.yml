@@ -302,7 +302,8 @@ jobs:
           echo "::notice::Resolved Argo CD CLI version: v${ARGOCD_VERSION}"
           curl -fsSL -o /tmp/argocd "https://github.com/argoproj/argo-cd/releases/download/v${ARGOCD_VERSION}/argocd-linux-amd64"
           sudo install -m 0755 /tmp/argocd /usr/local/bin/argocd
-          argocd version --client
+          # Note: asdf shims may be ahead of /usr/local/bin on PATH; call the binary explicitly.
+          /usr/local/bin/argocd version --client
 
 #      - name: Verify Docker Hub credentials (required for EMF deploy_kind)
 #        if: ${{ inputs.deploy-orchestrator }}
