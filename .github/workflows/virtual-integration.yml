@@ -612,7 +612,8 @@ jobs:
                 )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
                 echo "::notice::${apps_ns}/${app} has no git/path sources; converting chart sources to git/path for pinning" >&2
 
-                jq --arg rev "${app_ref}" '
+                # Use a heredoc to avoid brittle multi-line quoting inside GitHub Actions' bash runner.
+                cm_rewrite_filter="$(cat <<'JQ'
                   def cm_repo: "https://github.com/open-edge-platform/cluster-manager";
 
                   def to_git_path($path):
@@ -660,7 +661,10 @@ jobs:
                   else
                     .
                   end
-                ' "diag-logs/cluster-orch-revision/${app}.before.json" \
+          JQ
+                )"
+
+                jq --arg rev "${app_ref}" "${cm_rewrite_filter}" "diag-logs/cluster-orch-revision/${app}.before.json" \
                   | kubectl apply -f -
 
                 kubectl get application "${app}" -n "${apps_ns}" -o json > "diag-logs/cluster-orch-revision/${app}.after.json"
