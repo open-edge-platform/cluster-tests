@@ -598,17 +598,63 @@ jobs:
             echo "Patching Application: ${apps_ns}/${app}" | tee -a diag-logs/cluster-orch-revision/patch.log
             kubectl get application "${app}" -n "${apps_ns}" -o json > "diag-logs/cluster-orch-revision/${app}.before.json"
 
-            # Enforce: source must be a Helm chart in git (path-based), not OCI/Helm-repo chart sources.
+            # cluster-manager: if the Application is deployed as an OCI/Helm chart (no git/path
+            # sources), rewrite it to use git/path sources so we can pin via targetRevision.
+            if [ "${app}" = "cluster-manager" ]; then
+              if ! jq -e '(
+                  ((.spec.source?.path? // "") != "") or
+                  ((.spec.sources? // []) | any(.path? != null and .path != ""))
+                )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
+                echo "::notice::${apps_ns}/${app} has no git/path sources; rewriting Application sources to git/path charts for pinning" >&2
+
+                jq --arg rev "${app_ref}" '
+                  .spec.sources = [
+                    (
+                      {
+                        repoURL: "https://github.com/open-edge-platform/cluster-manager",
+                        path: "deployment/charts/cluster-manager",
+                        targetRevision: $rev
+                      }
+                      + (if .spec.source?.helm? then {helm: .spec.source.helm} else {} end)
+                    ),
+                    {
+                      repoURL: "https://github.com/open-edge-platform/cluster-manager",
+                      path: "deployment/charts/cluster-template-crd",
+                      targetRevision: $rev
+                    }
+                  ]
+                  | del(.spec.source)
+                ' "diag-logs/cluster-orch-revision/${app}.before.json" \
+                  | kubectl apply -f -
+
+                kubectl get application "${app}" -n "${apps_ns}" -o json > "diag-logs/cluster-orch-revision/${app}.after.json"
+                cp "diag-logs/cluster-orch-revision/${app}.after.json" "diag-logs/cluster-orch-revision/${app}.before.json"
+              fi
+            fi
+
+            # We can only pin targetRevision for sources that are path-based (git).
+            if ! jq -e '(
+                ((.spec.source?.path? // "") != "") or
+                ((.spec.sources? // []) | any(.path? != null and .path != ""))
+              )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
+              echo "::warning::${apps_ns}/${app} has no git/path source to pin via targetRevision. Skipping." >&2
+              jq -r '.spec.source // {sources: .spec.sources}' "diag-logs/cluster-orch-revision/${app}.before.json" \
+                | tee "diag-logs/cluster-orch-revision/${app}.source.txt" >/dev/null
+              echo "SKIPPED: ${apps_ns}/${app} (no git/path source)" | tee -a diag-logs/cluster-orch-revision/patch.log
+              continue
+            fi
+
+            # If the Application also contains Helm-repo/OCI chart sources, we can still pin the
+            # git/path sources. Emit a warning for transparency.
             if jq -e '(
                 (.spec.source? | has("chart")) or
                 (.spec.source?.repoURL? // "" | startswith("oci://")) or
                 ((.spec.sources? // []) | any(.chart? != null)) or
                 ((.spec.sources? // []) | any((.repoURL? // "") | startswith("oci://")))
               )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
-              echo "::error::${apps_ns}/${app} uses an OCI/Helm-repo chart source; expected a Helm chart in git (repoURL+path)." >&2
+              echo "::warning::${apps_ns}/${app} includes OCI/Helm chart sources; only pinning git/path sources." >&2
               jq -r '.spec.source // {sources: .spec.sources}' "diag-logs/cluster-orch-revision/${app}.before.json" \
                 | tee "diag-logs/cluster-orch-revision/${app}.source.txt" >/dev/null
-              exit 1
             fi
 
             jq --arg rev "${app_ref}" '
