@@ -390,7 +390,14 @@ jobs:
           # Generate vendor/ using the same Go version as the Dockerfile base image.
           if [ ! -d vendor ]; then
             echo "::notice::vendor/ not found; generating via golang:1.25..." >&2
+            # Important: run the container as the runner user so generated files aren't
+            # owned by root (root-owned files can make later `actions/checkout clean:true`
+            # fail with Permission denied on `git clean -ffdx`).
             docker run --rm \
+              --user "$(id -u):$(id -g)" \
+              -e HOME=/tmp \
+              -e GOPATH=/tmp/go \
+              -e GOCACHE=/tmp/gocache \
               -e GOPRIVATE="${GOPRIVATE:-github.com/open-edge-platform}" \
               -e GH_TOKEN="${{ secrets.SYS_EMF_GH_TOKEN }}" \
               -v "${PWD}:/workspace" \
@@ -399,8 +406,15 @@ jobs:
               bash -euo pipefail -c 'git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; go mod vendor'
           fi
 
+          # Best-effort: if previous runs left root-owned files, fix ownership so cleanup works.
+          sudo chown -R "$(id -u):$(id -g)" vendor >/dev/null 2>&1 || true
+
           DOCKER_BUILDKIT=1 docker build -t "${CM_IMG}" -f deployment/images/Dockerfile.cluster-manager .
           DOCKER_BUILDKIT=1 docker build -t "${TC_IMG}" -f deployment/images/Dockerfile.cluster-template-controller .
+
+          # Keep the workspace clean for the subsequent EMF deploy_kind checkout.
+          cd "${GITHUB_WORKSPACE}"
+          sudo rm -rf cluster-manager-src >/dev/null 2>&1 || rm -rf cluster-manager-src || true
 
       - name: Pre-initialize workspace as EMF git repo (avoid deploy_kind checkout conflict)
         if: ${{ inputs.deploy-orchestrator }}
