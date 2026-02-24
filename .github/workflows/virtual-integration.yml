@@ -655,6 +655,32 @@ jobs:
           kind load docker-image "${MGR_IMG}" --name kind
           kind load docker-image "${SB_IMG}" --name kind
 
+      - name: Docker cleanup (post preload)
+        if: ${{ inputs.deploy-orchestrator && steps.deploy_emf.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+
+          echo "Disk before prune:" >&2
+          df -h >&2 || true
+
+          if command -v docker >/dev/null 2>&1; then
+            echo "Docker disk usage before prune:" >&2
+            docker system df >&2 || true
+
+            # Keep this conservative: do not remove volumes (kind uses volumes),
+            # and do not touch running containers.
+            docker builder prune -af >&2 || true
+            docker system prune -af >&2 || true
+
+            echo "Docker disk usage after prune:" >&2
+            docker system df >&2 || true
+          else
+            echo "::warning::docker not found; skipping prune" >&2
+          fi
+
+          echo "Disk after prune:" >&2
+          df -h >&2 || true
+
       - name: Collect diagnostics (deploy_kind failure)
         if: ${{ inputs.deploy-orchestrator && steps.deploy_emf.outcome != 'success' }}
         run: |
@@ -1363,6 +1389,44 @@ jobs:
                   | "  " + .' \
               || echo "  (no pods found for label: ${label})"
           done
+
+      - name: Preflight for Golden Suite (resources + image pulls)
+        if: ${{ inputs.use-ven && inputs.deploy-orchestrator && steps.pin-cluster-orch.conclusion == 'success' }}
+        run: |
+          set -euo pipefail
+          kind export kubeconfig --name kind
+
+          echo "===== Runner resources =====" >&2
+          df -h >&2 || true
+          free -h >&2 || true
+          if command -v docker >/dev/null 2>&1; then
+            docker system df >&2 || true
+          fi
+
+          echo "===== Checking orch-cluster pods for image pull issues =====" >&2
+          kubectl -n orch-cluster get pods -o wide || true
+
+          # Fail early if any pod is stuck pulling images.
+          pulls="$(kubectl -n orch-cluster get pods -o json | jq -r '
+            [
+              .items[]
+              | .metadata.name as $p
+              | (
+                  (.status.containerStatuses // []) + (.status.initContainerStatuses // [])
+                )
+              | map(select(.state.waiting?.reason == "ImagePullBackOff" or .state.waiting?.reason == "ErrImagePull"))
+              | .[]?
+              | "pod=\($p) container=\(.name) reason=\(.state.waiting.reason) msg=\(.state.waiting.message // "") image=\(.image)"
+            ]
+            | .[]')"
+
+          if [ -n "${pulls}" ]; then
+            echo "::error::Detected image pull failures in orch-cluster:" >&2
+            echo "${pulls}" >&2
+            exit 1
+          fi
+
+          echo "Preflight OK: no ImagePullBackOff/ErrImagePull in orch-cluster." >&2
 
       - name: Checkout edge-manage-test-automation
         if: ${{ inputs.use-ven && inputs.deploy-orchestrator }}
