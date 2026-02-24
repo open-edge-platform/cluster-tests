@@ -887,6 +887,26 @@ jobs:
               | tee diag-logs/cluster-orch-revision/root-app.txt
           fi
 
+          # Disable auto-sync on ALL ArgoCD Applications across all namespaces.
+          # root-app is not the only App-of-Apps in EMF; intermediate apps (e.g. in
+          # the argocd namespace managing the dev namespace apps) would otherwise
+          # reconcile the Application manifests we are about to patch, reverting our
+          # changes within seconds. The cluster is ephemeral so it is safe to freeze
+          # all auto-syncs for the duration of the test.
+          echo "Freezing auto-sync on all ArgoCD Applications to prevent mid-patch reconciliation..." \
+            | tee -a diag-logs/cluster-orch-revision/root-app.txt
+          kubectl get applications -A -o json \
+            | jq -r '.items[] | .metadata.namespace + " " + .metadata.name' \
+            | while read -r _ns _name; do
+                if kubectl get application "${_name}" -n "${_ns}" -o json 2>/dev/null \
+                     | jq -e '.spec.syncPolicy.automated != null' >/dev/null 2>&1; then
+                  echo "  Freezing: ${_ns}/${_name}" | tee -a diag-logs/cluster-orch-revision/root-app.txt
+                  kubectl get application "${_name}" -n "${_ns}" -o json \
+                    | jq 'del(.spec.syncPolicy.automated)' \
+                    | kubectl apply -f - >/dev/null 2>&1 || true
+                fi
+              done
+
           apps=(
             cluster-manager
             cluster-connect-gateway
@@ -991,8 +1011,11 @@ jobs:
           JQ
                 )"
 
-                jq --arg rev "${app_ref}" "${cm_rewrite_filter}" "diag-logs/cluster-orch-revision/${app}.before.json" \
-                  | kubectl apply -f -
+                cm_rewritten_json="diag-logs/cluster-orch-revision/${app}.rewritten.json"
+                jq --arg rev "${app_ref}" "${cm_rewrite_filter}" "diag-logs/cluster-orch-revision/${app}.before.json" > "${cm_rewritten_json}"
+                cm_rewritten_sources="$(jq -c '.spec.sources // []' "${cm_rewritten_json}")"
+                kubectl patch application "${app}" -n "${apps_ns}" --type merge \
+                  -p "{\"spec\":{\"source\":null,\"sources\":${cm_rewritten_sources}}}"
 
                 kubectl get application "${app}" -n "${apps_ns}" -o json > "diag-logs/cluster-orch-revision/${app}.after.json"
                 cp "diag-logs/cluster-orch-revision/${app}.after.json" "diag-logs/cluster-orch-revision/${app}.before.json"
@@ -1040,8 +1063,11 @@ jobs:
           JQ
                 )"
 
-                jq --arg rev "${app_ref}" "${ccg_rewrite_filter}" "diag-logs/cluster-orch-revision/${app}.before.json" \
-                  | kubectl apply -f -
+                ccg_rewritten_json="diag-logs/cluster-orch-revision/${app}.rewritten.json"
+                jq --arg rev "${app_ref}" "${ccg_rewrite_filter}" "diag-logs/cluster-orch-revision/${app}.before.json" > "${ccg_rewritten_json}"
+                ccg_rewritten_sources="$(jq -c '.spec.sources // []' "${ccg_rewritten_json}")"
+                kubectl patch application "${app}" -n "${apps_ns}" --type merge \
+                  -p "{\"spec\":{\"source\":null,\"sources\":${ccg_rewritten_sources}}}"
 
                 kubectl get application "${app}" -n "${apps_ns}" -o json > "diag-logs/cluster-orch-revision/${app}.after.json"
                 cp "diag-logs/cluster-orch-revision/${app}.after.json" "diag-logs/cluster-orch-revision/${app}.before.json"
@@ -1118,8 +1144,11 @@ jobs:
           JQ
                 )"
 
-                jq --arg rev "${app_ref}" "${capi_rewrite_filter}" "diag-logs/cluster-orch-revision/${app}.before.json" \
-                  | kubectl apply -f -
+                capi_rewritten_json="diag-logs/cluster-orch-revision/${app}.rewritten.json"
+                jq --arg rev "${app_ref}" "${capi_rewrite_filter}" "diag-logs/cluster-orch-revision/${app}.before.json" > "${capi_rewritten_json}"
+                capi_rewritten_sources="$(jq -c '.spec.sources // []' "${capi_rewritten_json}")"
+                kubectl patch application "${app}" -n "${apps_ns}" --type merge \
+                  -p "{\"spec\":{\"source\":null,\"sources\":${capi_rewritten_sources}}}"
 
                 kubectl get application "${app}" -n "${apps_ns}" -o json > "diag-logs/cluster-orch-revision/${app}.after.json"
                 cp "diag-logs/cluster-orch-revision/${app}.after.json" "diag-logs/cluster-orch-revision/${app}.before.json"
@@ -1188,11 +1217,11 @@ jobs:
                       (srcs
                        | to_entries
                        | map(
-                           "source[\(.key)]: repoURL=\(.value.repoURL // "") path=\(.value.path // "") chart=\(.value.chart // "") targetRevision=\(.value.targetRevision // "") helm.parameters=\((.value.helm.parameters // [])|map("\(.name)=\(.value)")|join(","))"
+                           "source[" + (.key | tostring) + "]: repoURL=" + (.value.repoURL // "") + " path=" + (.value.path // "") + " chart=" + (.value.chart // "") + " targetRevision=" + (.value.targetRevision // "") + " helm.parameters=" + ((.value.helm.parameters // []) | map(.name + "=" + (.value | tostring)) | join(","))
                          )
                        | .[])
                     else
-                      "source: repoURL=\(src.repoURL // "") path=\(src.path // "") chart=\(src.chart // "") targetRevision=\(src.targetRevision // "") helm.parameters=\(((src.helm.parameters // [])|map("\(.name)=\(.value)")|join(",")))"
+                      "source: repoURL=" + (src.repoURL // "") + " path=" + (src.path // "") + " chart=" + (src.chart // "") + " targetRevision=" + (src.targetRevision // "") + " helm.parameters=" + ((src.helm.parameters // []) | map(.name + "=" + (.value | tostring)) | join(","))
                     end)
                   '
             } | tee -a "diag-logs/cluster-orch-revision/post-patch-summary.log"
