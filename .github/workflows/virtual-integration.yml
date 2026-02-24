@@ -67,7 +67,8 @@ jobs:
 
     steps:
       - name: Checkout cluster-tests
-        uses: actions/checkout@v6
+        if: ${{ !inputs.deploy-orchestrator }}
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -291,7 +292,7 @@ jobs:
 
       - name: Checkout EMF (ci/ven scripts)
         if: ${{ inputs.use-ven }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           repository: open-edge-platform/edge-manageability-framework
           ref: ${{ inputs.emf-branch }}
@@ -345,7 +346,7 @@ jobs:
 
       - name: Checkout cluster-manager (for early image build)
         if: ${{ inputs.deploy-orchestrator }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           repository: open-edge-platform/cluster-manager
           ref: ${{ env.CLUSTER_MANAGER_GIT_REF }}
@@ -400,6 +401,19 @@ jobs:
 
           DOCKER_BUILDKIT=1 docker build -t "${CM_IMG}" -f deployment/images/Dockerfile.cluster-manager .
           DOCKER_BUILDKIT=1 docker build -t "${TC_IMG}" -f deployment/images/Dockerfile.cluster-template-controller .
+
+      - name: Preflight workspace before EMF deploy_kind
+        if: ${{ inputs.deploy-orchestrator }}
+        run: |
+          set -euo pipefail
+          echo "pwd: $(pwd)"
+          echo "GITHUB_WORKSPACE: ${GITHUB_WORKSPACE}"
+          ls -la
+          if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            echo "Workspace is a git repository. HEAD: $(git rev-parse --short HEAD)"
+          else
+            echo "::warning::Workspace is NOT a git repository (this can break actions/checkout cleanup)."
+          fi
 
 #      - name: Verify Docker Hub credentials (required for EMF deploy_kind)
 #        if: ${{ inputs.deploy-orchestrator }}
@@ -924,7 +938,7 @@ jobs:
 
       - name: Checkout edge-manage-test-automation
         if: ${{ inputs.use-ven && inputs.deploy-orchestrator }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           repository: open-edge-platform/edge-manage-test-automation
           ref: '0.3.3'
@@ -987,7 +1001,7 @@ jobs:
 
       - name: Upload Golden Suite artifacts
         if: ${{ always() && inputs.use-ven && inputs.deploy-orchestrator }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: golden-suite-report
           path: edge-manage-test-automation/robot_output/**/*
@@ -1034,7 +1048,7 @@ jobs:
 
       - name: Upload diagnostics
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: diag-logs
           path: diag-logs/**
