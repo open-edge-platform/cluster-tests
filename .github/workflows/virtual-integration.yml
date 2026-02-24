@@ -655,6 +655,8 @@ jobs:
       - name: Create default multi-tenancy setup (post EMF deploy_kind)
         if: ${{ inputs.deploy-orchestrator }}
         id: default-mt-setup
+        env:
+          ORCH_DEFAULT_PASSWORD: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
         run: |
           set -euo pipefail
           # Seeds Keycloak with the default org, project, and users that
