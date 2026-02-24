@@ -80,6 +80,40 @@ jobs:
           echo "::add-mask::${{ secrets.SYS_DOCKERHUB_RO }}"
           echo "::add-mask::${{ secrets.SYS_DOCKERHUB_USERNAME }}"
 
+      - name: Resolve cluster-orch git refs (early)
+        if: ${{ inputs.deploy-orchestrator }}
+        env:
+          CLUSTER_ORCH_GIT_REF: ${{ inputs['cluster-orch-git-ref'] }}
+        run: |
+          set -euo pipefail
+
+          apps=(
+            cluster-manager
+            cluster-connect-gateway
+            intel-infra-provider
+          )
+
+          # Parse the comma-separated refs (mirrors the Robot tags pattern).
+          refs=()
+          IFS=',' read -r -a refs_raw <<<"${CLUSTER_ORCH_GIT_REF}"
+          for r in "${refs_raw[@]}"; do
+            r="${r//[[:space:]]/}"
+            if [ -n "${r}" ]; then
+              refs+=("${r}")
+            fi
+          done
+
+          if [ "${#refs[@]}" -ne "${#apps[@]}" ]; then
+            echo "::error::cluster-orch-git-ref must provide ${#apps[@]} refs (one per app). Got '${CLUSTER_ORCH_GIT_REF}'" >&2
+            echo "Expected order: cluster-manager,cluster-connect-gateway,intel-infra-provider" >&2
+            exit 1
+          fi
+
+          # Persist per-app refs for subsequent steps.
+          echo "CLUSTER_MANAGER_GIT_REF=${refs[0]}" >> "$GITHUB_ENV"
+          echo "CLUSTER_CONNECT_GATEWAY_GIT_REF=${refs[1]}" >> "$GITHUB_ENV"
+          echo "INTEL_INFRA_PROVIDER_GIT_REF=${refs[2]}" >> "$GITHUB_ENV"
+
       - name: Install system prerequisites (toolchain)
         run: |
           sudo apt-get update
@@ -309,6 +343,64 @@ jobs:
           # Note: asdf shims may be ahead of /usr/local/bin on PATH; call the binary explicitly.
           /usr/local/bin/argocd version --client
 
+      - name: Checkout cluster-manager (for early image build)
+        if: ${{ inputs.deploy-orchestrator }}
+        uses: actions/checkout@v6
+        with:
+          repository: open-edge-platform/cluster-manager
+          ref: ${{ env.CLUSTER_MANAGER_GIT_REF }}
+          path: cluster-manager-src
+          token: ${{ secrets.SYS_EMF_GH_TOKEN }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Build cluster-manager images (early)
+        if: ${{ inputs.deploy-orchestrator }}
+        id: build_cm_images
+        run: |
+          set -euo pipefail
+
+          cd cluster-manager-src
+
+          # Align image tags with the chart's appVersion (default used by templates when tag is empty).
+          CM_TAG="$(awk -F': *' '/^appVersion:/{print $2; exit}' deployment/charts/cluster-manager/Chart.yaml | tr -d '"' | tr -d '\r')"
+          if [ -z "${CM_TAG}" ]; then
+            echo "::error::Unable to determine cluster-manager appVersion from Chart.yaml" >&2
+            exit 1
+          fi
+
+          CM_IMG="registry-rs.edgeorchestration.intel.com/edge-orch/cluster/cluster-manager:${CM_TAG}"
+          TC_IMG="registry-rs.edgeorchestration.intel.com/edge-orch/cluster/template-controller:${CM_TAG}"
+
+          # Persist for later steps *without* leaking into composite actions.
+          # (Anything written to $GITHUB_ENV becomes environment for subsequent steps,
+          # including the EMF deploy_kind composite action.)
+          {
+            echo "cm_tag=${CM_TAG}"
+            echo "cm_img=${CM_IMG}"
+            echo "tc_img=${TC_IMG}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Building images:" >&2
+          echo "- ${CM_IMG}" >&2
+          echo "- ${TC_IMG}" >&2
+
+          # Some refs do not include vendor/ in the repo, but the Dockerfile expects it.
+          # Generate vendor/ using the same Go version as the Dockerfile base image.
+          if [ ! -d vendor ]; then
+            echo "::notice::vendor/ not found; generating via golang:1.25..." >&2
+            docker run --rm \
+              -e GOPRIVATE="${GOPRIVATE:-github.com/open-edge-platform}" \
+              -e GH_TOKEN="${{ secrets.SYS_EMF_GH_TOKEN }}" \
+              -v "${PWD}:/workspace" \
+              -w /workspace \
+              golang:1.25 \
+              bash -euo pipefail -c 'git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; go mod vendor'
+          fi
+
+          DOCKER_BUILDKIT=1 docker build -t "${CM_IMG}" -f deployment/images/Dockerfile.cluster-manager .
+          DOCKER_BUILDKIT=1 docker build -t "${TC_IMG}" -f deployment/images/Dockerfile.cluster-template-controller .
+
 #      - name: Verify Docker Hub credentials (required for EMF deploy_kind)
 #        if: ${{ inputs.deploy-orchestrator }}
 #        run: |
@@ -344,6 +436,22 @@ jobs:
           orch_password: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
           token: ${{ secrets.SYS_EMF_GH_TOKEN }}
           deployment_type: ${{ inputs.orchestrator-deployment-type }}
+
+      - name: Load cluster-manager images into Kind (early)
+        if: ${{ inputs.deploy-orchestrator && steps.deploy_emf.outcome == 'success' && steps.build_cm_images.conclusion == 'success' }}
+        id: preload_cm_images
+        env:
+          CM_IMG: ${{ steps.build_cm_images.outputs.cm_img }}
+          TC_IMG: ${{ steps.build_cm_images.outputs.tc_img }}
+        run: |
+          set -euo pipefail
+
+          test -n "${CM_IMG}"
+          test -n "${TC_IMG}"
+
+          kind export kubeconfig --name kind
+          kind load docker-image "${CM_IMG}" --name kind
+          kind load docker-image "${TC_IMG}" --name kind
 
       - name: Collect diagnostics (deploy_kind failure)
         if: ${{ inputs.deploy-orchestrator && steps.deploy_emf.outcome != 'success' }}
@@ -722,47 +830,11 @@ jobs:
             kubectl get application "${app}" -n "${apps_ns}" -o json > "diag-logs/cluster-orch-revision/${app}.after.json"
           done
 
-      - name: Checkout cluster-manager (for image build)
-        if: ${{ inputs.deploy-orchestrator && steps.pin-cluster-orch.conclusion == 'success' }}
-        uses: actions/checkout@v6
-        with:
-          repository: open-edge-platform/cluster-manager
-          ref: ${{ env.CLUSTER_MANAGER_GIT_REF }}
-          path: cluster-manager-src
-          token: ${{ secrets.SYS_EMF_GH_TOKEN }}
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Build and load cluster-manager images into Kind
-        if: ${{ inputs.deploy-orchestrator && steps.pin-cluster-orch.conclusion == 'success' }}
+      - name: Restart cluster-manager deployments (use preloaded images)
+        if: ${{ inputs.deploy-orchestrator && steps.pin-cluster-orch.conclusion == 'success' && steps.preload_cm_images.conclusion == 'success' }}
         run: |
           set -euo pipefail
-
-          # Ensure kube access (kind cluster created by EMF deploy_kind).
           kind export kubeconfig --name kind
-
-          cd cluster-manager-src
-
-          # Align image tags with the chart's appVersion (default used by templates when tag is empty).
-          CM_TAG="$(awk -F': *' '/^appVersion:/{print $2; exit}' deployment/charts/cluster-manager/Chart.yaml | tr -d '"' | tr -d '\r')"
-          if [ -z "${CM_TAG}" ]; then
-            echo "::error::Unable to determine cluster-manager appVersion from Chart.yaml" >&2
-            exit 1
-          fi
-
-          CM_IMG="registry-rs.edgeorchestration.intel.com/edge-orch/cluster/cluster-manager:${CM_TAG}"
-          TC_IMG="registry-rs.edgeorchestration.intel.com/edge-orch/cluster/template-controller:${CM_TAG}"
-
-          echo "Building images:" >&2
-          echo "- ${CM_IMG}" >&2
-          echo "- ${TC_IMG}" >&2
-
-          # Build locally and preload into kind so kubelet doesn't need to pull from the registry.
-          DOCKER_BUILDKIT=1 docker build -t "${CM_IMG}" -f deployment/images/Dockerfile.cluster-manager .
-          DOCKER_BUILDKIT=1 docker build -t "${TC_IMG}" -f deployment/images/Dockerfile.cluster-template-controller .
-
-          kind load docker-image "${CM_IMG}" --name kind
-          kind load docker-image "${TC_IMG}" --name kind
 
           # Restart cluster-manager deployments so they pick up the now-available images quickly.
           kubectl -n orch-cluster get deploy -o name | grep -E 'cluster-manager' | while read -r d; do
