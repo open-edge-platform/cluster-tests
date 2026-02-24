@@ -10,7 +10,7 @@ data:
     apiVersion: helm.cattle.io/v1
     kind: HelmChartConfig
     metadata:
-      name: rke2-coredns
+      name: coredns
       namespace: kube-system
     spec:
       valuesContent: |-

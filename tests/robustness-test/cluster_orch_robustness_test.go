@@ -79,23 +79,23 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 		}
 	})
 
-	It("Test prerequisite: Should successfully import RKE2 Single Node cluster template", func() {
+	It("Test prerequisite: Should successfully import K3s Single Node cluster template", func() {
 		By("Importing the cluster template")
-		err := utils.ImportClusterTemplate(namespace, utils.TemplateTypeRke2Baseline)
+		err := utils.ImportClusterTemplate(namespace, utils.TemplateTypeK3sBaseline)
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Waiting for the cluster template to be ready")
 		Eventually(func() bool {
-			return utils.IsClusterTemplateReady(namespace, utils.Rke2TemplateName)
+			return utils.IsClusterTemplateReady(namespace, utils.K3sTemplateName)
 		}, 1*time.Minute, 2*time.Second).Should(BeTrue())
 	})
 
-	It("Test prerequisite: Should verify that cluster create API should succeed for rke2 cluster", func() {
+	It("Test prerequisite: Should verify that cluster create API should succeed for k3s cluster", func() {
 		// Record the start time before creating the cluster
 		clusterCreateStartTime = time.Now()
 
 		By("Creating the cluster")
-		err := utils.CreateCluster(namespace, nodeGUID, utils.Rke2TemplateName)
+		err := utils.CreateCluster(namespace, nodeGUID, utils.K3sTemplateName)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -202,8 +202,8 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 
 	It("Should verify that a cluster shows connection lost status when connect agent stops working", func() {
 		By("Breaking the connect agent by changing its image name in the pod manifest")
-		// kubectl exec -n default cluster-agent-0 -- sed -i 's/connect-agent/connectx-agent/g' /var/lib/rancher/rke2/agent/pod-manifests/connect-agent.yaml
-		breakConnectAgentCommand := exec.Command("kubectl", "exec", "-n", "default", "cluster-agent-0", "--", "sed", "-i", "s/connect-agent/connectx-agent/g", "/var/lib/rancher/rke2/agent/pod-manifests/connect-agent.yaml")
+		// kubectl exec -n default cluster-agent-0 -- sed -i 's/connect-agent/connectx-agent/g' /var/lib/rancher/k3s/agent/pod-manifests/connect-agent.yaml
+		breakConnectAgentCommand := exec.Command("kubectl", "exec", "-n", "default", "cluster-agent-0", "--", "sed", "-i", "s/connect-agent/connectx-agent/g", "/var/lib/rancher/k3s/agent/pod-manifests/connect-agent.yaml")
 		err := breakConnectAgentCommand.Run()
 		Expect(err).NotTo(HaveOccurred())
 		connectionLostStartTime := time.Now()
@@ -247,8 +247,8 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 
 	It("Should verify that cluster mark infrastructure as ready when connect-agent is fixed", func() {
 		By("Fixing the connect agent by changing its image name in the pod manifest to the right one")
-		// kubectl exec -n default cluster-agent-0 -- sed -i 's/connectx-agent/connect-agent/g' /var/lib/rancher/rke2/agent/pod-manifests/connect-agent.yaml
-		fixConnectAgentCommand := exec.Command("kubectl", "exec", "-n", "default", "cluster-agent-0", "--", "sed", "-i", "s/connectx-agent/connect-agent/g", "/var/lib/rancher/rke2/agent/pod-manifests/connect-agent.yaml")
+		// kubectl exec -n default cluster-agent-0 -- sed -i 's/connectx-agent/connect-agent/g' /var/lib/rancher/k3s/agent/pod-manifests/connect-agent.yaml
+		fixConnectAgentCommand := exec.Command("kubectl", "exec", "-n", "default", "cluster-agent-0", "--", "sed", "-i", "s/connectx-agent/connect-agent/g", "/var/lib/rancher/k3s/agent/pod-manifests/connect-agent.yaml")
 		err := fixConnectAgentCommand.Run()
 		Expect(err).NotTo(HaveOccurred())
 		connectionRecoveredStartTime := time.Now()

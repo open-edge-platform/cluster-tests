@@ -164,8 +164,6 @@ func ImportClusterTemplateAuthenticated(authContext *auth.TestAuthContext, names
 	switch templateType {
 	case TemplateTypeK3sBaseline:
 		data, err = os.ReadFile(BaselineClusterTemplatePathK3s)
-	case TemplateTypeRke2Baseline:
-		data, err = os.ReadFile(BaselineClusterTemplatePathRke2)
 	default:
 		return fmt.Errorf("unsupported template type: %s", templateType)
 	}
