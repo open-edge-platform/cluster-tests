@@ -53,7 +53,8 @@ jobs:
   virtual-integration:
     name: Run Golden Suite VEN tests (optional EMF deploy)
     runs-on: ubuntu-24.04-16core-64GB
-    timeout-minutes: 60
+    # Needs to cover orchestrator deploy + (optional) full-suite retry of Golden Suite.
+    timeout-minutes: 180
 
     concurrency:
       group: ven-${{ github.workflow }}-${{ github.ref }}
