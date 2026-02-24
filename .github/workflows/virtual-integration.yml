@@ -985,14 +985,17 @@ jobs:
 
             # cluster-connect-gateway: same OCI→git/path conversion as cluster-manager.
             if [ "${app}" = "cluster-connect-gateway" ]; then
-              if ! jq -e '(
-                  ((.spec.source?.path? // "") != "") or
-                  ((.spec.sources? // []) | any(.path? != null and .path != ""))
+              # EMF often deploys this as an OCI chart with chart names like:
+              #   cluster/charts/cluster-connect-gateway
+              # so match by the base chart name.
+              if jq -e '(
+                  (.spec.sources? // []) | any(.chart? != null)
                 )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
-                echo "::notice::${apps_ns}/${app} has no git/path sources; converting chart sources to git/path for pinning" >&2
+                echo "::notice::${apps_ns}/${app} contains chart sources; converting to git/path for pinning" >&2
 
                 ccg_rewrite_filter="$(cat <<'JQ'
                   def ccg_repo: "https://github.com/open-edge-platform/cluster-connect-gateway";
+                  def chart_base($c): ($c // "" | split("/") | last);
 
                   def to_git_path($path):
                     .repoURL = ccg_repo
@@ -1000,41 +1003,24 @@ jobs:
                     | .targetRevision = $rev
                     | del(.chart);
 
-                  if (.spec.sources? and (.spec.sources|length) > 0) then
-                    .spec.sources = (
-                      .spec.sources
-                      | map(
-                          if (.chart? == "cluster-connect-gateway") then
-                            to_git_path("deployment/charts/cluster-connect-gateway")
-                          elif (.chart? == "cluster-connect-gateway-crd") then
-                            to_git_path("deployment/charts/cluster-connect-gateway-crd")
-                          else
-                            .
-                          end
-                        )
-                    )
-                    | (if (.spec.sources | any(.path? == "deployment/charts/cluster-connect-gateway"))
-                       then .
-                       else .spec.sources += [{repoURL: ccg_repo, path: "deployment/charts/cluster-connect-gateway", targetRevision: $rev}]
-                       end)
-                    | (if (.spec.sources | any(.path? == "deployment/charts/cluster-connect-gateway-crd"))
-                       then .
-                       else .spec.sources += [{repoURL: ccg_repo, path: "deployment/charts/cluster-connect-gateway-crd", targetRevision: $rev}]
-                       end)
-                    | del(.spec.source)
-                  elif (.spec.source?) then
-                    if (.spec.source.chart? == "cluster-connect-gateway") then
-                      .spec.sources = [
-                        (.spec.source | to_git_path("deployment/charts/cluster-connect-gateway")),
-                        {repoURL: ccg_repo, path: "deployment/charts/cluster-connect-gateway-crd", targetRevision: $rev}
-                      ]
-                      | del(.spec.source)
-                    else
-                      .
-                    end
-                  else
-                    .
-                  end
+                  # Prefer carrying over any existing helm config (valuesObject/parameters/etc)
+                  # from the OCI chart source when converting to git/path.
+                  def pick_src($base):
+                    (
+                      ((.spec.sources // []) + (if .spec.source? then [ .spec.source ] else [] end))
+                      | map(select(chart_base(.chart? // "") == $base))
+                      | .[0]
+                    );
+
+                  def mk_src($base; $path):
+                    (pick_src($base) // {})
+                    | to_git_path($path);
+
+                  .spec.sources = [
+                    mk_src("cluster-connect-gateway"; "deployment/charts/cluster-connect-gateway"),
+                    mk_src("cluster-connect-gateway-crd"; "deployment/charts/cluster-connect-gateway-crd")
+                  ]
+                  | del(.spec.source)
           JQ
                 )"
 
@@ -1048,14 +1034,17 @@ jobs:
 
             # intel-infra-provider: same OCI→git/path conversion as cluster-manager.
             if [ "${app}" = "intel-infra-provider" ]; then
-              if ! jq -e '(
-                  ((.spec.source?.path? // "") != "") or
-                  ((.spec.sources? // []) | any(.path? != null and .path != ""))
+              # EMF deploys this as OCI charts with names like:
+              #   cluster/charts/intel-infra-provider
+              # Convert those to git/path sources so targetRevision pinning works.
+              if jq -e '(
+                  (.spec.sources? // []) | any(.chart? != null)
                 )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
-                echo "::notice::${apps_ns}/${app} has no git/path sources; converting chart sources to git/path for pinning" >&2
+                echo "::notice::${apps_ns}/${app} contains chart sources; converting to git/path for pinning" >&2
 
                 capi_rewrite_filter="$(cat <<'JQ'
                   def capi_repo: "https://github.com/open-edge-platform/cluster-api-provider-intel";
+                  def chart_base($c): ($c // "" | split("/") | last);
 
                   # Helm parameters required for intel-infra-provider to function in a kind cluster
                   # without external inventory/gRPC services or Prometheus CRDs.
@@ -1065,6 +1054,24 @@ jobs:
                     {name: "metrics.serviceMonitor.enabled",               value: "false"}
                   ];
 
+                  # Also inject these into valuesObject to work even when EMF uses valuesObject.
+                  def kind_values_object:
+                    {
+                      manager: {extraArgs: {"use-inv-stub": true}},
+                      southboundApi: {extraArgs: {useGrpcStubMiddleware: true}},
+                      metrics: {serviceMonitor: {enabled: false}}
+                    };
+
+                  def merge_values($a; $b):
+                    if ($a|type) == "object" and ($b|type) == "object" then
+                      reduce ($b | keys_unsorted[]) as $k (
+                        $a;
+                        .[$k] = merge_values(($a[$k] // null); $b[$k])
+                      )
+                    else
+                      ($b // $a)
+                    end;
+
                   def to_git_path($path):
                     .repoURL = capi_repo
                     | .path = $path
@@ -1073,43 +1080,25 @@ jobs:
                     # Inject kind stubs only for the main chart (not the CRD-only chart).
                     | if $path == "deployment/charts/intel-infra-provider" then
                         .helm.parameters = ((.helm.parameters // []) + kind_helm_params)
+                        | .helm.valuesObject = merge_values((.helm.valuesObject // {}); kind_values_object)
                       else . end;
 
-                  if (.spec.sources? and (.spec.sources|length) > 0) then
-                    .spec.sources = (
-                      .spec.sources
-                      | map(
-                          if (.chart? == "intel-infra-provider") then
-                            to_git_path("deployment/charts/intel-infra-provider")
-                          elif (.chart? == "intel-infra-provider-crds") then
-                            to_git_path("deployment/charts/intel-infra-provider-crds")
-                          else
-                            .
-                          end
-                        )
-                    )
-                    | (if (.spec.sources | any(.path? == "deployment/charts/intel-infra-provider"))
-                       then .
-                       else .spec.sources += [{repoURL: capi_repo, path: "deployment/charts/intel-infra-provider", targetRevision: $rev}]
-                       end)
-                    | (if (.spec.sources | any(.path? == "deployment/charts/intel-infra-provider-crds"))
-                       then .
-                       else .spec.sources += [{repoURL: capi_repo, path: "deployment/charts/intel-infra-provider-crds", targetRevision: $rev}]
-                       end)
-                    | del(.spec.source)
-                  elif (.spec.source?) then
-                    if (.spec.source.chart? == "intel-infra-provider") then
-                      .spec.sources = [
-                        (.spec.source | to_git_path("deployment/charts/intel-infra-provider")),
-                        {repoURL: capi_repo, path: "deployment/charts/intel-infra-provider-crds", targetRevision: $rev}
-                      ]
-                      | del(.spec.source)
-                    else
-                      .
-                    end
-                  else
-                    .
-                  end
+                  def pick_src($base):
+                    (
+                      ((.spec.sources // []) + (if .spec.source? then [ .spec.source ] else [] end))
+                      | map(select(chart_base(.chart? // "") == $base))
+                      | .[0]
+                    );
+
+                  def mk_src($base; $path):
+                    (pick_src($base) // {})
+                    | to_git_path($path);
+
+                  .spec.sources = [
+                    mk_src("intel-infra-provider"; "deployment/charts/intel-infra-provider"),
+                    mk_src("intel-infra-provider-crds"; "deployment/charts/intel-infra-provider-crds")
+                  ]
+                  | del(.spec.source)
           JQ
                 )"
 
