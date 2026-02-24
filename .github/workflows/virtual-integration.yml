@@ -224,6 +224,7 @@ jobs:
             asdf-${{ runner.os }}-
 
       - name: Cache Go modules
+        if: ${{ !inputs.deploy-orchestrator }}
         uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57  # v4.2.0
         with:
           path: |
@@ -1481,13 +1482,13 @@ jobs:
             fi
           done
 
-          # The Golden Suite tests are sequential and stateful. If any test fails
-          # (e.g., due to a transient timeout), later tests may be skipped.
-          # To avoid rerunning the entire GitHub workflow, retry the full suite once.
+          # Retry loop is temporarily disabled for faster failure turnaround while
+          # gathering diagnostics (single attempt only).
+          # Keep the loop structure so re-enabling retries is trivial.
           outroot="robot_output/ven_setup"
           mkdir -p "${outroot}"
 
-          max_attempts=2
+          max_attempts=1
           attempt=1
           while [ "${attempt}" -le "${max_attempts}" ]; do
             outdir="${outroot}/attempt${attempt}"
@@ -1572,6 +1573,75 @@ jobs:
           kubectl logs -n orch-cluster -l app=cluster-manager-cm -c cluster-manager --tail=-1 > diag-logs/cluster-manager.log 2>&1 || true
           kubectl logs -n orch-cluster -l app.kubernetes.io/name=cluster-connect-gateway --tail=-1 > diag-logs/cluster-connect-gateway.log 2>&1 || true
           kubectl logs -n orch-cluster -l app=intel-infra-provider-manager -c intel-infra-provider-manager --tail=-1 > diag-logs/intel-infra-provider-manager.log 2>&1 || true
+          kubectl logs -n orch-cluster -l app=southbound-api -c intel-infra-provider-southbound  --tail=-1 > diag-logs/intel-infra-provider-southbound.log 2>&1 || true
+
+          # VEN VM diagnostics (best-effort)
+          vm_name="libvirt-pico-node"
+          mkdir -p diag-logs/vm
+          virsh dominfo "${vm_name}" > diag-logs/vm/dominfo.log 2>&1 || true
+          virsh dumpxml "${vm_name}" > diag-logs/vm/dumpxml.xml 2>&1 || true
+          virsh domifaddr "${vm_name}" --source lease > diag-logs/vm/domifaddr-lease.log 2>&1 || true
+          virsh domifaddr "${vm_name}" --source agent > diag-logs/vm/domifaddr-agent.log 2>&1 || true
+          virsh domifaddr "${vm_name}" --source arp > diag-logs/vm/domifaddr-arp.log 2>&1 || true
+
+          vm_ip="$(
+            (virsh domifaddr "${vm_name}" --source lease 2>/dev/null || true; \
+             virsh domifaddr "${vm_name}" --source agent 2>/dev/null || true; \
+             virsh domifaddr "${vm_name}" --source arp 2>/dev/null || true) \
+              | awk '/ipv4/ {print $4}' | cut -d/ -f1 | head -n1
+          )"
+
+          if [ -n "${vm_ip}" ]; then
+            echo "Detected ${vm_name} IP: ${vm_ip}" | tee diag-logs/vm/ip.txt
+
+            # Try a few common key/user combinations used by cloud images.
+            key_candidates=(
+              "$HOME/.ssh/id_rsa"
+              "$HOME/.ssh/id_ed25519"
+              "/tmp/ven-scripts/id_rsa"
+              "/tmp/ven-scripts/.ssh/id_rsa"
+            )
+            user_candidates=(ubuntu root admin)
+
+            ssh_ok=0
+            for key in "${key_candidates[@]}"; do
+              [ -f "${key}" ] || continue
+              for usr in "${user_candidates[@]}"; do
+                if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 -i "${key}" "${usr}@${vm_ip}" 'echo ok' >/dev/null 2>&1; then
+                  echo "SSH connectivity succeeded: ${usr}@${vm_ip} using ${key}" | tee diag-logs/vm/ssh.txt
+                  ssh_ok=1
+
+                  # Collect cluster-agent journald logs (try common unit names).
+                  ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 -i "${key}" "${usr}@${vm_ip}" \
+                    'set -e; \
+                     for unit in cluster-agent edge-node-agent edge-node-cluster-agent pico-cluster-agent; do \
+                       echo "===== systemctl status ${unit} ====="; \
+                       systemctl status "$unit" --no-pager || true; \
+                       echo; \
+                       echo "===== journalctl -u ${unit} (last 500 lines) ====="; \
+                       journalctl -u "$unit" --no-pager -n 500 || true; \
+                       echo; \
+                     done; \
+                     echo "===== cloud-init status ====="; \
+                     cloud-init status --long || true; \
+                     echo; \
+                     echo "===== journalctl (warning+) last 500 lines ====="; \
+                     journalctl --no-pager -p warning -n 500 || true' \
+                    > diag-logs/vm/cluster-agent-journal.log 2>&1 || true
+
+                  break 2
+                fi
+              done
+            done
+
+            if [ "${ssh_ok}" != "1" ]; then
+              echo "Unable to SSH into ${vm_name} (${vm_ip}) with available keys/users; skipping in-VM journalctl collection." \
+                > diag-logs/vm/ssh.txt
+            fi
+          else
+            echo "Unable to determine IP for ${vm_name}; skipping in-VM journalctl collection." > diag-logs/vm/ip.txt
+          fi
+
           # VEN/Libvirt diagnostics
           virsh list --all > diag-logs/virsh-list.log 2>&1 || true
           virsh net-list --all > diag-logs/virsh-networks.log 2>&1 || true
