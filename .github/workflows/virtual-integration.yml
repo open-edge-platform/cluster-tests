@@ -983,6 +983,132 @@ jobs:
               fi
             fi
 
+            # cluster-connect-gateway: same OCI→git/path conversion as cluster-manager.
+            if [ "${app}" = "cluster-connect-gateway" ]; then
+              if ! jq -e '(
+                  ((.spec.source?.path? // "") != "") or
+                  ((.spec.sources? // []) | any(.path? != null and .path != ""))
+                )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
+                echo "::notice::${apps_ns}/${app} has no git/path sources; converting chart sources to git/path for pinning" >&2
+
+                ccg_rewrite_filter="$(cat <<'JQ'
+                  def ccg_repo: "https://github.com/open-edge-platform/cluster-connect-gateway";
+
+                  def to_git_path($path):
+                    .repoURL = ccg_repo
+                    | .path = $path
+                    | .targetRevision = $rev
+                    | del(.chart);
+
+                  if (.spec.sources? and (.spec.sources|length) > 0) then
+                    .spec.sources = (
+                      .spec.sources
+                      | map(
+                          if (.chart? == "cluster-connect-gateway") then
+                            to_git_path("deployment/charts/cluster-connect-gateway")
+                          elif (.chart? == "cluster-connect-gateway-crd") then
+                            to_git_path("deployment/charts/cluster-connect-gateway-crd")
+                          else
+                            .
+                          end
+                        )
+                    )
+                    | (if (.spec.sources | any(.path? == "deployment/charts/cluster-connect-gateway"))
+                       then .
+                       else .spec.sources += [{repoURL: ccg_repo, path: "deployment/charts/cluster-connect-gateway", targetRevision: $rev}]
+                       end)
+                    | (if (.spec.sources | any(.path? == "deployment/charts/cluster-connect-gateway-crd"))
+                       then .
+                       else .spec.sources += [{repoURL: ccg_repo, path: "deployment/charts/cluster-connect-gateway-crd", targetRevision: $rev}]
+                       end)
+                    | del(.spec.source)
+                  elif (.spec.source?) then
+                    if (.spec.source.chart? == "cluster-connect-gateway") then
+                      .spec.sources = [
+                        (.spec.source | to_git_path("deployment/charts/cluster-connect-gateway")),
+                        {repoURL: ccg_repo, path: "deployment/charts/cluster-connect-gateway-crd", targetRevision: $rev}
+                      ]
+                      | del(.spec.source)
+                    else
+                      .
+                    end
+                  else
+                    .
+                  end
+          JQ
+                )"
+
+                jq --arg rev "${app_ref}" "${ccg_rewrite_filter}" "diag-logs/cluster-orch-revision/${app}.before.json" \
+                  | kubectl apply -f -
+
+                kubectl get application "${app}" -n "${apps_ns}" -o json > "diag-logs/cluster-orch-revision/${app}.after.json"
+                cp "diag-logs/cluster-orch-revision/${app}.after.json" "diag-logs/cluster-orch-revision/${app}.before.json"
+              fi
+            fi
+
+            # intel-infra-provider: same OCI→git/path conversion as cluster-manager.
+            if [ "${app}" = "intel-infra-provider" ]; then
+              if ! jq -e '(
+                  ((.spec.source?.path? // "") != "") or
+                  ((.spec.sources? // []) | any(.path? != null and .path != ""))
+                )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
+                echo "::notice::${apps_ns}/${app} has no git/path sources; converting chart sources to git/path for pinning" >&2
+
+                capi_rewrite_filter="$(cat <<'JQ'
+                  def capi_repo: "https://github.com/open-edge-platform/cluster-api-provider-intel";
+
+                  def to_git_path($path):
+                    .repoURL = capi_repo
+                    | .path = $path
+                    | .targetRevision = $rev
+                    | del(.chart);
+
+                  if (.spec.sources? and (.spec.sources|length) > 0) then
+                    .spec.sources = (
+                      .spec.sources
+                      | map(
+                          if (.chart? == "intel-infra-provider") then
+                            to_git_path("deployment/charts/intel-infra-provider")
+                          elif (.chart? == "intel-infra-provider-crds") then
+                            to_git_path("deployment/charts/intel-infra-provider-crds")
+                          else
+                            .
+                          end
+                        )
+                    )
+                    | (if (.spec.sources | any(.path? == "deployment/charts/intel-infra-provider"))
+                       then .
+                       else .spec.sources += [{repoURL: capi_repo, path: "deployment/charts/intel-infra-provider", targetRevision: $rev}]
+                       end)
+                    | (if (.spec.sources | any(.path? == "deployment/charts/intel-infra-provider-crds"))
+                       then .
+                       else .spec.sources += [{repoURL: capi_repo, path: "deployment/charts/intel-infra-provider-crds", targetRevision: $rev}]
+                       end)
+                    | del(.spec.source)
+                  elif (.spec.source?) then
+                    if (.spec.source.chart? == "intel-infra-provider") then
+                      .spec.sources = [
+                        (.spec.source | to_git_path("deployment/charts/intel-infra-provider")),
+                        {repoURL: capi_repo, path: "deployment/charts/intel-infra-provider-crds", targetRevision: $rev}
+                      ]
+                      | del(.spec.source)
+                    else
+                      .
+                    end
+                  else
+                    .
+                  end
+          JQ
+                )"
+
+                jq --arg rev "${app_ref}" "${capi_rewrite_filter}" "diag-logs/cluster-orch-revision/${app}.before.json" \
+                  | kubectl apply -f -
+
+                kubectl get application "${app}" -n "${apps_ns}" -o json > "diag-logs/cluster-orch-revision/${app}.after.json"
+                cp "diag-logs/cluster-orch-revision/${app}.after.json" "diag-logs/cluster-orch-revision/${app}.before.json"
+              fi
+            fi
+
             # We can only pin targetRevision for sources that are path-based (git).
             if ! jq -e '(
                 ((.spec.source?.path? // "") != "") or
