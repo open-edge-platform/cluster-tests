@@ -895,6 +895,7 @@ jobs:
           # all auto-syncs for the duration of the test.
           echo "Freezing auto-sync on all ArgoCD Applications to prevent mid-patch reconciliation..." \
             | tee -a diag-logs/cluster-orch-revision/root-app.txt
+          echo "CLUSTER_ORCH_SYNC_FROZEN=true" >> "$GITHUB_ENV"
           kubectl get applications -A -o json \
             | jq -r '.items[] | .metadata.namespace + " " + .metadata.name' \
             | while read -r _ns _name; do
@@ -1227,6 +1228,58 @@ jobs:
             } | tee -a "diag-logs/cluster-orch-revision/post-patch-summary.log"
           done
 
+      - name: Sync patched cluster-orch Applications (manual sync)
+        if: ${{ inputs.deploy-orchestrator && steps.pin-cluster-orch.conclusion == 'success' }}
+        run: |
+          set -euo pipefail
+          kind export kubeconfig --name kind
+
+          apps_ns="${CLUSTER_ORCH_APPS_NS}"
+          apps=(
+            cluster-manager
+            cluster-connect-gateway
+            intel-infra-provider
+          )
+
+          for app in "${apps[@]}"; do
+            if ! kubectl get application "${app}" -n "${apps_ns}" >/dev/null 2>&1; then
+              continue
+            fi
+
+            echo "Requesting hard refresh + one-time sync for ${apps_ns}/${app}" >&2
+            kubectl annotate application "${app}" -n "${apps_ns}" \
+              argocd.argoproj.io/refresh=hard --overwrite >/dev/null 2>&1 || true
+
+            kubectl patch application "${app}" -n "${apps_ns}" --type merge \
+              -p '{"operation":{"sync":{"prune":true,"syncOptions":["CreateNamespace=true","ApplyOutOfSyncOnly=true"]}}}' >/dev/null
+
+            # Wait for operation to complete so patched spec is actually applied.
+            for i in {1..60}; do
+              phase="$(kubectl get application "${app}" -n "${apps_ns}" -o jsonpath='{.status.operationState.phase}' 2>/dev/null || true)"
+              sync_status="$(kubectl get application "${app}" -n "${apps_ns}" -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
+              health_status="$(kubectl get application "${app}" -n "${apps_ns}" -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
+
+              if [ "${phase}" = "Succeeded" ] && [ "${sync_status}" = "Synced" ]; then
+                echo "Manual sync complete for ${apps_ns}/${app}: sync=${sync_status} health=${health_status}" >&2
+                break
+              fi
+
+              if [ "${phase}" = "Error" ] || [ "${phase}" = "Failed" ]; then
+                echo "::error::Manual sync failed for ${apps_ns}/${app}: phase=${phase}" >&2
+                kubectl get application "${app}" -n "${apps_ns}" -o yaml >&2 || true
+                exit 1
+              fi
+
+              if [ "${i}" -eq 60 ]; then
+                echo "::error::Timed out waiting manual sync for ${apps_ns}/${app}. phase=${phase:-?} sync=${sync_status:-?} health=${health_status:-?}" >&2
+                kubectl get application "${app}" -n "${apps_ns}" -o yaml >&2 || true
+                exit 1
+              fi
+
+              sleep 5
+            done
+          done
+
       - name: Restart cluster-manager deployments (use preloaded images)
         if: ${{ inputs.deploy-orchestrator && steps.pin-cluster-orch.conclusion == 'success' && steps.preload_cm_images.conclusion == 'success' }}
         run: |
@@ -1263,7 +1316,7 @@ jobs:
 
       - name: Wait for cluster-orch Applications to stabilize
         if: ${{ inputs.deploy-orchestrator && steps.default-mt-setup.conclusion == 'success' && steps.pin-cluster-orch.conclusion == 'success' }}
-        timeout-minutes: 20
+        timeout-minutes: 10
         run: |
           set -euo pipefail
           kind export kubeconfig --name kind
@@ -1277,7 +1330,7 @@ jobs:
             intel-infra-provider
           )
 
-          deadline="$(( $(date +%s) + 15*60 ))"
+          deadline="$(( $(date +%s) + 7*60 ))"
           degraded_hits=0
           while true; do
             all_ok=1
