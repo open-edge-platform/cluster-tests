@@ -402,18 +402,26 @@ jobs:
           DOCKER_BUILDKIT=1 docker build -t "${CM_IMG}" -f deployment/images/Dockerfile.cluster-manager .
           DOCKER_BUILDKIT=1 docker build -t "${TC_IMG}" -f deployment/images/Dockerfile.cluster-template-controller .
 
-      - name: Preflight workspace before EMF deploy_kind
+      - name: Pre-initialize workspace as EMF git repo (avoid deploy_kind checkout conflict)
         if: ${{ inputs.deploy-orchestrator }}
         run: |
           set -euo pipefail
-          echo "pwd: $(pwd)"
-          echo "GITHUB_WORKSPACE: ${GITHUB_WORKSPACE}"
-          ls -la
-          if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-            echo "Workspace is a git repository. HEAD: $(git rev-parse --short HEAD)"
-          else
-            echo "::warning::Workspace is NOT a git repository (this can break actions/checkout cleanup)."
-          fi
+          # actions/checkout inside deploy_kind checks out EMF into $GITHUB_WORKSPACE (the job
+          # workspace root). If the workspace contains files but no matching-remote git repo,
+          # checkout v4 deletes the directory contents first, then tries to remove git
+          # credentials — but the deletion has already removed .git, so the credential-removal
+          # step fails with: "fatal: --local can only be used inside a git repository".
+          #
+          # fix: pre-initialise the workspace as an EMF git repo with the exact remote
+          # URL that actions/checkout v4 compares against. When checkout finds a matching remote
+          # it does an in-place fetch + checkout (plus git clean to remove untracked files like
+          # cluster-manager-src/) instead of the broken delete-and-reclone path.
+          cd "$GITHUB_WORKSPACE"
+          rm -rf .git
+          git init
+          git remote add origin "https://github.com/open-edge-platform/edge-manageability-framework"
+          echo "Workspace pre-initialised with EMF remote:"
+          git remote -v
 
 #      - name: Verify Docker Hub credentials (required for EMF deploy_kind)
 #        if: ${{ inputs.deploy-orchestrator }}
