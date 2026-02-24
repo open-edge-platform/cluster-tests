@@ -942,18 +942,22 @@ jobs:
             echo "Patching Application: ${apps_ns}/${app}" | tee -a diag-logs/cluster-orch-revision/patch.log
             kubectl get application "${app}" -n "${apps_ns}" -o json > "diag-logs/cluster-orch-revision/${app}.before.json"
 
-            # cluster-manager: if the Application is deployed as an OCI/Helm chart (no git/path
-            # sources), rewrite it to use git/path sources so we can pin via targetRevision.
+            # cluster-manager: convert OCI/Helm chart sources to git/path sources so
+            # targetRevision pinning is deterministic.
             if [ "${app}" = "cluster-manager" ]; then
-              if ! jq -e '(
-                  ((.spec.source?.path? // "") != "") or
-                  ((.spec.sources? // []) | any(.path? != null and .path != ""))
+              # EMF can deploy this app with chart names like:
+              #   cluster/charts/cluster-manager
+              #   cluster/charts/cluster-template-crd
+              # so match by base chart name.
+              if jq -e '(
+                  (.spec.sources? // []) | any(.chart? != null)
                 )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
-                echo "::notice::${apps_ns}/${app} has no git/path sources; converting chart sources to git/path for pinning" >&2
+                echo "::notice::${apps_ns}/${app} contains chart sources; converting to git/path for pinning" >&2
 
                 # Use a heredoc to avoid brittle multi-line quoting inside GitHub Actions' bash runner.
                 cm_rewrite_filter="$(cat <<'JQ'
                   def cm_repo: "https://github.com/open-edge-platform/cluster-manager";
+                  def chart_base($c): ($c // "" | split("/") | last);
 
                   def to_git_path($path):
                     .repoURL = cm_repo
@@ -961,45 +965,24 @@ jobs:
                     | .targetRevision = $rev
                     | del(.chart);
 
-                  # Convert known chart sources to git/path while preserving any existing fields
-                  # (e.g., helm values/parameters, ref, etc.) and leaving unrelated sources intact.
-                  if (.spec.sources? and (.spec.sources|length) > 0) then
-                    .spec.sources = (
-                      .spec.sources
-                      | map(
-                          if (.chart? == "cluster-manager") then
-                            to_git_path("deployment/charts/cluster-manager")
-                          elif (.chart? == "cluster-template-crd") then
-                            to_git_path("deployment/charts/cluster-template-crd")
-                          else
-                            .
-                          end
-                        )
-                    )
-                    # Ensure both git/path chart sources exist (in case the original app only had one).
-                    | (if (.spec.sources | any(.path? == "deployment/charts/cluster-manager"))
-                       then .
-                       else .spec.sources += [{repoURL: cm_repo, path: "deployment/charts/cluster-manager", targetRevision: $rev}]
-                       end)
-                    | (if (.spec.sources | any(.path? == "deployment/charts/cluster-template-crd"))
-                       then .
-                       else .spec.sources += [{repoURL: cm_repo, path: "deployment/charts/cluster-template-crd", targetRevision: $rev}]
-                       end)
-                    | del(.spec.source)
-                  elif (.spec.source?) then
-                    # Single-source Application: if it's chart-based, convert it and add the CRD chart.
-                    if (.spec.source.chart? == "cluster-manager") then
-                      .spec.sources = [
-                        (.spec.source | to_git_path("deployment/charts/cluster-manager")),
-                        {repoURL: cm_repo, path: "deployment/charts/cluster-template-crd", targetRevision: $rev}
-                      ]
-                      | del(.spec.source)
-                    else
-                      .
-                    end
-                  else
-                    .
-                  end
+                  # Prefer carrying over any existing helm config (valuesObject/parameters/etc)
+                  # from OCI chart sources when converting to git/path.
+                  def pick_src($base):
+                    (
+                      ((.spec.sources // []) + (if .spec.source? then [ .spec.source ] else [] end))
+                      | map(select(chart_base(.chart? // "") == $base))
+                      | .[0]
+                    );
+
+                  def mk_src($base; $path):
+                    (pick_src($base) // {})
+                    | to_git_path($path);
+
+                  .spec.sources = [
+                    mk_src("cluster-manager"; "deployment/charts/cluster-manager"),
+                    mk_src("cluster-template-crd"; "deployment/charts/cluster-template-crd")
+                  ]
+                  | del(.spec.source)
           JQ
                 )"
 
@@ -1200,11 +1183,11 @@ jobs:
                       (srcs
                        | to_entries
                        | map(
-                           "source[\(.key)]: repoURL=\(.value.repoURL // "") path=\(.value.path // "") chart=\(.value.chart // "") targetRevision=\(.value.targetRevision // "") helm.parameters=\((.value.helm.parameters // [])|map("\\(.name)=\\(.value)")|join(","))"
+                           "source[\(.key)]: repoURL=\(.value.repoURL // "") path=\(.value.path // "") chart=\(.value.chart // "") targetRevision=\(.value.targetRevision // "") helm.parameters=\((.value.helm.parameters // [])|map("\(.name)=\(.value)")|join(","))"
                          )
                        | .[])
                     else
-                      "source: repoURL=\(src.repoURL // "") path=\(src.path // "") chart=\(src.chart // "") targetRevision=\(src.targetRevision // "") helm.parameters=\(((src.helm.parameters // [])|map("\\(.name)=\\(.value)")|join(",")))"
+                      "source: repoURL=\(src.repoURL // "") path=\(src.path // "") chart=\(src.chart // "") targetRevision=\(src.targetRevision // "") helm.parameters=\(((src.helm.parameters // [])|map("\(.name)=\(.value)")|join(",")))"
                     end)
                   '
             } | tee -a "diag-logs/cluster-orch-revision/post-patch-summary.log"
@@ -1574,6 +1557,33 @@ jobs:
           kubectl logs -n orch-cluster -l app.kubernetes.io/name=cluster-connect-gateway --tail=-1 > diag-logs/cluster-connect-gateway.log 2>&1 || true
           kubectl logs -n orch-cluster -l app=intel-infra-provider-manager -c intel-infra-provider-manager --tail=-1 > diag-logs/intel-infra-provider-manager.log 2>&1 || true
           kubectl logs -n orch-cluster -l app=southbound-api -c intel-infra-provider-southbound  --tail=-1 > diag-logs/intel-infra-provider-southbound.log 2>&1 || true
+
+          # Capture deployment manifests for each cluster-orchestrator component.
+          mkdir -p diag-logs/orch-cluster-deployments
+          kubectl -n orch-cluster get deploy -o yaml > diag-logs/orch-cluster-deployments/all-deployments.yaml 2>&1 || true
+
+          kubectl -n orch-cluster get deploy -l app=cluster-manager-cm -o yaml \
+            > diag-logs/orch-cluster-deployments/cluster-manager-deployments.yaml 2>&1 || true
+
+          kubectl -n orch-cluster get deploy -l app.kubernetes.io/instance=cluster-connect-gateway -o yaml \
+            > diag-logs/orch-cluster-deployments/cluster-connect-gateway-deployments.yaml 2>&1 || true
+
+          kubectl -n orch-cluster get deploy -l app.kubernetes.io/instance=intel-infra-provider -o yaml \
+            > diag-logs/orch-cluster-deployments/intel-infra-provider-deployments.yaml 2>&1 || true
+
+          # Best-effort fetch known deployment names when present.
+          for d in cluster-manager-cm intel-infra-provider-manager intel-infra-provider-southbound; do
+            kubectl -n orch-cluster get deploy "$d" -o yaml \
+              > "diag-logs/orch-cluster-deployments/${d}.yaml" 2>&1 || true
+          done
+
+          # cluster-connect-gateway deployment names can vary by chart; capture each one found by label.
+          kubectl -n orch-cluster get deploy -l app.kubernetes.io/instance=cluster-connect-gateway -o name 2>/dev/null \
+            | while read -r d; do
+                name="${d#deployment.apps/}"
+                kubectl -n orch-cluster get deploy "${name}" -o yaml \
+                  > "diag-logs/orch-cluster-deployments/${name}.yaml" 2>&1 || true
+              done
 
           # VEN VM diagnostics (best-effort)
           vm_name="libvirt-pico-node"
