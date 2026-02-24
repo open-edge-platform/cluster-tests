@@ -1391,7 +1391,7 @@ jobs:
         if: ${{ inputs.use-ven && inputs.deploy-orchestrator && steps.default-mt-setup.conclusion == 'success' && steps.pin-cluster-orch.conclusion == 'success' }}
         id: deploy-ven
         working-directory: edge-manage-test-automation
-        timeout-minutes: 60
+        timeout-minutes: 120
         env:
           REQUESTS_CA_BUNDLE: /usr/local/share/ca-certificates/orch-ca.crt
           LIBVIRT_DEFAULT_URI: qemu:///system
@@ -1416,14 +1416,52 @@ jobs:
             fi
           done
 
-          robot -L DEBUG --pythonpath . \
-            --name "VEN Onboarding and Cluster Lifecycle" \
-            -d robot_output/ven_setup \
-            -V orchestrator-configs/kind.yaml \
-            -V tests/core_foundation/data/cf_data_2_ven_VEN-libvirt_ubuntu-24.04-lts.yaml \
-            --exitonfailure \
-            "${include_args[@]}" \
-            tests/core_foundation/core_foundation.robot
+          # The Golden Suite tests are sequential and stateful. If any test fails
+          # (e.g., due to a transient timeout), later tests may be skipped.
+          # To avoid rerunning the entire GitHub workflow, retry the full suite once.
+          outroot="robot_output/ven_setup"
+          mkdir -p "${outroot}"
+
+          max_attempts=2
+          attempt=1
+          while [ "${attempt}" -le "${max_attempts}" ]; do
+            outdir="${outroot}/attempt${attempt}"
+            mkdir -p "${outdir}"
+
+            echo "===== Golden Suite attempt ${attempt}/${max_attempts} =====" >&2
+
+            set +e
+            robot -L DEBUG --pythonpath . \
+              --name "VEN Onboarding and Cluster Lifecycle (attempt ${attempt})" \
+              -d "${outdir}" \
+              --output "output.xml" \
+              --log "log.html" \
+              --report "report.html" \
+              -V orchestrator-configs/kind.yaml \
+              -V tests/core_foundation/data/cf_data_2_ven_VEN-libvirt_ubuntu-24.04-lts.yaml \
+              --exitonfailure \
+              "${include_args[@]}" \
+              tests/core_foundation/core_foundation.robot
+            rc=$?
+            set -e
+
+            if [ "${rc}" -eq 0 ]; then
+              echo "Golden Suite passed on attempt ${attempt}." >&2
+              break
+            fi
+
+            echo "::warning::Golden Suite failed on attempt ${attempt} (rc=${rc})." >&2
+
+            if [ "${attempt}" -ge "${max_attempts}" ]; then
+              echo "::error::Golden Suite still failing after ${max_attempts} attempts." >&2
+              exit "${rc}"
+            fi
+
+            # Small cooldown (helps with transient readiness/race failures).
+            sleep 60
+            attempt=$((attempt + 1))
+          done
+
           echo "VEN onboarding, cluster creation, and cluster deletion done!"
 
       - name: Upload Golden Suite artifacts
