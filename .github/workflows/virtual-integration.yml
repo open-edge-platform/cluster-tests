@@ -38,7 +38,7 @@ on:
         description: "EMF deployment timeout (Go duration, e.g. 3600s, 45m)"
         required: true
         type: string
-        default: "25m"
+        default: "30m"
 
       cluster-orch-git-ref:
         description: "Cluster-orch git refs (branch/tag/SHA), comma-separated, in order: cluster-manager,cluster-connect-gateway,intel-infra-provider"
@@ -1089,42 +1089,11 @@ jobs:
                   def capi_repo: "https://github.com/open-edge-platform/cluster-api-provider-intel";
                   def chart_base($c): ($c // "" | split("/") | last);
 
-                  # Helm parameters required for intel-infra-provider to function in a kind cluster
-                  # without external inventory/gRPC services or Prometheus CRDs.
-                  def kind_helm_params: [
-                    {name: "manager.extraArgs.use-inv-stub",              value: "true"},
-                    {name: "southboundApi.extraArgs.useGrpcStubMiddleware", value: "true"},
-                    {name: "metrics.serviceMonitor.enabled",               value: "false"}
-                  ];
-
-                  # Also inject these into valuesObject to work even when EMF uses valuesObject.
-                  def kind_values_object:
-                    {
-                      manager: {extraArgs: {"use-inv-stub": true}},
-                      southboundApi: {extraArgs: {useGrpcStubMiddleware: true}},
-                      metrics: {serviceMonitor: {enabled: false}}
-                    };
-
-                  def merge_values($a; $b):
-                    if ($a|type) == "object" and ($b|type) == "object" then
-                      reduce ($b | keys_unsorted[]) as $k (
-                        $a;
-                        .[$k] = merge_values(($a[$k] // null); $b[$k])
-                      )
-                    else
-                      ($b // $a)
-                    end;
-
                   def to_git_path($path):
                     .repoURL = capi_repo
                     | .path = $path
                     | .targetRevision = $rev
-                    | del(.chart)
-                    # Inject kind stubs only for the main chart (not the CRD-only chart).
-                    | if $path == "deployment/charts/intel-infra-provider" then
-                        .helm.parameters = ((.helm.parameters // []) + kind_helm_params)
-                        | .helm.valuesObject = merge_values((.helm.valuesObject // {}); kind_values_object)
-                      else . end;
+                    | del(.chart);
 
                   def pick_src($base):
                     (
