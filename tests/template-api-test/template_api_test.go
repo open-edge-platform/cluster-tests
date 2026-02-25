@@ -33,6 +33,9 @@ var _ = Describe("Template API Tests", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Port forwarding to the cluster manager service")
+		err = utils.EnsureTCPPortAvailable(utils.PortForwardLocalPort, fmt.Sprintf("kubectl port-forward %s", utils.PortForwardService))
+		Expect(err).NotTo(HaveOccurred())
+
 		portForwardCmd = exec.Command("kubectl", "port-forward", utils.PortForwardService, fmt.Sprintf("%s:%s", utils.PortForwardLocalPort, utils.PortForwardRemotePort), "--address", utils.PortForwardAddress)
 		err = portForwardCmd.Start()
 		Expect(err).NotTo(HaveOccurred())

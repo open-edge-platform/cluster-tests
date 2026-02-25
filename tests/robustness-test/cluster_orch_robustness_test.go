@@ -119,12 +119,18 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Port forwarding to the cluster manager service")
+		err = utils.EnsureTCPPortAvailable(utils.PortForwardLocalPort, fmt.Sprintf("kubectl port-forward %s", utils.PortForwardService))
+		Expect(err).NotTo(HaveOccurred())
+
 		portForwardCmd = exec.Command("kubectl", "port-forward", utils.PortForwardService, fmt.Sprintf("%s:%s", utils.PortForwardLocalPort, utils.PortForwardRemotePort), "--address", utils.PortForwardAddress)
 		err = portForwardCmd.Start()
 		Expect(err).NotTo(HaveOccurred())
 		time.Sleep(5 * time.Second) // Give some time for port-forwarding to establish
 
 		By("Port forwarding to the cluster gateway service")
+		err = utils.EnsureTCPPortAvailable(utils.PortForwardGatewayLocalPort, fmt.Sprintf("kubectl port-forward %s", utils.PortForwardGatewayService))
+		Expect(err).NotTo(HaveOccurred())
+
 		gatewayPortForward = exec.Command("kubectl", "port-forward", utils.PortForwardGatewayService, fmt.Sprintf("%s:%s", utils.PortForwardGatewayLocalPort, utils.PortForwardGatewayRemotePort), "--address", utils.PortForwardAddress)
 		err = gatewayPortForward.Start()
 		Expect(err).NotTo(HaveOccurred())

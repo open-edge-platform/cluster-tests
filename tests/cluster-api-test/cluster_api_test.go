@@ -107,6 +107,9 @@ func TestClusterApiTest(t *testing.T) {
 // setupPortForwarding sets up port forwarding for any service
 func setupPortForwarding(serviceName, serviceIdentifier, localPort, remotePort string) (*exec.Cmd, error) {
 	By(fmt.Sprintf("Port forwarding to the %s service", serviceName))
+	if err := utils.EnsureTCPPortAvailable(localPort, fmt.Sprintf("kubectl port-forward %s", serviceIdentifier)); err != nil {
+		return nil, err
+	}
 	portForwardCmd := exec.Command("kubectl", "port-forward", serviceIdentifier,
 		fmt.Sprintf("%s:%s", localPort, remotePort), "--address", utils.PortForwardAddress)
 	err := portForwardCmd.Start()

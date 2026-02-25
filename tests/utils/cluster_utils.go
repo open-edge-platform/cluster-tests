@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -80,6 +81,23 @@ func EnsureNamespaceExists(namespace string) error {
 		return cmd.Run()
 	}
 	return nil
+}
+
+// EnsureTCPPortAvailable fails fast if a local TCP port is already occupied.
+// This guards against stale kubectl port-forward processes hijacking test traffic.
+func EnsureTCPPortAvailable(port, purpose string) error {
+	addr := net.JoinHostPort("127.0.0.1", port)
+	ln, err := net.Listen("tcp", addr)
+	if err == nil {
+		_ = ln.Close()
+		return nil
+	}
+
+	if purpose == "" {
+		purpose = "test port-forward"
+	}
+
+	return fmt.Errorf("local TCP port %s is already in use before starting %s; stop stale port-forwards/processes and retry", port, purpose)
 }
 
 // ImportClusterTemplate imports a cluster template into the specified namespace.

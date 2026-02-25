@@ -132,6 +132,19 @@ preflight: ## Verify local prerequisites for running `make test` (vEN mode by de
 	else \
 		echo "  WARN no current kubectl context configured yet"; \
 	fi; \
+	echo "  Checking default local test ports (8080/8081)"; \
+	if ss -ltn 2>/dev/null | grep -q ':8080 '; then \
+		echo "  FAIL local port 8080 is already in use (possible stale kubectl port-forward)"; \
+		missing=1; \
+	else \
+		echo "  OK   local port 8080 is free"; \
+	fi; \
+	if ss -ltn 2>/dev/null | grep -q ':8081 '; then \
+		echo "  FAIL local port 8081 is already in use (possible stale kubectl port-forward)"; \
+		missing=1; \
+	else \
+		echo "  OK   local port 8081 is free"; \
+	fi; \
 	echo ""; \
 	echo "[5/5] Checking provider-specific runtime"; \
 	if [ "$$edge_node_provider" = "ven" ]; then \
