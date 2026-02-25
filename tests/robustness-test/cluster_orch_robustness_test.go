@@ -183,7 +183,7 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 	})
 
 	It("Test prerequisite: Should verify that cluster create API should succeed for k3s cluster", func() {
-// Record the start time before creating the cluster
+		// Record the start time before creating the cluster
 		clusterCreateStartTime = time.Now()
 
 		By("Creating the cluster")
