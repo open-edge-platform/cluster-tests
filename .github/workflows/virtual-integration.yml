@@ -75,10 +75,17 @@ jobs:
     steps:
       - name: Mask secrets
         run: |
-          echo "::add-mask::${{ secrets.SYS_EMF_GH_TOKEN }}"
-          echo "::add-mask::${{ secrets.ORCH_DEFAULT_PASSWORD }}"
-          echo "::add-mask::${{ secrets.SYS_DOCKERHUB_RO }}"
-          echo "::add-mask::${{ secrets.SYS_DOCKERHUB_USERNAME }}"
+          mask_secret() {
+            local value="$1"
+            if [ -n "${value}" ]; then
+              echo "::add-mask::${value}"
+            fi
+          }
+
+          mask_secret "${{ secrets.SYS_EMF_GH_TOKEN }}"
+          mask_secret "${{ secrets.ORCH_DEFAULT_PASSWORD }}"
+          mask_secret "${{ secrets.SYS_DOCKERHUB_RO }}"
+          mask_secret "${{ secrets.SYS_DOCKERHUB_USERNAME }}"
 
       - name: Resolve cluster-orch git refs (early)
         env:
@@ -173,7 +180,6 @@ jobs:
           # Install the latest stable Argo CD CLI.
           ARGOCD_VERSION="$(curl -fsSL https://raw.githubusercontent.com/argoproj/argo-cd/stable/VERSION)"
           echo "Resolved Argo CD CLI version: v${ARGOCD_VERSION}"
-          echo "::notice::Resolved Argo CD CLI version: v${ARGOCD_VERSION}"
           curl -fsSL -o /tmp/argocd "https://github.com/argoproj/argo-cd/releases/download/v${ARGOCD_VERSION}/argocd-linux-amd64"
           sudo install -m 0755 /tmp/argocd /usr/local/bin/argocd
           # Note: asdf shims may be ahead of /usr/local/bin on PATH; call the binary explicitly.
@@ -222,7 +228,7 @@ jobs:
           # Some refs do not include vendor/ in the repo, but the Dockerfile expects it.
           # Generate vendor/ using the same Go version as the Dockerfile base image.
           if [ ! -d vendor ]; then
-            echo "::notice::vendor/ not found; generating via golang:1.25..." >&2
+            echo "vendor/ not found; generating via golang:1.25..." >&2
             # Important: run the container as the runner user so generated files aren't
             # owned by root (root-owned files can make later `actions/checkout clean:true`
             # fail with Permission denied on `git clean -ffdx`).
@@ -291,7 +297,7 @@ jobs:
           echo "- ${AGENT_IMG}" >&2
 
           if [ ! -d vendor ]; then
-            echo "::notice::vendor/ not found; generating via golang:1.25..." >&2
+            echo "vendor/ not found; generating via golang:1.25..." >&2
             docker run --rm \
               --user "$(id -u):$(id -g)" \
               -e HOME=/tmp \
@@ -353,7 +359,7 @@ jobs:
           echo "- ${SB_IMG}" >&2
 
           if [ ! -d vendor ]; then
-            echo "::notice::vendor/ not found; generating via golang:1.25..." >&2
+            echo "vendor/ not found; generating via golang:1.25..." >&2
             docker run --rm \
               --user "$(id -u):$(id -g)" \
               -e HOME=/tmp \
@@ -524,13 +530,13 @@ jobs:
           if kubectl --v=1 -n orch-boots get cert tls-boots -o json >/dev/null 2>&1; then
             kubectl --v=1 -n orch-boots get cert tls-boots -o json | jq -e . >/dev/null
           else
-            echo "::warning::Skipping JSON check: orch-boots/cert tls-boots not found"
+            echo "Skipping JSON check: orch-boots/cert tls-boots not found"
           fi
 
           if kubectl -v 1 -n orch-sre get cert kubernetes-docker-internal -o json >/dev/null 2>&1; then
             kubectl -v 1 -n orch-sre get cert kubernetes-docker-internal -o json | jq -e . >/dev/null
           else
-            echo "::warning::Skipping JSON check: orch-sre/cert kubernetes-docker-internal not found"
+            echo "Skipping JSON check: orch-sre/cert kubernetes-docker-internal not found"
           fi
 
       - name: Configure DNSmasq (VEN)
@@ -711,7 +717,7 @@ jobs:
               if jq -e '(
                   (.spec.sources? // []) | any(.chart? != null)
                 )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
-                echo "::notice::${apps_ns}/${app} contains chart sources; converting to git/path for pinning" >&2
+                echo "${apps_ns}/${app} contains chart sources; converting to git/path for pinning" >&2
 
                 # Use a heredoc to avoid brittle multi-line quoting inside GitHub Actions' bash runner.
                 cm_rewrite_filter="$(cat <<'JQ'
@@ -764,7 +770,7 @@ jobs:
               if jq -e '(
                   (.spec.sources? // []) | any(.chart? != null)
                 )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
-                echo "::notice::${apps_ns}/${app} contains chart sources; converting to git/path for pinning" >&2
+                echo "${apps_ns}/${app} contains chart sources; converting to git/path for pinning" >&2
 
                 ccg_rewrite_filter="$(cat <<'JQ'
                   def ccg_repo: "https://github.com/open-edge-platform/cluster-connect-gateway";
@@ -816,7 +822,7 @@ jobs:
               if jq -e '(
                   (.spec.sources? // []) | any(.chart? != null)
                 )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
-                echo "::notice::${apps_ns}/${app} contains chart sources; converting to git/path for pinning" >&2
+                echo "${apps_ns}/${app} contains chart sources; converting to git/path for pinning" >&2
 
                 capi_rewrite_filter="$(cat <<'JQ'
                   def capi_repo: "https://github.com/open-edge-platform/cluster-api-provider-intel";
