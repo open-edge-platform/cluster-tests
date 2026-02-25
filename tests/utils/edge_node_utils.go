@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+// SPDX-FileCopyrightText: (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 
 package utils
@@ -12,7 +12,6 @@ import (
 
 const (
 	// EdgeNodeProviderEnvVar selects which kind of edge node the tests operate against.
-	//
 	// Supported value:
 	//   - "ven" (default): external VM reachable via SSH (see VEN_* env vars below)
 	EdgeNodeProviderEnvVar = "EDGE_NODE_PROVIDER"
@@ -24,7 +23,8 @@ const (
 	VENSSHPortEnvVar = "VEN_SSH_PORT"
 	VENSSHKeyEnvVar  = "VEN_SSH_KEY" // path to private key file
 )
-
+// GetEdgeNodeProvider returns the edge node provider selected via environment variable
+// or the default if not set or invalid.
 func GetEdgeNodeProvider() string {
 	val := strings.TrimSpace(os.Getenv(EdgeNodeProviderEnvVar))
 	if val == "" {
@@ -39,7 +39,6 @@ func GetEdgeNodeProvider() string {
 }
 
 // ExecOnEdgeNode runs a shell command on the edge node.
-//
 // vEN: ssh into the VM and run the command.
 func ExecOnEdgeNode(shellCommand string) ([]byte, error) {
 	return execOnVEN(shellCommand)

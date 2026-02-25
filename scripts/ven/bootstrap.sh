@@ -1,9 +1,10 @@
+# SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 #!/usr/bin/env bash
 set -euo pipefail
 
-# vEN bootstrap helper for cluster-tests.
-#
-# This script is intentionally minimal: it does NOT provision a VM.
+# vEN bootstrap helper for cluster-tests. It does NOT provision a VM.
 # It validates that required vEN inputs are present and writes `.ven.env`
 # (sourced by Makefile targets) so Ginkgo tests receive NODEGUID (and optionally SSH config).
 

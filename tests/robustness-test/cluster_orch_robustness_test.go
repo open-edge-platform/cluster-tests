@@ -45,12 +45,7 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 		// We avoid hard-coding namespace/name because they can vary by environment.
 		list := func(resource string) ([]string, error) {
 			cmd := exec.Command(
-				"kubectl",
-				"--kubeconfig", kubeconfigPath,
-				"get", resource,
-				"-A",
-				"-o", "jsonpath={range .items[*]}{.metadata.namespace}{\"/\"}{.metadata.name}{\"\\n\"}{end}",
-			)
+				"kubectl", "--kubeconfig", kubeconfigPath, "get", resource, "-A", "-o", "jsonpath={range .items[*]}{.metadata.namespace}{\"/\"}{.metadata.name}{\"\\n\"}{end}",)
 			out, err := cmd.Output()
 			if err != nil {
 				return nil, err
@@ -93,13 +88,7 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 	}
 
 	getWorkloadImage := func(kubeconfigPath, kind, ns, name string) (string, error) {
-		cmd := exec.Command(
-			"kubectl",
-			"--kubeconfig", kubeconfigPath,
-			"-n", ns,
-			"get", kind, name,
-			"-o", "jsonpath={.spec.template.spec.containers[0].image}",
-		)
+		cmd := exec.Command("kubectl", "--kubeconfig", kubeconfigPath, "-n", ns, "get", kind, name, "-o", "jsonpath={.spec.template.spec.containers[0].image}",)
 		out, err := cmd.Output()
 		if err != nil {
 			return "", err
@@ -108,14 +97,7 @@ var _ = Describe("Cluster Orch Robustness tests", Ordered, Label(utils.ClusterOr
 	}
 
 	setWorkloadImage := func(kubeconfigPath, kind, ns, name, image string) error {
-		cmd := exec.Command(
-			"kubectl",
-			"--kubeconfig", kubeconfigPath,
-			"-n", ns,
-			"set", "image",
-			fmt.Sprintf("%s/%s", kind, name),
-			"*="+image,
-		)
+		cmd := exec.Command("kubectl", "--kubeconfig", kubeconfigPath, "-n", ns, "set", "image", fmt.Sprintf("%s/%s", kind, name), "*="+image,)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			trim := strings.TrimSpace(string(out))

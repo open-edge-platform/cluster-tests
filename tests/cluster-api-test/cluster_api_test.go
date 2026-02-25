@@ -30,6 +30,7 @@ const (
 	// than hard-coding this value.
 	DefaultClusterReadinessTimeout = 5 * time.Minute
 	ClusterReadinessInterval       = 10 * time.Second
+	EdgeNodeProviderTimeout        = 10 * time.Minute
 	// Prefer using podReadinessTimeout() rather than hard-coding this value.
 	DefaultPodReadinessTimeout = 5 * time.Minute
 	PodReadinessInterval       = 10 * time.Second
@@ -48,7 +49,7 @@ func clusterReadinessTimeout() time.Duration {
 
 	// vEN provisioning can take longer than the in-kind ENiC flow.
 	if utils.GetEdgeNodeProvider() == utils.EdgeNodeProviderVEN {
-		return 10 * time.Minute
+		return EdgeNodeProviderTimeout
 	}
 	return DefaultClusterReadinessTimeout
 }
@@ -60,7 +61,7 @@ func podReadinessTimeout() time.Duration {
 		}
 	}
 	if utils.GetEdgeNodeProvider() == utils.EdgeNodeProviderVEN {
-		return 10 * time.Minute
+		return EdgeNodeProviderTimeout
 	}
 	return DefaultPodReadinessTimeout
 }

@@ -1,11 +1,12 @@
+# SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 #!/usr/bin/env bash
 set -euo pipefail
 
 # Start long-lived port-forwards for services in the kind control-plane so a vEN VM
 # (libvirt NAT network) can reach them via the host.
-#
-# This is a helper for vEN development. It is not wired into `make test` yet.
-#
+# This is a helper for vEN development. It is not wired into `make test` yet.#
 # Default ports are chosen to avoid clashing with test suites (8080/8081).
 #
 # Usage:
@@ -48,9 +49,10 @@ start_one() {
   echo "Starting port-forward for $svc: $ADDRESS:$local_port -> :$remote_port" >&2
   echo "(auto-restart enabled; logs: $(logfile "$name"))" >&2
 
-  # kubectl port-forward is not resilient: transient apiserver/kubelet stream disconnects,
-  # pod restarts, or network hiccups can cause it to exit (often with 'broken pipe').
-  # Run it under a tiny supervisor loop so vEN connectivity doesn't flap.
+  # kubectl port-forward is not resilient: 
+  # transient apiserver/kubelet stream disconnects, pod restarts, or network hiccups
+  # can cause it to exit. Run it under a tiny supervisor loop so vEN connectivity doesn't flap.
+  # Note: we could add jittered backoff and/or a max retry limit if needed, but in practice this has been stable enough without it.
   (
     set -euo pipefail
     trap 'kill 0' INT TERM EXIT

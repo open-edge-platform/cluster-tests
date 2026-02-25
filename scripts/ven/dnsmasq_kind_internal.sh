@@ -1,10 +1,12 @@
+# SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 #!/usr/bin/env bash
 set -euo pipefail
 
 # Minimal dnsmasq setup for resolving *.kind.internal to an IP reachable from a libvirt VM.
-#
-# This is intentionally simpler than the EMF script: cluster-tests only needs connect-gateway
-# (and optionally cluster-manager) to be reachable from the vEN VM.
+# This script simpler than the EMF: cluster-tests only needs connect-gateway
+# (for agent/connect path) to be reachable FROM the vEN VM.
 #
 # WARNING: this script modifies system DNS services and requires sudo.
 # Prefer running inside disposable CI runners.

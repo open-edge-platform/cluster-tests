@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -14,8 +17,8 @@ set -euo pipefail
 #   - NODEGUID
 #   - VEN_SSH_HOST / VEN_SSH_USER / VEN_SSH_KEY (for debugging)
 #
-# NOTE: This is a best-effort dev bootstrap. Depending on your environment, you may
-# need to ensure libvirt/KVM is available and that the VM can reach the host.
+# NOTE: Depending on your environment, you may need to ensure libvirt/KVM is available and 
+# that the VM can reach the host.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
@@ -45,8 +48,7 @@ need_cmd() {
 }
 
 maybe_install() {
-  # Best-effort install for Ubuntu runners.
-  # This script is typically used in ephemeral CI runners where sudo is available.
+  # Install for Ubuntu runners - typically used in ephemeral CI runners where sudo is available.
   local pkgs=("$@")
   if ! command -v apt-get >/dev/null 2>&1; then
     return 0
@@ -140,9 +142,9 @@ if [[ ! -x /usr/sbin/dnsmasq ]]; then
   maybe_install dnsmasq-base dnsmasq
 fi
 
-# Ports on the host that the VM will use to reach kind services (via port-forward).
-# NOTE: Must be a valid TCP port (<= 65535). The in-cluster service listens on 50020; we default
-# the host port-forward to 15020 to avoid clashing with common local ports.
+# Ports on the host that the VM will use to reach KinD services via port-forward.
+# Must be a valid TCP port (<= 65535). The in-cluster service listens on 50020; 
+# we default the host port-forward to 15020 to avoid clashing with common local ports.
 HOST_SB_GRPC_PORT="${VEN_SB_LOCAL_PORT:-15020}"
 HOST_IP_FOR_VM="${VEN_HOST_IP_FOR_VM:-192.168.122.1}"
 HOST_GW_PORT_FOR_VM="${VEN_GW_LOCAL_PORT:-18081}"
@@ -174,7 +176,7 @@ SSH_PUB="$SSH_KEY_DIR/id_ed25519.pub"
 # Choose a GUID we will register with cluster-orch.
 # IMPORTANT: The default test environment (and inventory stub) expects a stable,
 # well-known Node GUID.
-# Keep vEN behavior aligned with the in-kind ENiC flow unless explicitly overridden.
+# Keep vEN behavior aligned with the deprecated ENiC flow unless explicitly overridden.
 DEFAULT_NODEGUID="12345678-1234-1234-1234-123456789012"
 NODEGUID="${VEN_NODEGUID:-${NODEGUID:-$DEFAULT_NODEGUID}}"
 
@@ -189,9 +191,7 @@ if [[ ! "$HOST_SB_GRPC_PORT" =~ ^[0-9]+$ ]] || (( HOST_SB_GRPC_PORT < 1 || HOST_
   exit 2
 fi
 
-# Start required port-forwards for the VM to reach kind services via the host.
-# This script is commonly invoked after the kind cluster is recreated, so ensure
-# we do not keep stale port-forward processes.
+# Start required port-forwards for the VM to reach manager cluster (KinD) services via the host.
 ./scripts/ven/portforward_kind_services.sh stop || true
 ./scripts/ven/portforward_kind_services.sh start
 
@@ -215,8 +215,7 @@ ensure_oidc_mock
 # The baseline k3s template (v0.0.10+) references a pod-security-admission-config secret
 # in the project namespace. This secret holds the PSA (Pod Security Admission) config that
 # k3s reads from /var/lib/rancher/k3s/server/psa.yaml on first start.
-# In production this secret is created during tenant onboarding; in the vEN test environment
-# we provision it here so the KThrees bootstrap controller can generate cluster bootstrap data.
+# we provision the required secret so the KThrees bootstrap controller can generate cluster bootstrap data.
 ensure_psa_secret() {
   local ns="$NAMESPACE"
   kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
@@ -262,7 +261,7 @@ if ! ./scripts/ven/portforward_kind_services.sh status 2>/dev/null | grep -q '^s
 fi
 
 # Ensure intel-infra-provider southbound allows missing auth clients for cluster-agent.
-# This mirrors edge-node-agents/enic/add_env_var.sh but is required in vEN mode as we skip the in-kind cluster-agent component.
+# This mirrors edge-node-agents/enic/add_env_var.sh but is required in vEN mode.
 echo "Ensuring intel-infra-provider-southbound allows unauthenticated cluster-agent..." >&2
 for i in {1..10}; do
   if kubectl -n default get deploy intel-infra-provider-southbound >/dev/null 2>&1; then
@@ -431,10 +430,10 @@ wait_for_vm_ready() {
 
     ip=""
 
-    # Method A: domifaddr --source lease (does not require guest agent)
+    # domifaddr --source lease (does not require guest agent)
     ip="$($SUDO virsh domifaddr "$vm_name" --source lease 2>/dev/null | awk 'NR>2 && /ipv4/ {print $4}' | cut -d'/' -f1 | head -n1 || true)"
 
-    # Method B: net-dhcp-leases by MAC
+    # net-dhcp-leases by MAC
     if [[ -z "$ip" ]]; then
       ip="$($SUDO virsh net-dhcp-leases "$network" 2>/dev/null | awk -v m="$mac" 'tolower($3)==tolower(m) {print $5}' | cut -d'/' -f1 | head -n1 || true)"
     fi
@@ -618,7 +617,7 @@ EOSSH
 # /usr/local/bin/k3s as a symlink to the template bin dir.
 K3S_VERSION_DEFAULT="$(jq -r '.kubernetesVersion // empty' "$repo_root/configs/baseline-cluster-template-k3s.json" 2>/dev/null || true)"
 if [[ -z "$K3S_VERSION_DEFAULT" || "$K3S_VERSION_DEFAULT" == "null" ]]; then
-  K3S_VERSION_DEFAULT="v1.32.4+k3s1"
+  K3S_VERSION_DEFAULT="v1.33.5+k3s1"
 fi
 K3S_VERSION="${VEN_K3S_VERSION:-$K3S_VERSION_DEFAULT}"
 
@@ -636,47 +635,10 @@ case "$VEN_ARCH_RAW" in
     ;;
 esac
 
-#k3s_cache_dir="/tmp/cluster-tests-k3s-cache/${K3S_VERSION}/${VEN_ARCH}"
-#mkdir -p "$k3s_cache_dir"
-
-#k3s_bin="$k3s_cache_dir/k3s"
-#k3s_images="$k3s_cache_dir/k3s-airgap-images-${VEN_ARCH}.tar"
-
-#if [[ ! -s "$k3s_bin" ]]; then
-#  curl -fsSL -o "$k3s_bin" "https://github.com/k3s-io/k3s/releases/download/${K3S_VERSION}/k3s"
-#  chmod 0755 "$k3s_bin"
-#fi
-#if [[ ! -s "$k3s_images" ]]; then
-#  curl -fsSL -o "$k3s_images" "https://github.com/k3s-io/k3s/releases/download/${K3S_VERSION}/k3s-airgap-images-${VEN_ARCH}.tar"
-#fi
-
-#scp "${scp_opts[@]}" "$k3s_bin" "${SSH_USER}@${VEN_SSH_HOST}:/tmp/k3s" >/dev/null
-#scp "${scp_opts[@]}" "$k3s_images" "${SSH_USER}@${VEN_SSH_HOST}:/tmp/k3s-airgap-images-${VEN_ARCH}.tar" >/dev/null
-
-ssh "${ssh_opts[@]}" "${SSH_USER}@${VEN_SSH_HOST}" 'bash -se' <<EOSSH >/dev/null
-set -euo pipefail
-
-#sudo install -d -m 0755 /var/lib/rancher/k3s/bin
-#sudo install -m 0755 /tmp/k3s /var/lib/rancher/k3s/bin/k3s
-
-# The baseline k3s template (v0.0.10+) sets INSTALL_K3S_BIN_DIR_READ_ONLY=true.
-# In that mode the installer won't copy the binary, so it must already exist in
-# INSTALL_K3S_BIN_DIR. Provide /usr/local/bin/k3s as a stable entrypoint.
-#sudo install -d -m 0755 /usr/local/bin
-#sudo ln -sf /var/lib/rancher/k3s/bin/k3s /usr/local/bin/k3s
-
-#sudo install -d -m 0755 /var/lib/rancher/k3s/agent/images
-#sudo install -m 0644 "/tmp/k3s-airgap-images-${VEN_ARCH}.tar" "/var/lib/rancher/k3s/agent/images/k3s-airgap-images-${VEN_ARCH}.tar"
-EOSSH
-
-# Option 1 (preferred for vEN): patch connect-agent to use a gateway URL that is
-# reachable from the VM network (host port-forward), instead of a management
-# cluster internal .svc DNS name.
-#
-# The connect-agent static manifest is written by k3s to:
-#   /var/lib/rancher/k3s/agent/pod-manifests/connect-agent.yaml
-# after the cluster is created.
-#
+# patch connect-agent to use a gateway URL reachable from the VM network 
+# (host port-forward), instead of a management cluster internal .svc DNS name.
+# after the cluster creation, the connect-agent static manifest is written by k3s to:
+#   /var/lib/rancher/k3s/agent/pod-manifests/connect-agent.yaml#
 # We install a systemd path+service that:
 # - rewrites --gateway-url to ws://$HOST_IP_FOR_VM:$HOST_GW_PORT_FOR_VM/connect
 # - bounces the mirror pod so kubelet applies the updated manifest
@@ -775,19 +737,10 @@ EOSSH
 # Build cluster-agent binary locally.
 #
 # vEN mode MUST use edge-node-agents `cluster-agent` sources (not the legacy in-repo copy).
-# Source location:
-#   _workspace/edge-node-agents/cluster-agent
+# Source location:  _workspace/edge-node-agents/cluster-agent
 CA_DIR="${CA_DIR:-}"
 if [[ -z "$CA_DIR" ]]; then
   CA_DIR="$repo_root/_workspace/edge-node-agents/cluster-agent"
-fi
-
-LEGACY_CA_DIR="$repo_root/_workspace/cluster-agent/cluster-agent"
-if [[ "$CA_DIR" == "$LEGACY_CA_DIR" ]]; then
-  echo "ERROR: legacy cluster-agent is not supported in vEN mode." >&2
-  echo "Refusing CA_DIR=$CA_DIR" >&2
-  echo "Use: $repo_root/_workspace/edge-node-agents/cluster-agent" >&2
-  exit 2
 fi
 
 if [[ ! -d "$CA_DIR" ]]; then
@@ -801,8 +754,8 @@ fi
 # The kind-based southbound gRPC endpoint exposed via host port-forward is plaintext.
 # Upstream edge-node-agents `cluster-agent` uses TLS transport credentials by default.
 #
-# To avoid carrying a forked `cluster-agent` binary (and to satisfy "no legacy cluster-agent"),
-# we patch the cloned sources in-place before building to support a runtime switch.
+# To avoid carrying a forked `cluster-agent` binary in this repo, we patch the original 
+# edge-node-agents sources in-place before building to support a runtime switch.
 #
 # - When CLUSTER_AGENT_INSECURE_GRPC=true, the agent will use plaintext gRPC.
 # - Otherwise it will keep using TLS as upstream intended.
@@ -913,7 +866,7 @@ sudo systemctl restart cluster-agent
 sudo systemctl --no-pager status cluster-agent || true
 EOSSH
 
-# Quick sanity check that cluster-agent process is running.
+# sanity check that cluster-agent process is running.
 if ! ssh "${ssh_opts[@]}" "${SSH_USER}@${VEN_SSH_HOST}" sudo systemctl is-active cluster-agent >/dev/null 2>&1; then
   echo "ERROR: cluster-agent service is not active on the VM" >&2
   ssh "${ssh_opts[@]}" "${SSH_USER}@${VEN_SSH_HOST}" sudo systemctl --no-pager status cluster-agent || true

@@ -91,10 +91,9 @@ func (Test) bootstrap() error {
 }
 
 // maybeBootstrapVEN is a hook for VEN-style edge node provisioning/onboarding.
-//
-// Why it exists: `make <target>` runs `mage test:bootstrap` and then invokes the ginkgo
-// suite in a separate process. Environment variables set within this bootstrap process
-// won't persist, so VEN setup must write env exports to a file that Make can source.
+// `make <target>` runs `mage test:bootstrap` and then invokes the ginkgo suite in a separate process.
+// Environment variables set within this bootstrap process won't persist, so VEN setup must write
+// env exports to a file that Make can source.
 //
 // Behavior:
 //   - If EDGE_NODE_PROVIDER != "ven": removes any stale .ven.env and exits.
@@ -127,8 +126,8 @@ func maybeBootstrapVEN() error {
 
 	// If a prior step already created .ven.env (e.g., local dev bootstrap),
 	// allow reusing it as the source of truth.
-	if b, err := os.ReadFile(venEnvFile); err == nil {
-		content := string(b)
+	if venEnvContentBytes, err := os.ReadFile(venEnvFile); err == nil {
+		content := string(venEnvContentBytes)
 		if strings.Contains(content, "export "+utils.NodeGUIDEnvVar+"=") {
 			return nil
 		}

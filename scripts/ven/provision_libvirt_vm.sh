@@ -1,8 +1,10 @@
+# SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 #!/usr/bin/env bash
 set -euo pipefail
 
 # Provision a libvirt-based Virtual Edge Node (vEN) VM and write `.ven.env`.
-#
 # This is intended to be used as:
 #   EDGE_NODE_PROVIDER=ven VEN_BOOTSTRAP_CMD=./scripts/ven/provision_libvirt_vm.sh make test
 #
@@ -16,9 +18,11 @@ set -euo pipefail
 #   In cluster-tests we currently do NOT deploy Tinkerbell, so Terraform will fail unless
 #   you point it at a working Tinkerbell HAProxy endpoint.
 #
-# What it does NOT do (yet):
+# What it does NOT do:
 #   - Onboard the vEN into cluster-orch / connect-gateway
 #   - Guarantee connect-gateway reachability from the VM network
+# They, however, can be achieved by running `scripts/ven/bootstrap_vm_cluster_agent.sh` 
+# after this script (or by using a custom provisioning approach that includes those steps).
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
@@ -169,6 +173,6 @@ echo "Wrote $(pwd)/.ven.env" >&2
 echo "NODEGUID=$vm_uuid" >&2
 
 if [[ "${VEN_TERRAFORM_KEEP:-false}" != "true" ]]; then
-  # Keep state by default? For now, keep the workdir so users can `terraform destroy`.
+  # For now, keep the workdir so users can `terraform destroy`.
   echo "NOTE: Terraform workdir retained at $workdir (set VEN_TERRAFORM_KEEP=false to silence; cleanup manually when done)" >&2
 fi

@@ -38,6 +38,12 @@ To run the tests, run the following command:
 make test
 ```
 
+To verify your environment first (recommended), run:
+
+```shell
+make preflight
+```
+
 The above step will internally invoke the `bootstrap` make target to bootstrap the environment with the dependencies
 configured in `.test-dependencies.yaml` file before running the tests.
 
@@ -54,7 +60,11 @@ To run, set:
 - SSH connection info:
 	- `VEN_SSH_HOST`
 	- `VEN_SSH_KEY` (path to private key)
-	- optional: `VEN_SSH_USER` (default: `root`), `VEN_SSH_PORT` (default: `22`)
+	- optional: `VEN_SSH_USER`, `VEN_SSH_PORT` (default: `22`)
+
+Note: the default `VEN_SSH_USER` depends on the bootstrap script:
+- `scripts/ven/bootstrap.sh` defaults to `root`
+- `scripts/ven/bootstrap_vm_cluster_agent.sh` defaults to `ubuntu` (default in `make test`)
 
 You can either export these variables directly, or use a bootstrap command that writes `.ven.env`
 which is automatically sourced by `make test` targets:
