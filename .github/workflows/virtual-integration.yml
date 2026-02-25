@@ -4,6 +4,9 @@
 name: Virtual Integration (VEN)
 
 on:
+  schedule:
+    # Daily at 00:00 GMT (UTC)
+    - cron: '0 0 * * *'
   workflow_dispatch:
     inputs:
       orchestrator-deployment-type:
@@ -60,6 +63,14 @@ jobs:
       LIBVIRT_DEFAULT_URI: qemu:///system
       # Ensure cache restore tar extraction isn't affected by environment-provided TAR_OPTIONS.
       TAR_OPTIONS: ""
+      # Resolve inputs for both workflow_dispatch and schedule.
+      WF_ORCHESTRATOR_DEPLOYMENT_TYPE: ${{ github.event_name == 'schedule' && 'minimal' || github.event.inputs.orchestrator-deployment-type || 'minimal' }}
+      WF_EMF_BRANCH: ${{ github.event_name == 'schedule' && 'main' || github.event.inputs.emf-branch || 'main' }}
+      WF_ROBOT_TAGS: ${{ github.event_name == 'schedule' && 'cf1,cf3,cf4,cf9' || github.event.inputs.robot-tags || 'cf1,cf3,cf4,cf9' }}
+      WF_DEPLOYMENT_TIMEOUT: ${{ github.event_name == 'schedule' && '30m' || github.event.inputs.deployment-timeout || '30m' }}
+      WF_CLUSTER_ORCH_GIT_REF: ${{ github.event_name == 'schedule' && 'main,main,main' || github.event.inputs.cluster-orch-git-ref || 'main,main,main' }}
+      # Scheduled runs should do up to 3 total attempts (initial + up to 2 retries).
+      WF_GOLDEN_SUITE_RETRIES: ${{ github.event_name == 'schedule' && '2' || github.event.inputs.golden-suite-retries || '0' }}
 
     steps:
       - name: Mask secrets
@@ -71,7 +82,7 @@ jobs:
 
       - name: Resolve cluster-orch git refs (early)
         env:
-          CLUSTER_ORCH_GIT_REF: ${{ inputs['cluster-orch-git-ref'] }}
+          CLUSTER_ORCH_GIT_REF: ${{ env.WF_CLUSTER_ORCH_GIT_REF }}
         run: |
           set -euo pipefail
 
@@ -124,7 +135,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           repository: open-edge-platform/edge-manageability-framework
-          ref: ${{ inputs.emf-branch }}
+          ref: ${{ env.WF_EMF_BRANCH }}
           path: emf
           sparse-checkout: ci/ven
           token: ${{ secrets.SYS_EMF_GH_TOKEN }}
@@ -134,7 +145,7 @@ jobs:
       - name: Verify EMF VEN scripts exist
         run: |
           if [ ! -d emf/ci/ven ]; then
-            echo "::error::EMF ref '${{ inputs.emf-branch }}' does not contain ci/ven. Set emf-branch to a ref that includes ci/ven (e.g. main)."
+            echo "::error::EMF ref '${WF_EMF_BRANCH}' does not contain ci/ven. Set emf-branch to a ref that includes ci/ven (e.g. main)."
             echo "Workspace EMF contents:" 
             ls -la emf || true
             ls -la emf/ci || true
@@ -399,14 +410,14 @@ jobs:
           # Best-effort: many EMF mage deploy/wait helpers honor DEPLOYMENT_TIMEOUT.
           # Setting this helps ensure the deploy action fails fast enough that we
           # can run diagnostics steps (instead of hitting the job timeout).
-          DEPLOYMENT_TIMEOUT: ${{ inputs['deployment-timeout'] }}
+          DEPLOYMENT_TIMEOUT: ${{ env.WF_DEPLOYMENT_TIMEOUT }}
 #          DOCKERHUB_USERNAME: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
 #          DOCKERHUB_TOKEN: ${{ secrets.SYS_DOCKERHUB_RO }}
         with:
-          orch_version: ${{ inputs.emf-branch }}
+          orch_version: ${{ env.WF_EMF_BRANCH }}
           orch_password: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
           token: ${{ secrets.SYS_EMF_GH_TOKEN }}
-          deployment_type: ${{ inputs.orchestrator-deployment-type }}
+          deployment_type: ${{ env.WF_ORCHESTRATOR_DEPLOYMENT_TYPE }}
 
       - name: Load cluster-manager images into Kind (early)
         if: ${{ steps.deploy_emf.outcome == 'success' && steps.build_cm_images.conclusion == 'success' }}
@@ -458,32 +469,6 @@ jobs:
           kind export kubeconfig --name kind
           kind load docker-image "${MGR_IMG}" --name kind
           kind load docker-image "${SB_IMG}" --name kind
-
-      - name: Docker cleanup (post preload)
-        if: ${{ steps.deploy_emf.outcome == 'success' }}
-        run: |
-          set -euo pipefail
-
-          echo "Disk before prune:" >&2
-          df -h >&2 || true
-
-          if command -v docker >/dev/null 2>&1; then
-            echo "Docker disk usage before prune:" >&2
-            docker system df >&2 || true
-
-            # Keep this conservative: do not remove volumes (kind uses volumes),
-            # and do not touch running containers.
-            docker builder prune -af >&2 || true
-            docker system prune -af >&2 || true
-
-            echo "Docker disk usage after prune:" >&2
-            docker system df >&2 || true
-          else
-            echo "::warning::docker not found; skipping prune" >&2
-          fi
-
-          echo "Disk after prune:" >&2
-          df -h >&2 || true
 
       - name: Validate Orchestrator endpoints (post EMF deploy_kind)
         run: |
@@ -614,7 +599,7 @@ jobs:
         if: ${{ steps.default-mt-setup.conclusion == 'success' }}
         id: pin-cluster-orch
         env:
-          CLUSTER_ORCH_GIT_REF: ${{ inputs['cluster-orch-git-ref'] }}
+          CLUSTER_ORCH_GIT_REF: ${{ env.WF_CLUSTER_ORCH_GIT_REF }}
         run: |
           set -euo pipefail
           kind export kubeconfig --name kind
@@ -945,7 +930,7 @@ jobs:
             } | tee -a "diag-logs/cluster-orch-revision/post-patch-summary.log"
           done
 
-      - name: Sync patched cluster-orch Applications (manual sync)
+      - name: Sync patched cluster-orch Applications (auto-sync disabled)
         if: ${{ steps.pin-cluster-orch.conclusion == 'success' }}
         run: |
           set -euo pipefail
@@ -1209,8 +1194,8 @@ jobs:
           REQUESTS_CA_BUNDLE: /usr/local/share/ca-certificates/orch-ca.crt
           LIBVIRT_DEFAULT_URI: qemu:///system
           ORCH_DEFAULT_PASSWORD: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
-          ROBOT_TAGS: ${{ inputs['robot-tags'] }}
-          GOLDEN_SUITE_RETRIES: ${{ inputs['golden-suite-retries'] }}
+          ROBOT_TAGS: ${{ env.WF_ROBOT_TAGS }}
+          GOLDEN_SUITE_RETRIES: ${{ env.WF_GOLDEN_SUITE_RETRIES }}
         run: |
           set -euo pipefail
           KC_ADMIN_PWD=$(kubectl -n orch-platform get secrets platform-keycloak -o jsonpath='{.data.admin-password}' | base64 -d)
