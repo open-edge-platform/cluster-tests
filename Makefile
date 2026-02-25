@@ -85,6 +85,80 @@ deps: ## Install dependencies
 	fi
 	mage asdfPlugins
 
+.PHONY: preflight
+preflight: ## Verify local prerequisites for running `make test` (vEN mode by default)
+	@set -euo pipefail; \
+	missing=0; \
+	edge_node_provider="$${EDGE_NODE_PROVIDER:-ven}"; \
+	echo "Preflight checks (EDGE_NODE_PROVIDER=$${edge_node_provider})"; \
+	echo ""; \
+	echo "[1/5] Checking required commands"; \
+	for c in make go kubectl kind docker jq ssh scp uuidgen sudo; do \
+		if command -v "$$c" >/dev/null 2>&1; then \
+			echo "  OK   $$c -> $$(command -v $$c)"; \
+		else \
+			echo "  MISS $$c"; \
+			missing=1; \
+		fi; \
+	done; \
+	echo ""; \
+	echo "[2/5] Checking test entrypoint files"; \
+	for f in Makefile .test-dependencies.yaml scripts/ven/bootstrap_vm_cluster_agent.sh; do \
+		if [ -f "$$f" ]; then \
+			echo "  OK   $$f"; \
+		else \
+			echo "  MISS $$f"; \
+			missing=1; \
+		fi; \
+	done; \
+	echo ""; \
+	echo "[3/5] Checking Docker daemon"; \
+	if docker info >/dev/null 2>&1; then \
+		echo "  OK   docker daemon reachable"; \
+	else \
+		echo "  FAIL docker daemon is not reachable"; \
+		missing=1; \
+	fi; \
+	echo ""; \
+	echo "[4/5] Checking kubectl client/context"; \
+	if kubectl version --client >/dev/null 2>&1; then \
+		echo "  OK   kubectl client available"; \
+	else \
+		echo "  FAIL kubectl client check failed"; \
+		missing=1; \
+	fi; \
+	if ctx="$$(kubectl config current-context 2>/dev/null)" && [ -n "$$ctx" ]; then \
+		echo "  OK   current context: $$ctx"; \
+	else \
+		echo "  WARN no current kubectl context configured yet"; \
+	fi; \
+	echo ""; \
+	echo "[5/5] Checking provider-specific runtime"; \
+	if [ "$$edge_node_provider" = "ven" ]; then \
+		for c in virsh virt-install cloud-localds qemu-img; do \
+			if command -v "$$c" >/dev/null 2>&1; then \
+				echo "  OK   $$c -> $$(command -v $$c)"; \
+			else \
+				echo "  MISS $$c"; \
+				missing=1; \
+			fi; \
+		done; \
+		if virsh list --all >/dev/null 2>&1; then \
+			echo "  OK   libvirt is reachable"; \
+		else \
+			echo "  FAIL libvirt is not reachable (virsh list --all failed)"; \
+			missing=1; \
+		fi; \
+	else \
+		echo "  INFO skipping vEN/libvirt checks for EDGE_NODE_PROVIDER=$$edge_node_provider"; \
+	fi; \
+	echo ""; \
+	if [ "$$missing" -ne 0 ]; then \
+		echo "Preflight FAILED. Fix missing/failed checks above, then retry."; \
+		exit 2; \
+	fi; \
+	echo "Preflight PASSED. Environment looks ready for make test."
+
 .PHONY: lint
 lint: deps ## Run linters
 	PATH=${ENV_PATH} mage lint:golang
