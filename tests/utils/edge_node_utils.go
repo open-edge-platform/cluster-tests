@@ -16,13 +16,14 @@ const (
 	//   - "ven" (default): external VM reachable via SSH (see VEN_* env vars below)
 	EdgeNodeProviderEnvVar = "EDGE_NODE_PROVIDER"
 
-	EdgeNodeProviderVEN  = "ven"
+	EdgeNodeProviderVEN = "ven"
 
 	VENSSHHostEnvVar = "VEN_SSH_HOST"
 	VENSSHUserEnvVar = "VEN_SSH_USER"
 	VENSSHPortEnvVar = "VEN_SSH_PORT"
 	VENSSHKeyEnvVar  = "VEN_SSH_KEY" // path to private key file
 )
+
 // GetEdgeNodeProvider returns the edge node provider selected via environment variable
 // or the default if not set or invalid.
 func GetEdgeNodeProvider() string {

@@ -58,11 +58,12 @@ To run, set:
 - `EDGE_NODE_PROVIDER=ven`
 - `NODEGUID` (or `VEN_NODEGUID`) to the onboarded host GUID
 - SSH connection info:
-	- `VEN_SSH_HOST`
-	- `VEN_SSH_KEY` (path to private key)
-	- optional: `VEN_SSH_USER`, `VEN_SSH_PORT` (default: `22`)
+  - `VEN_SSH_HOST`
+  - `VEN_SSH_KEY` (path to private key)
+  - optional: `VEN_SSH_USER`, `VEN_SSH_PORT` (default: `22`)
 
 Note: the default `VEN_SSH_USER` depends on the bootstrap script:
+
 - `scripts/ven/bootstrap.sh` defaults to `root`
 - `scripts/ven/bootstrap_vm_cluster_agent.sh` defaults to `ubuntu` (default in `make test`)
 

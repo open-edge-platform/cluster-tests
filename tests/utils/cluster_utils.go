@@ -444,7 +444,7 @@ func UnpauseCluster(namespace, clusterName string) error {
 		return err
 	}
 
-	cmd := exec.Command("kubectl", "-n", namespace, "patch", "cluster", clusterName,"--type=merge", "-p", `{"spec":{"paused":false}}`,)
+	cmd := exec.Command("kubectl", "-n", namespace, "patch", "cluster", clusterName, "--type=merge", "-p", `{"spec":{"paused":false}}`)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to unpause cluster %s/%s: %w: %s", namespace, clusterName, err, strings.TrimSpace(string(out)))
@@ -454,7 +454,7 @@ func UnpauseCluster(namespace, clusterName string) error {
 
 func removeClusterTopologyVariable(namespace, clusterName, variableName string) error {
 	// Fetch the current Cluster spec so we can remove by array index.
-	cmd := exec.Command("kubectl", "-n", namespace, "get", "cluster", clusterName, "-o", "json",)
+	cmd := exec.Command("kubectl", "-n", namespace, "get", "cluster", clusterName, "-o", "json")
 	out, err := cmd.Output()
 	if err != nil {
 		// If we can't read the Cluster, preserve the existing behavior by failing.
@@ -492,7 +492,7 @@ func removeClusterTopologyVariable(namespace, clusterName, variableName string) 
 	for i := len(idxs) - 1; i >= 0; i-- {
 		idx := idxs[i]
 		patch := fmt.Sprintf(`[{"op":"remove","path":"/spec/topology/variables/%d"}]`, idx)
-		pcmd := exec.Command("kubectl", "-n", namespace, "patch", "cluster", clusterName,"--type=json", "-p", patch,)
+		pcmd := exec.Command("kubectl", "-n", namespace, "patch", "cluster", clusterName, "--type=json", "-p", patch)
 		pout, perr := pcmd.CombinedOutput()
 		if perr != nil {
 			return fmt.Errorf("failed to remove cluster topology variable %q from %s/%s: %w: %s", variableName, namespace, clusterName, perr, strings.TrimSpace(string(pout)))
