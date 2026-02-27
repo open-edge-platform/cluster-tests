@@ -15,14 +15,14 @@ ENV_PATH := $(HOME)/.asdf/shims:$(shell printf "%s" "$$PATH")
 #   NO_PROXY=localhost,127.0.0.1,...
 PROXY_ENV_FILE ?= $(HOME)/.config/cluster-tests/proxy.env
 
-CLUSTERCTL_VERSION = v1.10.7
+CLUSTERCTL_VERSION = v1.10.10
 
 CAPI_K3S_FORK_REPO_URL ?=
 CAPI_K3S_VERSION ?= v0.3.0
 CAPI_OPERATOR_HELM_VERSION ?= 0.23.0
 
 # Providers versions/URLs as needed
-export CAPI_CORE_VERSION="v1.10.7"
+export CAPI_CORE_VERSION="v1.10.10"
 
 export CAPI_OPERATOR_HELM_VERSION
 export CAPI_K3S_BOOTSTRAP_URL
@@ -69,7 +69,8 @@ deps: ## Install dependencies
 		echo "Mage not found, installing..."; \
 		go install github.com/magefile/mage@latest; \
 	fi
-	@if ! command -v clusterctl &> /dev/null; then \
+	@if ! command -v clusterctl &> /dev/null || [ "$$(clusterctl version --output short 2>/dev/null)" != "$(CLUSTERCTL_VERSION)" ]; then \
+		echo "Installing clusterctl $(CLUSTERCTL_VERSION)..."; \
 		ARCH=$$(uname -m); \
 		if [ "$$ARCH" = "x86_64" ]; then \
 			curl -L https://github.com/kubernetes-sigs/cluster-api/releases/download/$(CLUSTERCTL_VERSION)/clusterctl-linux-amd64 -o clusterctl; \
@@ -93,7 +94,7 @@ preflight: ## Verify local prerequisites for running `make test` (vEN mode by de
 	echo "Preflight checks (EDGE_NODE_PROVIDER=$${edge_node_provider})"; \
 	echo ""; \
 	echo "[1/5] Checking required commands"; \
-	for c in make go kubectl kind docker jq ssh scp uuidgen sudo; do \
+	for c in make go kubectl kind docker jq ssh scp uuidgen sudo clusterctl; do \
 		if command -v "$$c" >/dev/null 2>&1; then \
 			echo "  OK   $$c -> $$(command -v $$c)"; \
 		else \
@@ -101,6 +102,15 @@ preflight: ## Verify local prerequisites for running `make test` (vEN mode by de
 			missing=1; \
 		fi; \
 	done; \
+	if command -v clusterctl >/dev/null 2>&1; then \
+		actual_clusterctl="$$(clusterctl version --output short 2>/dev/null)"; \
+		if [ "$$actual_clusterctl" = "$(CLUSTERCTL_VERSION)" ]; then \
+			echo "  OK   clusterctl version $$actual_clusterctl"; \
+		else \
+			echo "  FAIL clusterctl version mismatch: got $$actual_clusterctl, want $(CLUSTERCTL_VERSION)"; \
+			missing=1; \
+		fi; \
+	fi; \
 	echo ""; \
 	echo "[2/5] Checking test entrypoint files"; \
 	for f in Makefile .test-dependencies.yaml scripts/ven/bootstrap_vm_cluster_agent.sh; do \
@@ -144,6 +154,15 @@ preflight: ## Verify local prerequisites for running `make test` (vEN mode by de
 		missing=1; \
 	else \
 		echo "  OK   local port 8081 is free"; \
+	fi; \
+	existing_kind_clusters="$$(kind get clusters 2>/dev/null || true)"; \
+	if echo "$$existing_kind_clusters" | grep -qx "kind"; then \
+		echo "  WARN kind cluster 'kind' already exists and will be reused by bootstrap (stale state may cause failures)"; \
+		echo "       To start clean: kind delete clusters --all"; \
+	elif [ -n "$$existing_kind_clusters" ]; then \
+		echo "  OK   no conflicting kind cluster (other clusters: $$(echo $$existing_kind_clusters | tr '\n' ' '))"; \
+	else \
+		echo "  OK   no existing kind clusters"; \
 	fi; \
 	echo ""; \
 	echo "[5/5] Checking provider-specific runtime"; \
@@ -259,5 +278,3 @@ robustness-test: bootstrap ## Runs cluster orch robustness tests
 .PHONY: help
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
-
-
