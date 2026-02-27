@@ -51,7 +51,7 @@ The Test Framework runs directly on the Host and drives all test scenarios. It i
 A [Kind](https://kind.sigs.k8s.io/) cluster runs on the Host and hosts all CO control-plane components:
 
 | Component | Description |
-|---|---|
+| --- | --- |
 | **Cluster Manager** | Exposes the northbound REST API for cluster lifecycle management (LCM). |
 | **CAPIntel and SB-Handler** | Cluster API (CAPI) provider for Intel edge nodes; handles southbound interactions with the edge node infrastructure. |
 | **cluster connect gateway** | Provides secure tunnel-based access to the workload cluster's Kubernetes API from the Host. |
@@ -64,7 +64,7 @@ The Cluster Manager, CAPIntel/SB-Handler, and the cluster connect gateway commun
 A LibVirt-based virtual machine simulates a real edge node. The VM runs:
 
 | Component | Description |
-|---|---|
+| --- | --- |
 | **k3s** | A lightweight Kubernetes distribution acting as the workload cluster on the edge node. |
 | **connect gateway agent** | Establishes and maintains the secure tunnel back to the cluster connect gateway running in the Kind cluster. |
 | **cluster agent** | Manages the edge node cluster lifecycle and reports status to the CO control plane. |
@@ -142,7 +142,7 @@ Test Case format shall look like below:
 ### 5.2 Implementation Status Summary
 
 | Test Case ID | Description | Status | Source File |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | TC-CO-INT-001 | Cluster creation and deletion | Partial | `tests/cluster-api-test/cluster_api_test.go` |
 | TC-CO-INT-002 | Import K3s cluster template | Implemented | `tests/template-api-test/template_api_test.go` |
 | TC-CO-INT-003 | Cluster create API succeeds | Partial | `tests/cluster-api-test/cluster_api_test.go` |
