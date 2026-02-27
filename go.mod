@@ -1,6 +1,6 @@
 module github.com/open-edge-platform/cluster-tests
 
-go 1.25.5
+go 1.25.7
 
 require (
 	github.com/bitfield/script v0.24.1

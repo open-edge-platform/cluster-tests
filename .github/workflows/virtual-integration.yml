@@ -1271,9 +1271,9 @@ jobs:
 
           echo "VEN onboarding, cluster creation, and cluster deletion done!"
 
-      - name: Upload Golden Suite artifacts
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+      - name: Upload diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
         with:
           name: golden-suite-report
           path: edge-manage-test-automation/robot_output/**/*
