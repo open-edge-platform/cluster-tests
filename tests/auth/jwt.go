@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -489,10 +490,10 @@ data:
             add_header Content-Type application/json;
         }
         
-        location /realms/master/keys {
-            return 200 '%s';
-            add_header Content-Type application/json;
-        }
+		location = /realms/master/keys {
+			alias /usr/share/nginx/html/jwks.json;
+			default_type application/json;
+		}
         
         location / {
             return 200 'OIDC Mock Server (Dynamic Keys)\nAvailable endpoints:\n  /realms/master/.well-known/openid-configuration\n  /realms/master/keys\n';
@@ -506,7 +507,7 @@ metadata:
   namespace: default
 data:
   jwks.json: |
-    %s
+		__JWKS_JSON__
   index.html: |
     <!DOCTYPE html>
     <html>
@@ -523,8 +524,8 @@ data:
     </html>
 `
 
-	// Replace placeholders with actual JWKS
-	config := fmt.Sprintf(template, jwks, jwks)
+	indentedJWKS := "    " + strings.ReplaceAll(jwks, "\n", "\n    ")
+	config := strings.Replace(template, "    __JWKS_JSON__", indentedJWKS, 1)
 
 	return config, nil
 }
