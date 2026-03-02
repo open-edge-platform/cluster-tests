@@ -539,7 +539,8 @@ data:
 `
 
 	indentedJWKS := "    " + strings.ReplaceAll(jwks, "\n", "\n    ")
-	config := strings.Replace(template, "    __JWKS_JSON__", indentedJWKS, 1)
+	normalizedTemplate := strings.ReplaceAll(template, "\t", "    ")
+	config := strings.Replace(normalizedTemplate, "    __JWKS_JSON__", indentedJWKS, 1)
 
 	return config, nil
 }
