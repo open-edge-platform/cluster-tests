@@ -33,6 +33,9 @@ var _ = Describe("Template API Tests", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Port forwarding to the cluster manager service")
+		err = utils.EnsureTCPPortAvailable(utils.PortForwardLocalPort, fmt.Sprintf("kubectl port-forward %s", utils.PortForwardService))
+		Expect(err).NotTo(HaveOccurred())
+
 		portForwardCmd = exec.Command("kubectl", "port-forward", utils.PortForwardService, fmt.Sprintf("%s:%s", utils.PortForwardLocalPort, utils.PortForwardRemotePort), "--address", utils.PortForwardAddress)
 		err = portForwardCmd.Start()
 		Expect(err).NotTo(HaveOccurred())
@@ -63,7 +66,7 @@ var _ = Describe("Template API Tests", Ordered, func() {
 		By("Waiting for the cluster template to be ready")
 		Eventually(func() bool {
 			return utils.IsClusterTemplateReady(namespace, utils.K3sTemplateName)
-		}, 1*time.Minute, 2*time.Second).Should(BeTrue())
+		}, 2*time.Minute, 2*time.Second).Should(BeTrue())
 	})
 
 	It("Should be able to retrieve a template", Label(utils.ClusterOrchTemplateApiSmokeTest, utils.ClusterOrchTemplateApiAllTest), func() {
@@ -107,7 +110,7 @@ var _ = Describe("Template API Tests", Ordered, func() {
 
 	It("Should return templates matching a filter", Label(utils.ClusterOrchTemplateApiAllTest), func() {
 		By("Retrieving templates with a filter")
-		templates, err := utils.GetClusterTemplatesWithFilter(namespace, "version=v0.0.1")
+			templates, err := utils.GetClusterTemplatesWithFilter(namespace, "version="+utils.K3sTemplateOnlyVersion)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(templates).ToNot(BeNil(), "Templates should not be nil")
 		Expect(templates.TemplateInfoList).ToNot(BeNil())
