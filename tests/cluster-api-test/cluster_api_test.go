@@ -22,17 +22,49 @@ import (
 
 // Constants for commonly used values
 const (
-	TempKubeconfigPattern    = "/tmp/%s-kubeconfig.yaml"
-	KubeconfigFileName       = "kubeconfig.yaml"
-	LocalGatewayURL          = "http://127.0.0.1:8081/"
-	ClusterReadinessTimeout  = 10 * time.Minute
-	ClusterReadinessInterval = 10 * time.Second
-	PodReadinessTimeout      = 5 * time.Minute
-	PodReadinessInterval     = 10 * time.Second
-	PortForwardTimeout       = 1 * time.Minute
-	PortForwardInterval      = 5 * time.Second
-	PortForwardDelay         = 5 * time.Second
+	TempKubeconfigPattern = "/tmp/%s-kubeconfig.yaml"
+	KubeconfigFileName    = "kubeconfig.yaml"
+	LocalGatewayURL       = "http://127.0.0.1:8081/"
+	// NOTE: cluster readiness can be significantly slower on vEN due to VM bring-up
+	// and first-time image pulls. Prefer using clusterReadinessTimeout() rather
+	// than hard-coding this value.
+	DefaultClusterReadinessTimeout = 5 * time.Minute
+	ClusterReadinessInterval       = 10 * time.Second
+	EdgeNodeProviderTimeout        = 10 * time.Minute
+	// Prefer using podReadinessTimeout() rather than hard-coding this value.
+	DefaultPodReadinessTimeout = 5 * time.Minute
+	PodReadinessInterval       = 10 * time.Second
+	PortForwardTimeout         = 1 * time.Minute
+	PortForwardInterval        = 5 * time.Second
+	PortForwardDelay           = 5 * time.Second
 )
+
+func clusterReadinessTimeout() time.Duration {
+	// Allow overriding from the environment for slow/loaded CI hosts.
+	if val := strings.TrimSpace(os.Getenv("CLUSTER_READINESS_TIMEOUT")); val != "" {
+		if d, err := time.ParseDuration(val); err == nil {
+			return d
+		}
+	}
+
+	// vEN provisioning can take longer than the in-kind ENiC flow.
+	if utils.GetEdgeNodeProvider() == utils.EdgeNodeProviderVEN {
+		return EdgeNodeProviderTimeout
+	}
+	return DefaultClusterReadinessTimeout
+}
+
+func podReadinessTimeout() time.Duration {
+	if val := strings.TrimSpace(os.Getenv("POD_READINESS_TIMEOUT")); val != "" {
+		if d, err := time.ParseDuration(val); err == nil {
+			return d
+		}
+	}
+	if utils.GetEdgeNodeProvider() == utils.EdgeNodeProviderVEN {
+		return EdgeNodeProviderTimeout
+	}
+	return DefaultPodReadinessTimeout
+}
 
 // function to check if cluster components are ready
 func checkClusterComponentsReady(namespace string) bool {
@@ -63,7 +95,7 @@ func waitForClusterComponentsReady(namespace string) {
 	By("Waiting for all components to be ready")
 	Eventually(func() bool {
 		return checkClusterComponentsReady(namespace)
-	}, ClusterReadinessTimeout, ClusterReadinessInterval).Should(BeTrue())
+	}, clusterReadinessTimeout(), ClusterReadinessInterval).Should(BeTrue())
 }
 
 func TestClusterApiTest(t *testing.T) {
@@ -75,6 +107,9 @@ func TestClusterApiTest(t *testing.T) {
 // setupPortForwarding sets up port forwarding for any service
 func setupPortForwarding(serviceName, serviceIdentifier, localPort, remotePort string) (*exec.Cmd, error) {
 	By(fmt.Sprintf("Port forwarding to the %s service", serviceName))
+	if err := utils.EnsureTCPPortAvailable(localPort, fmt.Sprintf("kubectl port-forward %s", serviceIdentifier)); err != nil {
+		return nil, err
+	}
 	portForwardCmd := exec.Command("kubectl", "port-forward", serviceIdentifier,
 		fmt.Sprintf("%s:%s", localPort, remotePort), "--address", utils.PortForwardAddress)
 	err := portForwardCmd.Start()
@@ -138,13 +173,12 @@ func validateJWTWorkflow(authContext *auth.TestAuthContext, namespace string) {
 	Expect(authContext).NotTo(BeNil())
 
 	By("Confirming JWT authentication usage for cluster operations")
-	fmt.Printf(" JWT Token confirmed for cluster operations: %s...\n"+
-		" JWT authentication confirmed for:\n"+
-		"   - Cluster template import\n"+
-		"   - Cluster creation\n"+
-		"   - Cluster management APIs\n"+
-		"   - Kubeconfig retrieval\n"+
-		"   - Cluster deletion (in AfterEach)\n", authContext.Token[:20])
+	fmt.Printf(" JWT authentication confirmed for:\n" +
+		"   - Cluster template import\n" +
+		"   - Cluster creation\n" +
+		"   - Cluster management APIs\n" +
+		"   - Kubeconfig retrieval\n" +
+		"   - Cluster deletion (in AfterEach)\n")
 
 	By("Verifying JWT token structure and claims")
 	parts := strings.Split(authContext.Token, ".")
@@ -274,9 +308,12 @@ func validateKubeconfigAndClusterAccess() {
 	Expect(err).NotTo(HaveOccurred())
 
 	By("Getting list of pods")
-	cmd = exec.Command("kubectl", "--kubeconfig", kubeConfigName, "get", "pods")
-	_, err = cmd.Output()
+	cmd = exec.Command("kubectl", "--kubeconfig", kubeConfigName, "get", "pods", "-A")
+	output, err = cmd.Output()
 	Expect(err).NotTo(HaveOccurred())
+	fmt.Printf("List of pods:\n%s\n", string(output))
+	fmt.Println("NOTE: kubeconfig fetched via clusterctl" +
+		" To use kubeconfig from cluster-manager REST API., run with DISABLE_AUTH=false.")
 
 	By("Dumping kubectl client and server version")
 	cmd = exec.Command("kubectl", "version", "--kubeconfig", kubeConfigName)
@@ -298,7 +335,7 @@ func validateKubeconfigAndClusterAccess() {
 			}
 		}
 		return true
-	}, PodReadinessTimeout, PodReadinessInterval).Should(BeTrue(), "Not all pods are in Running or Completed state")
+	}, podReadinessTimeout(), PodReadinessInterval).Should(BeTrue(), "Not all pods are in Running or Completed state")
 
 	By("Getting the local-path-provisioner pod name")
 	cmd = exec.Command("kubectl", "get", "pods", "-n", "kube-system", "-l", "app=local-path-provisioner",
@@ -363,7 +400,7 @@ var _ = Describe("Single Node K3s Cluster Create and Delete using Cluster Manage
 			By("Waiting for the cluster template to be ready")
 			Eventually(func() bool {
 				return utils.IsClusterTemplateReady(namespace, utils.K3sTemplateName)
-			}, 1*time.Minute, 2*time.Second).Should(BeTrue())
+			}, 2*time.Minute, 2*time.Second).Should(BeTrue())
 
 			clusterCreateStartTime = time.Now()
 
@@ -413,10 +450,21 @@ var _ = Describe("Single Node K3s Cluster Create and Delete using Cluster Manage
 
 		JustAfterEach(func() {
 			if CurrentSpecReport().Failed() {
-				utils.LogCommandOutput("kubectl", []string{"exec", "cluster-agent-0", "--",
-					"/usr/local/bin/k3s", "kubectl", "--kubeconfig", "/etc/rancher/k3s/k3s.yaml", "get", "pods", "-A"})
-				utils.LogCommandOutput("kubectl", []string{"exec", "cluster-agent-0", "--",
-					"/usr/local/bin/k3s", "kubectl", "--kubeconfig", "/etc/rancher/k3s/k3s.yaml", "describe", "pod", "-n", "kube-system", "connect-agent-cluster-agent-0"})
+				// Provider-agnostic diagnostics: use the downstream kubeconfig (via connect-gateway)
+				// rather than exec'ing into an edge node implementation detail.
+				if _, statErr := os.Stat(KubeconfigFileName); statErr == nil {
+					if out, err := exec.Command("kubectl", "--kubeconfig", KubeconfigFileName, "get", "pods", "-A", "-o", "wide").CombinedOutput(); err == nil {
+						fmt.Printf("Downstream pods snapshot:\n%s\n", string(out))
+					}
+					if out, err := exec.Command("kubectl", "--kubeconfig", KubeconfigFileName, "get", "pods", "-A").CombinedOutput(); err == nil {
+						// Quick visibility for connect-agent without assuming a fixed pod name/namespace.
+						for _, line := range strings.Split(string(out), "\n") {
+							if strings.Contains(line, "connect-agent") {
+								fmt.Printf("connect-agent pod line: %s\n", line)
+							}
+						}
+					}
+				}
 			}
 		})
 	})

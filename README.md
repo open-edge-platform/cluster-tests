@@ -38,10 +38,46 @@ To run the tests, run the following command:
 make test
 ```
 
+To verify your environment first (recommended), run:
+
+```shell
+make preflight
+```
+
 The above step will internally invoke the `bootstrap` make target to bootstrap the environment with the dependencies
 configured in `.test-dependencies.yaml` file before running the tests.
 
 Refer the `test-plan/test-plan.md` for the detailed test plan.
+
+#### vEN mode (Virtual Edge Node)
+
+Tests run against a vEN (Virtual Edge Node) reachable over SSH.
+
+To run, set:
+
+- `EDGE_NODE_PROVIDER=ven`
+- `NODEGUID` (or `VEN_NODEGUID`) to the onboarded host GUID
+- SSH connection info:
+  - `VEN_SSH_HOST`
+  - `VEN_SSH_KEY` (path to private key)
+  - optional: `VEN_SSH_USER`, `VEN_SSH_PORT` (default: `22`)
+
+Note: the default `VEN_SSH_USER` depends on the bootstrap script:
+
+- `scripts/ven/bootstrap.sh` defaults to `root`
+- `scripts/ven/bootstrap_vm_cluster_agent.sh` defaults to `ubuntu` (default in `make test`)
+
+You can either export these variables directly, or use a bootstrap command that writes `.ven.env`
+which is automatically sourced by `make test` targets:
+
+```shell
+EDGE_NODE_PROVIDER=ven \
+VEN_BOOTSTRAP_CMD=./scripts/ven/bootstrap.sh \
+NODEGUID=<host-guid> \
+VEN_SSH_HOST=<ven-ip-or-hostname> \
+VEN_SSH_KEY=$HOME/.ssh/id_rsa \
+make test
+```
 
 #### Configuring test dependencies
 

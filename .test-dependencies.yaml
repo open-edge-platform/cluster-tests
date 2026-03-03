@@ -136,6 +136,9 @@ components:
       - helm-install
     post-install-commands:
       - CONNECT_GATEWAY_IP=$(kubectl get svc cluster-connect-gateway -o go-template="{{ .spec.clusterIP }}") envsubst < ../../configs/conredns-config.yaml | kubectl apply -f -
+      # Ensure connect-gateway is ready before tests attempt to create clusters (connect-agent relies on it).
+      - kubectl wait --for=condition=Available --timeout=300s deployment.apps/cluster-connect-gateway-controller -n default
+      - kubectl wait --for=condition=Available --timeout=300s deployment.apps/cluster-connect-gateway-gateway -n default
 
   # Cluster Manager
   - name: cluster-manager
@@ -170,7 +173,10 @@ components:
     make-targets:
       - helm-install
     make-directory: ""
-    post-install-commands: []
+    post-install-commands:
+      # Ensure cluster-manager API is serving before the ginkgo suite attempts port-forward + template import.
+      - kubectl wait --for=condition=Available --timeout=300s deployment.apps/cluster-manager -n default
+      - kubectl wait --for=condition=Available --timeout=300s deployment.apps/cluster-manager-template-controller -n default
 
   # OIDC Mock Server for JWT Authentication Testing (conditionally deployed via Makefile)
   - name: oidc-mock-server
@@ -186,26 +192,19 @@ components:
     make-targets: []
     post-install-commands: []
 
-  # Cluster Agent on LW-ENiC
-  - name: cluster-agent
+  # edge-node-agents (sources only)
+  # vEN mode runs cluster-agent inside the libvirt VM. The vEN bootstrap script builds the
+  # cluster-agent binary from sources under:  _workspace/edge-node-agents/cluster-agent
+  - name: edge-node-agents
     skip-component: false
     skip-local-build: false
     pre-install-commands: []
-    helm-repo:
-      - url: ""
-        release-name: ""
-        package: ""
-        namespace: ""
-        version: ""
-        use-devel: false  # Use development version of the chart
-        overrides: ""
+    helm-repo: []
     git-repo:
       url: https://github.com/open-edge-platform/edge-node-agents.git
-      version: lw-enic
-    make-directory: "cluster-agent/enic/"
+      # Pin to the cluster-agent release tag for reproducibility and easy tracking.
+      version: cluster-agent/v1.9.0
+    make-directory: ""
     make-variables: []
-    make-targets:
-      - build-enic-docker      # Enable this if you want to build the enic docker image. This usually is a time-consuming process
-      - load-enic-docker       # Enable this if you want to load the enic docker image that you build to the kind cluster
-      - run-enic-pod
+    make-targets: []
     post-install-commands: []

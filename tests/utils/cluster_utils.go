@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -43,8 +44,8 @@ const (
 	PortForwardGatewayRemotePort = "8080"
 
 	K3sTemplateOnlyName    = "baseline-k3s"
-	K3sTemplateOnlyVersion = "v0.0.1"
-	K3sTemplateName        = "baseline-k3s-v0.0.1"
+	K3sTemplateOnlyVersion = "v0.0.10"
+	K3sTemplateName        = "baseline-k3s-v0.0.10"
 
 	ClusterTemplateURL = "http://127.0.0.1:8080/v2/templates"
 	ClusterCreateURL   = "http://127.0.0.1:8080/v2/clusters"
@@ -80,6 +81,23 @@ func EnsureNamespaceExists(namespace string) error {
 		return cmd.Run()
 	}
 	return nil
+}
+
+// EnsureTCPPortAvailable fails fast if a local TCP port is already occupied.
+// This guards against stale kubectl port-forward processes hijacking test traffic.
+func EnsureTCPPortAvailable(port, purpose string) error {
+	addr := net.JoinHostPort("127.0.0.1", port)
+	ln, err := net.Listen("tcp", addr)
+	if err == nil {
+		_ = ln.Close()
+		return nil
+	}
+
+	if purpose == "" {
+		purpose = "test port-forward"
+	}
+
+	return fmt.Errorf("local TCP port %s is already in use before starting %s; stop stale port-forwards/processes and retry", port, purpose)
 }
 
 // ImportClusterTemplate imports a cluster template into the specified namespace.
@@ -399,6 +417,86 @@ func CreateCluster(namespace, nodeGUID, templateName string) error {
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("failed to create cluster: %s", string(body))
+	}
+
+	// Cluster Manager may create clusters with spec.paused=true.
+	// If left paused, ClusterClass topology reconciliation will not create the infra
+	// objects (IntelCluster/IntelMachine), which can later lead to stuck finalizers.
+	if err := UnpauseCluster(namespace, ClusterName); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// UnpauseCluster sets spec.paused=false for a CAPI Cluster.
+func UnpauseCluster(namespace, clusterName string) error {
+	// cluster-manager may create Clusters with the topology variable `readOnly=true`.
+	// In the CO integration-test environment this FORCES an air-gapped/read-only
+	// k3s install (INSTALL_K3S_SKIP_DOWNLOAD=true and INSTALL_K3S_BIN_DIR_READ_ONLY=true),
+	// which requires pre-staging the k3s binary/images on the node.
+	//
+	// For vEN tests we prefer letting the k3s installer download its artifacts when
+	// network/proxy access is available. Remove the `readOnly` variable while the
+	// Cluster is still paused so ClusterClass topology reconciliation uses the
+	// ClusterClass default (false).
+	if err := removeClusterTopologyVariable(namespace, clusterName, "readOnly"); err != nil {
+		return err
+	}
+
+	cmd := exec.Command("kubectl", "-n", namespace, "patch", "cluster", clusterName, "--type=merge", "-p", `{"spec":{"paused":false}}`)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to unpause cluster %s/%s: %w: %s", namespace, clusterName, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func removeClusterTopologyVariable(namespace, clusterName, variableName string) error {
+	// Fetch the current Cluster spec so we can remove by array index.
+	cmd := exec.Command("kubectl", "-n", namespace, "get", "cluster", clusterName, "-o", "json")
+	out, err := cmd.Output()
+	if err != nil {
+		// If we can't read the Cluster, preserve the existing behavior by failing.
+		return fmt.Errorf("failed to get cluster %s/%s to remove topology variable %q: %w", namespace, clusterName, variableName, err)
+	}
+
+	type clusterTopologyVariable struct {
+		Name string `json:"name"`
+	}
+	type clusterSpec struct {
+		Topology struct {
+			Variables []clusterTopologyVariable `json:"variables"`
+		} `json:"topology"`
+	}
+	type cluster struct {
+		Spec clusterSpec `json:"spec"`
+	}
+
+	var c cluster
+	if err := json.Unmarshal(out, &c); err != nil {
+		return fmt.Errorf("failed to parse cluster %s/%s JSON to remove topology variable %q: %w", namespace, clusterName, variableName, err)
+	}
+
+	var idxs []int
+	for i, v := range c.Spec.Topology.Variables {
+		if v.Name == variableName {
+			idxs = append(idxs, i)
+		}
+	}
+	if len(idxs) == 0 {
+		return nil
+	}
+
+	// Remove from the end so indices don't shift - the loop goes backward.
+	for i := len(idxs) - 1; i >= 0; i-- {
+		idx := idxs[i]
+		patch := fmt.Sprintf(`[{"op":"remove","path":"/spec/topology/variables/%d"}]`, idx)
+		pcmd := exec.Command("kubectl", "-n", namespace, "patch", "cluster", clusterName, "--type=json", "-p", patch)
+		pout, perr := pcmd.CombinedOutput()
+		if perr != nil {
+			return fmt.Errorf("failed to remove cluster topology variable %q from %s/%s: %w: %s", variableName, namespace, clusterName, perr, strings.TrimSpace(string(pout)))
+		}
 	}
 
 	return nil

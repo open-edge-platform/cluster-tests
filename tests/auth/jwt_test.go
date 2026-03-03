@@ -4,6 +4,7 @@
 package auth
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -207,5 +208,20 @@ func TestTokenSignedWithDifferentKey(t *testing.T) {
 	_, err = generator2.ValidateToken(tokenString)
 	if err == nil {
 		t.Error("Expected validation to fail when using different key")
+	}
+}
+
+func TestGenerateOIDCMockConfigReplacesJWKSAndAvoidsTabs(t *testing.T) {
+	config, err := GenerateOIDCMockConfig()
+	if err != nil {
+		t.Fatalf("Failed to generate OIDC mock config: %v", err)
+	}
+
+	if strings.Contains(config, "\t") {
+		t.Fatal("Generated OIDC mock config must not contain tab characters")
+	}
+
+	if strings.Contains(config, "__JWKS_JSON__") {
+		t.Fatal("Generated OIDC mock config still contains __JWKS_JSON__ placeholder")
 	}
 }
