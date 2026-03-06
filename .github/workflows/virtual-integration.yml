@@ -145,7 +145,6 @@ jobs:
             xz-utils \
             zlib1g-dev
       - name: Checkout EMF (ci/ven scripts)
-        if: ${{ inputs.use-ven }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           repository: open-edge-platform/edge-manageability-framework
@@ -199,14 +198,6 @@ jobs:
           ref: ${{ env.CLUSTER_MANAGER_GIT_REF }}
           path: cluster-manager-src
           token: ${{ secrets.SYS_EMF_GH_TOKEN }}
-          deployment_type: ${{ inputs.orchestrator-deployment-type }}
-
-      - name: Re-checkout cluster-tests (after EMF deploy_kind)
-        if: ${{ inputs.deploy-orchestrator }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          fetch-depth: 1
-          persist-credentials: false
 
       - name: Build cluster-manager images (early)
         id: build_cm_images
