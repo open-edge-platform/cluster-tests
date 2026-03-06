@@ -7,7 +7,9 @@ SHELL       := bash -e -o pipefail
 
 # Prepend asdf shims so tool versions from .tool-versions win over any
 # globally-installed binaries (e.g. /root/go/bin/ginkgo).
-ENV_PATH := $(HOME)/.asdf/shims:$(shell printf "%s" "$$PATH")
+ASDF_DIR    ?= $(HOME)/.asdf
+ENV_PATH := $(ASDF_DIR)/bin:$(ASDF_DIR)/shims:$(shell printf "%s" "$$PATH")
+export ASDF_DIR
 
 # Optional local proxy env file (do not commit). Format:
 #   HTTP_PROXY=http://...
@@ -82,9 +84,11 @@ deps: ## Install dependencies
 	fi;
 	@if ! command -v asdf &> /dev/null; then \
 		echo "asdf not found, installing..."; \
-		go install github.com/asdf-vm/asdf/cmd/asdf@v0.16.3; \
+		if [ ! -d "${ASDF_DIR}" ]; then \
+			git clone https://github.com/asdf-vm/asdf.git "${ASDF_DIR}" --branch v0.16.3; \
+		fi; \
 	fi
-	mage asdfPlugins
+	PATH=${ENV_PATH} mage asdfPlugins
 
 .PHONY: preflight
 preflight: ## Verify local prerequisites for running `make test` (vEN mode by default)
