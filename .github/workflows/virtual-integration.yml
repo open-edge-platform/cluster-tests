@@ -73,6 +73,12 @@ jobs:
       WF_GOLDEN_SUITE_RETRIES: ${{ github.event_name == 'schedule' && '2' || github.event.inputs.golden-suite-retries || '0' }}
 
     steps:
+      - name: Checkout cluster-tests
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Mask secrets
         run: |
           mask_secret() {
@@ -139,7 +145,8 @@ jobs:
             xz-utils \
             zlib1g-dev
       - name: Checkout EMF (ci/ven scripts)
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        if: ${{ inputs.use-ven }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           repository: open-edge-platform/edge-manageability-framework
           ref: ${{ env.WF_EMF_BRANCH }}
@@ -192,6 +199,12 @@ jobs:
           ref: ${{ env.CLUSTER_MANAGER_GIT_REF }}
           path: cluster-manager-src
           token: ${{ secrets.SYS_EMF_GH_TOKEN }}
+          deployment_type: ${{ inputs.orchestrator-deployment-type }}
+
+      - name: Re-checkout cluster-tests (after EMF deploy_kind)
+        if: ${{ inputs.deploy-orchestrator }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
           fetch-depth: 1
           persist-credentials: false
 
@@ -1273,7 +1286,7 @@ jobs:
 
       - name: Upload diagnostics
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: golden-suite-report
           path: edge-manage-test-automation/robot_output/**/*
