@@ -50,6 +50,7 @@ permissions:
 jobs:
   virtual-integration:
     name: Run Golden Suite VEN tests
+    environment: virtual-integration
     runs-on: ubuntu-24.04-16core-64GB
     # Needs to cover orchestrator deploy + (optional) full-suite retry of Golden Suite.
     timeout-minutes: 180
@@ -72,6 +73,12 @@ jobs:
       # Scheduled runs should do up to 3 total attempts (initial + up to 2 retries).
       WF_GOLDEN_SUITE_RETRIES: ${{ github.event_name == 'schedule' && '2' || github.event.inputs.golden-suite-retries || '0' }}
 
+      # Secrets (placed in a dedicated env to satisfy zizmor warnings).
+      SYS_EMF_GH_TOKEN: ${{ secrets.SYS_EMF_GH_TOKEN }}
+      ORCH_DEFAULT_PASSWORD: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
+      SYS_DOCKERHUB_RO: ${{ secrets.SYS_DOCKERHUB_RO }}
+      SYS_DOCKERHUB_USERNAME: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
+
     steps:
       - name: Checkout cluster-tests
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -88,10 +95,10 @@ jobs:
             fi
           }
 
-          mask_secret "${{ secrets.SYS_EMF_GH_TOKEN }}"
-          mask_secret "${{ secrets.ORCH_DEFAULT_PASSWORD }}"
-          mask_secret "${{ secrets.SYS_DOCKERHUB_RO }}"
-          mask_secret "${{ secrets.SYS_DOCKERHUB_USERNAME }}"
+          mask_secret "${SYS_EMF_GH_TOKEN}"
+          mask_secret "${ORCH_DEFAULT_PASSWORD}"
+          mask_secret "${SYS_DOCKERHUB_RO}"
+          mask_secret "${SYS_DOCKERHUB_USERNAME}"
 
       - name: Resolve cluster-orch git refs (early)
         env:
@@ -151,7 +158,7 @@ jobs:
           ref: ${{ env.WF_EMF_BRANCH }}
           path: emf
           sparse-checkout: ci/ven
-          token: ${{ secrets.SYS_EMF_GH_TOKEN }}
+          token: ${{ env.SYS_EMF_GH_TOKEN }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -197,7 +204,9 @@ jobs:
           repository: open-edge-platform/cluster-manager
           ref: ${{ env.CLUSTER_MANAGER_GIT_REF }}
           path: cluster-manager-src
-          token: ${{ secrets.SYS_EMF_GH_TOKEN }}
+          token: ${{ env.SYS_EMF_GH_TOKEN }}
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Build cluster-manager images (early)
         id: build_cm_images
@@ -242,7 +251,7 @@ jobs:
               -e GOPATH=/tmp/go \
               -e GOCACHE=/tmp/gocache \
               -e GOPRIVATE="${GOPRIVATE:-github.com/open-edge-platform}" \
-              -e GH_TOKEN="${{ secrets.SYS_EMF_GH_TOKEN }}" \
+              -e GH_TOKEN="${SYS_EMF_GH_TOKEN}" \
               -v "${PWD}:/workspace" \
               -w /workspace \
               golang:1.25 \
@@ -265,7 +274,7 @@ jobs:
           repository: open-edge-platform/cluster-connect-gateway
           ref: ${{ env.CLUSTER_CONNECT_GATEWAY_GIT_REF }}
           path: cluster-connect-gateway-src
-          token: ${{ secrets.SYS_EMF_GH_TOKEN }}
+          token: ${{ env.SYS_EMF_GH_TOKEN }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -308,7 +317,7 @@ jobs:
               -e GOPATH=/tmp/go \
               -e GOCACHE=/tmp/gocache \
               -e GOPRIVATE="${GOPRIVATE:-github.com/open-edge-platform}" \
-              -e GH_TOKEN="${{ secrets.SYS_EMF_GH_TOKEN }}" \
+              -e GH_TOKEN="${SYS_EMF_GH_TOKEN}" \
               -v "${PWD}:/workspace" \
               -w /workspace \
               golang:1.25 \
@@ -330,7 +339,7 @@ jobs:
           repository: open-edge-platform/cluster-api-provider-intel
           ref: ${{ env.INTEL_INFRA_PROVIDER_GIT_REF }}
           path: cluster-api-provider-intel-src
-          token: ${{ secrets.SYS_EMF_GH_TOKEN }}
+          token: ${{ env.SYS_EMF_GH_TOKEN }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -370,7 +379,7 @@ jobs:
               -e GOPATH=/tmp/go \
               -e GOCACHE=/tmp/gocache \
               -e GOPRIVATE="${GOPRIVATE:-github.com/open-edge-platform}" \
-              -e GH_TOKEN="${{ secrets.SYS_EMF_GH_TOKEN }}" \
+              -e GH_TOKEN="${SYS_EMF_GH_TOKEN}" \
               -v "${PWD}:/workspace" \
               -w /workspace \
               golang:1.25 \
@@ -425,8 +434,8 @@ jobs:
 #          DOCKERHUB_TOKEN: ${{ secrets.SYS_DOCKERHUB_RO }}
         with:
           orch_version: ${{ env.WF_EMF_BRANCH }}
-          orch_password: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
-          token: ${{ secrets.SYS_EMF_GH_TOKEN }}
+          orch_password: ${{ env.ORCH_DEFAULT_PASSWORD }}
+          token: ${{ env.SYS_EMF_GH_TOKEN }}
           deployment_type: ${{ env.WF_ORCHESTRATOR_DEPLOYMENT_TYPE }}
 
       - name: Load cluster-manager images into Kind (early)
@@ -597,7 +606,7 @@ jobs:
       - name: Create default multi-tenancy setup (post EMF deploy_kind)
         id: default-mt-setup
         env:
-          ORCH_DEFAULT_PASSWORD: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
+          ORCH_DEFAULT_PASSWORD: ${{ env.ORCH_DEFAULT_PASSWORD }}
         run: |
           set -euo pipefail
           # Seeds Keycloak with the default org, project, and users that
@@ -1180,7 +1189,7 @@ jobs:
           ref: '0.3.3'
           path: edge-manage-test-automation
           submodules: recursive
-          token: ${{ secrets.SYS_EMF_GH_TOKEN }}
+          token: ${{ env.SYS_EMF_GH_TOKEN }}
           persist-credentials: false
 
       - name: Setup edge-manage-test-automation
@@ -1203,7 +1212,7 @@ jobs:
         env:
           REQUESTS_CA_BUNDLE: /usr/local/share/ca-certificates/orch-ca.crt
           LIBVIRT_DEFAULT_URI: qemu:///system
-          ORCH_DEFAULT_PASSWORD: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
+          ORCH_DEFAULT_PASSWORD: ${{ env.ORCH_DEFAULT_PASSWORD }}
           ROBOT_TAGS: ${{ env.WF_ROBOT_TAGS }}
           GOLDEN_SUITE_RETRIES: ${{ env.WF_GOLDEN_SUITE_RETRIES }}
         run: |
