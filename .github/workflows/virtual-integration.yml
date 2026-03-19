@@ -1199,8 +1199,25 @@ jobs:
           git submodule update --init --recursive
           make asdf-install
           make venv_edge-manage-test-automation
+
+          # Some asdf plugins (and/or their install callbacks) invoke `go`.
+          # In the pico submodule, .tool-versions may not pin golang, which can
+          # cause: "No version is set for command go".
+          #
+          # Note: GitHub runners currently ship asdf v0.18.x, where `asdf local`
+          # no longer exists (replaced by `asdf set`). To avoid CLI/version
+          # differences and to prevent flaky install-callback failures, we
+          # explicitly pin golang for pico by ensuring its .tool-versions contains
+          # a golang entry, and we do NOT run `asdf install` inside pico.
+          golang_version="$(awk '$1=="golang"{print $2; exit}' .tool-versions 2>/dev/null || true)"
           pushd repos/ven/pico
-          asdf install
+          if [ -n "${golang_version}" ]; then
+            touch .tool-versions
+            if ! grep -qE '^golang[[:space:]]+' .tool-versions; then
+              echo "golang ${golang_version}" >> .tool-versions
+            fi
+          fi
+          asdf current || true
           popd
           sudo apt-get install -y --no-install-recommends xsltproc
 
