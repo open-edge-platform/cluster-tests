@@ -204,7 +204,7 @@ ensure_oidc_mock() {
   kubectl create namespace orch-platform --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
 
   # Generate and apply the manifest (uses vendored deps).
-  GOFLAGS=-mod=vendor go run ./scripts/oidc_mock_gen -mode manifest | kubectl apply -f - >/dev/null
+  GOFLAGS=-mod=readonly go run ./scripts/oidc_mock_gen -mode manifest | kubectl apply -f - >/dev/null
 
   # Wait for the mock deployment to be ready (best-effort).
   kubectl wait --for=condition=Available --timeout=120s deployment.apps/oidc-mock -n default >/dev/null 2>&1 || true
@@ -802,7 +802,7 @@ fi
 # Do NOT print the token.
 ACCESS_TOKEN_FILE="$(mktemp /tmp/cluster-tests-cluster-agent-token.XXXXXX)"
 chmod 0600 "$ACCESS_TOKEN_FILE"
-GOFLAGS=-mod=vendor go run ./scripts/oidc_mock_gen -mode token -subject cluster-agent >"$ACCESS_TOKEN_FILE"
+GOFLAGS=-mod=readonly go run ./scripts/oidc_mock_gen -mode token -subject cluster-agent >"$ACCESS_TOKEN_FILE"
 
 scp "${scp_opts[@]}" "$CA_BIN" "${SSH_USER}@${VEN_SSH_HOST}:/tmp/cluster-agent" >/dev/null
 scp "${scp_opts[@]}" "$ACCESS_TOKEN_FILE" "${SSH_USER}@${VEN_SSH_HOST}:/tmp/cluster-agent-access-token" >/dev/null

@@ -1,18 +1,14 @@
 # SPDX-FileCopyrightText: (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
-
 ---
-
 name: Virtual Integration (VEN)
 
 on:
+  schedule:
+    # Daily at 00:00 GMT (UTC)
+    - cron: '0 0 * * *'
   workflow_dispatch:
     inputs:
-      deploy-orchestrator:
-        description: "Deploy EMF orchestrator onto Kind before running cluster-tests"
-        required: true
-        type: boolean
-        default: false
       orchestrator-deployment-type:
         description: "EMF deploy_kind deployment type"
         required: true
@@ -21,44 +17,60 @@ on:
         options:
           - minimal
           - all
-      use-ven:
-        description: "Run VEN prerequisites (dnsmasq + libvirt) before tests"
-        required: true
-        type: boolean
-        default: true
       emf-branch:
         description: "Branch/tag/SHA to checkout edge-manageability-framework for ci/ven scripts"
         required: true
         type: string
-        default: v2026.0.0-n20260216
-      disable-auth:
-        description: "Run cluster-tests with DISABLE_AUTH=true"
+        default: main
+      robot-tags:
+        description: "Comma-separated Robot Framework include tags (e.g. cf1,cf3,cf4,cf9)"
         required: true
-        type: boolean
-        default: true
-      skip-delete-cluster:
-        description: "Run cluster-tests with SKIP_DELETE_CLUSTER=true"
+        type: string
+        default: "cf1,cf3,cf4,cf9"
+      deployment-timeout:
+        description: "EMF deployment timeout (Go duration, e.g. 3600s, 45m)"
         required: true
-        type: boolean
-        default: false
+        type: string
+        default: "30m"
+
+      cluster-orch-git-ref:
+        description: "Cluster-orch git refs (branch/tag/SHA), comma-separated, in order: cluster-manager,cluster-connect-gateway,intel-infra-provider"
+        required: true
+        type: string
+        default: "main,main,main"
+      golden-suite-retries:
+        description: "Golden Suite retry count (0-3)"
+        required: true
+        type: string
+        default: "0"
 
 permissions:
   contents: read
 
 jobs:
   virtual-integration:
-    name: Run cluster-tests (optional VEN setup)
+    name: Run Golden Suite VEN tests
     runs-on: ubuntu-24.04-16core-64GB
-    timeout-minutes: 120
+    # Needs to cover orchestrator deploy + (optional) full-suite retry of Golden Suite.
+    timeout-minutes: 180
+
+    concurrency:
+      group: ven-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
 
     env:
-      # These map 1:1 to the Makefile expectations.
-      DISABLE_AUTH: ${{ inputs.disable-auth && 'true' || 'false' }}
-      SKIP_DELETE_CLUSTER: ${{ inputs.skip-delete-cluster && 'true' || 'false' }}
-      # If the workflow deployed a Kind cluster via EMF, our bootstrap should not try to recreate it.
-      SKIP_KIND_CREATE: ${{ inputs.deploy-orchestrator && 'true' || 'false' }}
       # Ensure any libvirt tooling uses the system URI.
       LIBVIRT_DEFAULT_URI: qemu:///system
+      # Ensure cache restore tar extraction isn't affected by environment-provided TAR_OPTIONS.
+      TAR_OPTIONS: ""
+      # Resolve inputs for both workflow_dispatch and schedule.
+      WF_ORCHESTRATOR_DEPLOYMENT_TYPE: ${{ github.event_name == 'schedule' && 'minimal' || github.event.inputs.orchestrator-deployment-type || 'minimal' }}
+      WF_EMF_BRANCH: ${{ github.event_name == 'schedule' && 'main' || github.event.inputs.emf-branch || 'main' }}
+      WF_ROBOT_TAGS: ${{ github.event_name == 'schedule' && 'cf1,cf3,cf4,cf9' || github.event.inputs.robot-tags || 'cf1,cf3,cf4,cf9' }}
+      WF_DEPLOYMENT_TIMEOUT: ${{ github.event_name == 'schedule' && '30m' || github.event.inputs.deployment-timeout || '30m' }}
+      WF_CLUSTER_ORCH_GIT_REF: ${{ github.event_name == 'schedule' && 'main,main,main' || github.event.inputs.cluster-orch-git-ref || 'main,main,main' }}
+      # Scheduled runs should do up to 3 total attempts (initial + up to 2 retries).
+      WF_GOLDEN_SUITE_RETRIES: ${{ github.event_name == 'schedule' && '2' || github.event.inputs.golden-suite-retries || '0' }}
 
     steps:
       - name: Checkout cluster-tests
@@ -68,96 +80,1204 @@ jobs:
           persist-credentials: false
 
       - name: Mask secrets
-        if: ${{ inputs.use-ven || inputs.deploy-orchestrator }}
         run: |
-          echo "::add-mask::${{ secrets.SYS_EMF_GH_TOKEN }}"
-          echo "::add-mask::${{ secrets.ORCH_DEFAULT_PASSWORD }}"
-          echo "::add-mask::${{ secrets.SYS_DOCKERHUB_RO }}"
-          echo "::add-mask::${{ secrets.SYS_DOCKERHUB_USERNAME }}"
+          mask_secret() {
+            local value="$1"
+            if [ -n "${value}" ]; then
+              echo "::add-mask::${value}"
+            fi
+          }
 
+          mask_secret "${{ secrets.SYS_EMF_GH_TOKEN }}"
+          mask_secret "${{ secrets.ORCH_DEFAULT_PASSWORD }}"
+          mask_secret "${{ secrets.SYS_DOCKERHUB_RO }}"
+          mask_secret "${{ secrets.SYS_DOCKERHUB_USERNAME }}"
+
+      - name: Resolve cluster-orch git refs (early)
+        env:
+          CLUSTER_ORCH_GIT_REF: ${{ env.WF_CLUSTER_ORCH_GIT_REF }}
+        run: |
+          set -euo pipefail
+
+          apps=(
+            cluster-manager
+            cluster-connect-gateway
+            intel-infra-provider
+          )
+
+          # Parse the comma-separated refs (mirrors the Robot tags pattern).
+          refs=()
+          IFS=',' read -r -a refs_raw <<<"${CLUSTER_ORCH_GIT_REF}"
+          for r in "${refs_raw[@]}"; do
+            r="${r//[[:space:]]/}"
+            if [ -n "${r}" ]; then
+              refs+=("${r}")
+            fi
+          done
+
+          if [ "${#refs[@]}" -ne "${#apps[@]}" ]; then
+            echo "::error::cluster-orch-git-ref must provide ${#apps[@]} refs (one per app). Got '${CLUSTER_ORCH_GIT_REF}'" >&2
+            echo "Expected order: cluster-manager,cluster-connect-gateway,intel-infra-provider" >&2
+            exit 1
+          fi
+
+          # Persist per-app refs for subsequent steps.
+          echo "CLUSTER_MANAGER_GIT_REF=${refs[0]}" >> "$GITHUB_ENV"
+          echo "CLUSTER_CONNECT_GATEWAY_GIT_REF=${refs[1]}" >> "$GITHUB_ENV"
+          echo "INTEL_INFRA_PROVIDER_GIT_REF=${refs[2]}" >> "$GITHUB_ENV"
+
+      - name: Install system prerequisites (toolchain)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            curl \
+            git \
+            libbz2-dev \
+            libffi-dev \
+            liblzma-dev \
+            libncursesw5-dev \
+            libreadline-dev \
+            libsqlite3-dev \
+            libssl-dev \
+            tk-dev \
+            xz-utils \
+            zlib1g-dev
       - name: Checkout EMF (ci/ven scripts)
-        if: ${{ inputs.use-ven }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           repository: open-edge-platform/edge-manageability-framework
-          ref: ${{ inputs.emf-branch }}
+          ref: ${{ env.WF_EMF_BRANCH }}
           path: emf
           sparse-checkout: ci/ven
           token: ${{ secrets.SYS_EMF_GH_TOKEN }}
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Verify EMF VEN scripts exist
+        run: |
+          if [ ! -d emf/ci/ven ]; then
+            echo "::error::EMF ref '${WF_EMF_BRANCH}' does not contain ci/ven. Set emf-branch to a ref that includes ci/ven (e.g. main)."
+            echo "Workspace EMF contents:" 
+            ls -la emf || true
+            ls -la emf/ci || true
+            exit 1
+          fi
+
       - name: Preserve VEN scripts
-        if: ${{ inputs.use-ven }}
         run: |
           cp -r emf/ci/ven /tmp/ven-scripts
           ls -la /tmp/ven-scripts/
 
       - name: Install DNSmasq (VEN)
-        if: ${{ inputs.use-ven }}
         run: |
           cd /tmp/ven-scripts
           ./dnsmasq-setup.sh "kind.internal" setup
 
       - name: Install Libvirt (VEN)
-        if: ${{ inputs.use-ven }}
         run: |
           cd /tmp/ven-scripts
           ./libvirt-setup.sh
 
-      - name: Configure DNSmasq (VEN)
-        if: ${{ inputs.use-ven }}
+      - name: Install Argo CD CLI (required by EMF deploy_kind)
         run: |
-          cd /tmp/ven-scripts
-          ./dnsmasq-setup.sh "kind.internal" config
+          set -euo pipefail
+          # Install the latest stable Argo CD CLI.
+          ARGOCD_VERSION="$(curl -fsSL https://raw.githubusercontent.com/argoproj/argo-cd/stable/VERSION)"
+          echo "Resolved Argo CD CLI version: v${ARGOCD_VERSION}"
+          curl -fsSL -o /tmp/argocd "https://github.com/argoproj/argo-cd/releases/download/v${ARGOCD_VERSION}/argocd-linux-amd64"
+          sudo install -m 0755 /tmp/argocd /usr/local/bin/argocd
+          # Note: asdf shims may be ahead of /usr/local/bin on PATH; call the binary explicitly.
+          /usr/local/bin/argocd version --client
 
-      - name: Deploy Kind Orchestrator (EMF baseline)
-        if: ${{ inputs.deploy-orchestrator }}
-        uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@3a2d9869daa26e1925daf159dabb7307fc24e3ed
+      - name: Checkout cluster-manager (for early image build)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
-          orch_version: ${{ inputs.emf-branch }}
-          orch_password: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
-          docker_username: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
-          docker_password: ${{ secrets.SYS_DOCKERHUB_RO }}
+          repository: open-edge-platform/cluster-manager
+          ref: ${{ env.CLUSTER_MANAGER_GIT_REF }}
+          path: cluster-manager-src
           token: ${{ secrets.SYS_EMF_GH_TOKEN }}
-          deployment_type: ${{ inputs.orchestrator-deployment-type }}
 
-      - name: Re-checkout cluster-tests (after EMF deploy_kind)
-        if: ${{ inputs.deploy-orchestrator }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - name: Build cluster-manager images (early)
+        id: build_cm_images
+        run: |
+          set -euo pipefail
+
+          cd cluster-manager-src
+
+          # Align image tags with the chart's appVersion (default used by templates when tag is empty).
+          CM_TAG="$(awk -F': *' '/^appVersion:/{print $2; exit}' deployment/charts/cluster-manager/Chart.yaml | tr -d '"' | tr -d '\r')"
+          if [ -z "${CM_TAG}" ]; then
+            echo "::error::Unable to determine cluster-manager appVersion from Chart.yaml" >&2
+            exit 1
+          fi
+
+          CM_IMG="registry-rs.edgeorchestration.intel.com/edge-orch/cluster/cluster-manager:${CM_TAG}"
+          TC_IMG="registry-rs.edgeorchestration.intel.com/edge-orch/cluster/template-controller:${CM_TAG}"
+
+          # Persist for later steps *without* leaking into composite actions.
+          # (Anything written to $GITHUB_ENV becomes environment for subsequent steps,
+          # including the EMF deploy_kind composite action.)
+          {
+            echo "cm_tag=${CM_TAG}"
+            echo "cm_img=${CM_IMG}"
+            echo "tc_img=${TC_IMG}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Building images:" >&2
+          echo "- ${CM_IMG}" >&2
+          echo "- ${TC_IMG}" >&2
+
+          # Some refs do not include vendor/ in the repo, but the Dockerfile expects it.
+          # Generate vendor/ using the same Go version as the Dockerfile base image.
+          if [ ! -d vendor ]; then
+            echo "vendor/ not found; generating via golang:1.25..." >&2
+            # Important: run the container as the runner user so generated files aren't
+            # owned by root (root-owned files can make later `actions/checkout clean:true`
+            # fail with Permission denied on `git clean -ffdx`).
+            docker run --rm \
+              --user "$(id -u):$(id -g)" \
+              -e HOME=/tmp \
+              -e GOPATH=/tmp/go \
+              -e GOCACHE=/tmp/gocache \
+              -e GOPRIVATE="${GOPRIVATE:-github.com/open-edge-platform}" \
+              -e GH_TOKEN="${{ secrets.SYS_EMF_GH_TOKEN }}" \
+              -v "${PWD}:/workspace" \
+              -w /workspace \
+              golang:1.25 \
+              bash -euo pipefail -c 'git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; go mod vendor'
+          fi
+
+          # Best-effort: if previous runs left root-owned files, fix ownership so cleanup works.
+          sudo chown -R "$(id -u):$(id -g)" vendor >/dev/null 2>&1 || true
+
+          DOCKER_BUILDKIT=1 docker build -t "${CM_IMG}" -f deployment/images/Dockerfile.cluster-manager .
+          DOCKER_BUILDKIT=1 docker build -t "${TC_IMG}" -f deployment/images/Dockerfile.cluster-template-controller .
+
+          # Keep the workspace clean for the subsequent EMF deploy_kind checkout.
+          cd "${GITHUB_WORKSPACE}"
+          sudo rm -rf cluster-manager-src >/dev/null 2>&1 || rm -rf cluster-manager-src || true
+
+      - name: Checkout cluster-connect-gateway (for early image build)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
+          repository: open-edge-platform/cluster-connect-gateway
+          ref: ${{ env.CLUSTER_CONNECT_GATEWAY_GIT_REF }}
+          path: cluster-connect-gateway-src
+          token: ${{ secrets.SYS_EMF_GH_TOKEN }}
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Install toolchain deps
+      - name: Build cluster-connect-gateway images (early)
+        id: build_ccg_images
         run: |
-          make deps
+          set -euo pipefail
 
-      - name: Run lint
-        run: |
-          make lint
+          cd cluster-connect-gateway-src
 
-      - name: Run tests
-        run: |
-          make test
+          # Align image tags with the chart's appVersion (default used by templates when tag is empty).
+          CCG_TAG="$(awk -F': *' '/^appVersion:/{print $2; exit}' deployment/charts/cluster-connect-gateway/Chart.yaml | tr -d '"' | tr -d '\r')"
+          if [ -z "${CCG_TAG}" ]; then
+            echo "::error::Unable to determine cluster-connect-gateway appVersion from Chart.yaml" >&2
+            exit 1
+          fi
 
-      - name: Collect diagnostics
-        if: ${{ failure() }}
+          CCG_REGISTRY="registry-rs.edgeorchestration.intel.com/edge-orch/cluster"
+          CTRL_IMG="${CCG_REGISTRY}/connect-controller:${CCG_TAG}"
+          GW_IMG="${CCG_REGISTRY}/connect-gateway:${CCG_TAG}"
+          AGENT_IMG="${CCG_REGISTRY}/connect-agent:${CCG_TAG}"
+
+          {
+            echo "ccg_tag=${CCG_TAG}"
+            echo "ctrl_img=${CTRL_IMG}"
+            echo "gw_img=${GW_IMG}"
+            echo "agent_img=${AGENT_IMG}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Building images:" >&2
+          echo "- ${CTRL_IMG}" >&2
+          echo "- ${GW_IMG}" >&2
+          echo "- ${AGENT_IMG}" >&2
+
+          if [ ! -d vendor ]; then
+            echo "vendor/ not found; generating via golang:1.25..." >&2
+            docker run --rm \
+              --user "$(id -u):$(id -g)" \
+              -e HOME=/tmp \
+              -e GOPATH=/tmp/go \
+              -e GOCACHE=/tmp/gocache \
+              -e GOPRIVATE="${GOPRIVATE:-github.com/open-edge-platform}" \
+              -e GH_TOKEN="${{ secrets.SYS_EMF_GH_TOKEN }}" \
+              -v "${PWD}:/workspace" \
+              -w /workspace \
+              golang:1.25 \
+              bash -euo pipefail -c 'git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; go mod vendor'
+          fi
+
+          sudo chown -R "$(id -u):$(id -g)" vendor >/dev/null 2>&1 || true
+
+          DOCKER_BUILDKIT=1 docker build -t "${CTRL_IMG}" -f build/Dockerfile.connect-controller .
+          DOCKER_BUILDKIT=1 docker build -t "${GW_IMG}" -f build/Dockerfile.connect-gateway .
+          DOCKER_BUILDKIT=1 docker build -t "${AGENT_IMG}" -f build/Dockerfile.connect-agent .
+
+          cd "${GITHUB_WORKSPACE}"
+          sudo rm -rf cluster-connect-gateway-src >/dev/null 2>&1 || rm -rf cluster-connect-gateway-src || true
+
+      - name: Checkout cluster-api-provider-intel (for early image build)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          repository: open-edge-platform/cluster-api-provider-intel
+          ref: ${{ env.INTEL_INFRA_PROVIDER_GIT_REF }}
+          path: cluster-api-provider-intel-src
+          token: ${{ secrets.SYS_EMF_GH_TOKEN }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Build cluster-api-provider-intel images (early)
+        id: build_capi_images
         run: |
-          mkdir -p diag-logs
-          kubectl get pods -A -o wide > diag-logs/all-pods.log 2>&1 || true
-          kubectl get deployments -A -o wide > diag-logs/all-deployments.log 2>&1 || true
-          kubectl get svc -A -o wide > diag-logs/all-svcs.log 2>&1 || true
-          kubectl get coreproviders -A > diag-logs/capi-coreproviders.log 2>&1 || true
-          kubectl get bootstrapproviders -A > diag-logs/capi-bootstrapproviders.log 2>&1 || true
-          kubectl get controlplaneproviders -A > diag-logs/capi-controlplaneproviders.log 2>&1 || true
-          # VEN/Libvirt diagnostics
-          virsh list --all > diag-logs/virsh-list.log 2>&1 || true
-          virsh net-list --all > diag-logs/virsh-networks.log 2>&1 || true
+          set -euo pipefail
+
+          cd cluster-api-provider-intel-src
+
+          # Align image tags with the chart's appVersion (default used by templates when tag is empty).
+          CAPI_TAG="$(awk -F': *' '/^appVersion:/{print $2; exit}' deployment/charts/intel-infra-provider/Chart.yaml | tr -d '"' | tr -d '\r')"
+          if [ -z "${CAPI_TAG}" ]; then
+            echo "::error::Unable to determine cluster-api-provider-intel appVersion from Chart.yaml" >&2
+            exit 1
+          fi
+
+          CAPI_REGISTRY="registry-rs.edgeorchestration.intel.com/edge-orch/cluster"
+          MGR_IMG="${CAPI_REGISTRY}/capi-provider-intel-manager:${CAPI_TAG}"
+          SB_IMG="${CAPI_REGISTRY}/capi-provider-intel-southbound:${CAPI_TAG}"
+
+          {
+            echo "capi_tag=${CAPI_TAG}"
+            echo "mgr_img=${MGR_IMG}"
+            echo "sb_img=${SB_IMG}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Building images:" >&2
+          echo "- ${MGR_IMG}" >&2
+          echo "- ${SB_IMG}" >&2
+
+          if [ ! -d vendor ]; then
+            echo "vendor/ not found; generating via golang:1.25..." >&2
+            docker run --rm \
+              --user "$(id -u):$(id -g)" \
+              -e HOME=/tmp \
+              -e GOPATH=/tmp/go \
+              -e GOCACHE=/tmp/gocache \
+              -e GOPRIVATE="${GOPRIVATE:-github.com/open-edge-platform}" \
+              -e GH_TOKEN="${{ secrets.SYS_EMF_GH_TOKEN }}" \
+              -v "${PWD}:/workspace" \
+              -w /workspace \
+              golang:1.25 \
+              bash -euo pipefail -c 'git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; go mod vendor'
+          fi
+
+          sudo chown -R "$(id -u):$(id -g)" vendor >/dev/null 2>&1 || true
+
+          DOCKER_BUILDKIT=1 docker build -t "${MGR_IMG}" -f Dockerfile.manager .
+          DOCKER_BUILDKIT=1 docker build -t "${SB_IMG}" -f Dockerfile.southbound .
+
+          cd "${GITHUB_WORKSPACE}"
+          sudo rm -rf cluster-api-provider-intel-src >/dev/null 2>&1 || rm -rf cluster-api-provider-intel-src || true
+
+      - name: Pre-initialize workspace as EMF git repo (avoid deploy_kind checkout conflict)
+        run: |
+          set -euo pipefail
+          # actions/checkout inside deploy_kind checks out EMF into $GITHUB_WORKSPACE (the job
+          # workspace root). If the workspace contains files but no matching-remote git repo,
+          # checkout v4 deletes the directory contents first, then tries to remove git
+          # credentials — but the deletion has already removed .git, so the credential-removal
+          # step fails with: "fatal: --local can only be used inside a git repository".
+          #
+          # fix: pre-initialise the workspace as an EMF git repo with the exact remote
+          # URL that actions/checkout v4 compares against. When checkout finds a matching remote
+          # it does an in-place fetch + checkout (plus git clean to remove untracked files like
+          # cluster-manager-src/) instead of the broken delete-and-reclone path.
+          cd "$GITHUB_WORKSPACE"
+          rm -rf .git
+          git init
+          git remote add origin "https://github.com/open-edge-platform/edge-manageability-framework"
+          echo "Workspace pre-initialised with EMF remote:"
+          git remote -v
+
+      - name: Deploy Kind Orchestrator (EMF baseline)
+        id: deploy_emf
+        uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@3a2d9869daa26e1925daf159dabb7307fc24e3ed
+        env:
+          # EMF's kind deployment flow can optionally run a local docker-compose based
+          # router (Traefik) to expose services via hostnames. GitHub-hosted runners
+          # don't reliably provide a `docker-compose` binary, and the router isn't
+          # required for cluster-tests (we configure DNSmasq later).
+          SKIP_ROUTER: "1"
+          # Ensure EMF's mage targets don't enable kubectl debug output that can
+          # pollute JSON parsing in post-deploy generators.
+          MAGEFILE_DEBUG: "0"
+          # Best-effort: many EMF mage deploy/wait helpers honor DEPLOYMENT_TIMEOUT.
+          # Setting this helps ensure the deploy action fails fast enough that we
+          # can run diagnostics steps (instead of hitting the job timeout).
+          DEPLOYMENT_TIMEOUT: ${{ env.WF_DEPLOYMENT_TIMEOUT }}
+#          DOCKERHUB_USERNAME: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
+#          DOCKERHUB_TOKEN: ${{ secrets.SYS_DOCKERHUB_RO }}
+        with:
+          orch_version: ${{ env.WF_EMF_BRANCH }}
+          orch_password: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
+          token: ${{ secrets.SYS_EMF_GH_TOKEN }}
+          deployment_type: ${{ env.WF_ORCHESTRATOR_DEPLOYMENT_TYPE }}
+
+      - name: Load cluster-manager images into Kind (early)
+        if: ${{ steps.deploy_emf.outcome == 'success' && steps.build_cm_images.conclusion == 'success' }}
+        id: preload_cm_images
+        env:
+          CM_IMG: ${{ steps.build_cm_images.outputs.cm_img }}
+          TC_IMG: ${{ steps.build_cm_images.outputs.tc_img }}
+        run: |
+          set -euo pipefail
+
+          test -n "${CM_IMG}"
+          test -n "${TC_IMG}"
+
+          kind export kubeconfig --name kind
+          kind load docker-image "${CM_IMG}" --name kind
+          kind load docker-image "${TC_IMG}" --name kind
+
+      - name: Load cluster-connect-gateway images into Kind (early)
+        if: ${{ steps.deploy_emf.outcome == 'success' && steps.build_ccg_images.conclusion == 'success' }}
+        id: preload_ccg_images
+        env:
+          CTRL_IMG: ${{ steps.build_ccg_images.outputs.ctrl_img }}
+          GW_IMG: ${{ steps.build_ccg_images.outputs.gw_img }}
+          AGENT_IMG: ${{ steps.build_ccg_images.outputs.agent_img }}
+        run: |
+          set -euo pipefail
+
+          test -n "${CTRL_IMG}"
+          test -n "${GW_IMG}"
+          test -n "${AGENT_IMG}"
+
+          kind export kubeconfig --name kind
+          kind load docker-image "${CTRL_IMG}" --name kind
+          kind load docker-image "${GW_IMG}" --name kind
+          kind load docker-image "${AGENT_IMG}" --name kind
+
+      - name: Load cluster-api-provider-intel images into Kind (early)
+        if: ${{ steps.deploy_emf.outcome == 'success' && steps.build_capi_images.conclusion == 'success' }}
+        id: preload_capi_images
+        env:
+          MGR_IMG: ${{ steps.build_capi_images.outputs.mgr_img }}
+          SB_IMG: ${{ steps.build_capi_images.outputs.sb_img }}
+        run: |
+          set -euo pipefail
+
+          test -n "${MGR_IMG}"
+          test -n "${SB_IMG}"
+
+          kind export kubeconfig --name kind
+          kind load docker-image "${MGR_IMG}" --name kind
+          kind load docker-image "${SB_IMG}" --name kind
+
+      - name: Validate Orchestrator endpoints (post EMF deploy_kind)
+        run: |
+          set -euo pipefail
+
+          kind export kubeconfig --name kind
+
+          # Wait for API connectivity.
+          for i in {1..60}; do
+            if kubectl get nodes >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          kubectl get nodes -o wide
+
+          # Wait for required service IPs to be assigned.
+          await_lb_ip() {
+            local ns="$1"
+            local svc="$2"
+            local timeout_secs="$3"
+            local start
+            start="$(date +%s)"
+            while true; do
+              ip="$(kubectl -n "$ns" get svc "$svc" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+              if [ -n "$ip" ]; then
+                echo "${ns}/${svc} external IP: ${ip}"
+                return 0
+              fi
+              now="$(date +%s)"
+              if [ $((now - start)) -ge "$timeout_secs" ]; then
+                echo "::error::Timed out waiting for LoadBalancer IP on ${ns}/${svc}"
+                kubectl -n "$ns" get svc "$svc" -o wide || true
+                kubectl -n "$ns" describe svc "$svc" || true
+                return 1
+              fi
+              sleep 10
+            done
+          }
+
+          await_lb_ip orch-gateway traefik 900
+          await_lb_ip orch-boots ingress-haproxy-kubernetes-ingress 900
+          await_lb_ip argocd argocd-server 900
+          await_lb_ip gitea gitea-http 900
+
+          # Sanity-check the exact kubectl JSON outputs that EMF's mage generators parse.
+          # If these aren't strict JSON, mage will fail with: invalid character 'I'...
+          echo "Validating kubectl JSON for EMF mage generators..."
+          kubectl --v=1 -n orch-gateway get configmap kubernetes-docker-internal -o json | jq -e . >/dev/null
+
+          # Some resources are optional / deployment-type dependent. Only validate
+          # JSON output if the object exists.
+          if kubectl --v=1 -n orch-boots get cert tls-boots -o json >/dev/null 2>&1; then
+            kubectl --v=1 -n orch-boots get cert tls-boots -o json | jq -e . >/dev/null
+          else
+            echo "Skipping JSON check: orch-boots/cert tls-boots not found"
+          fi
+
+          if kubectl -v 1 -n orch-sre get cert kubernetes-docker-internal -o json >/dev/null 2>&1; then
+            kubectl -v 1 -n orch-sre get cert kubernetes-docker-internal -o json | jq -e . >/dev/null
+          else
+            echo "Skipping JSON check: orch-sre/cert kubernetes-docker-internal not found"
+          fi
+
+      - name: Configure DNSmasq (VEN)
+        run: |
+          # dnsmasq-setup.sh "config" needs kubectl access and expects the orchestrator
+          # LoadBalancer services (argocd/orch-boots/orch-gateway) to exist.
+          kind export kubeconfig --name kind
+
+          # Wait for kube-apiserver connectivity (avoids kubectl falling back to localhost:8080).
+          for i in {1..60}; do
+            if kubectl get nodes >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          kubectl get nodes -o wide
+
+          # Wait for expected namespaces/services to exist and obtain external IPs.
+          for i in {1..120}; do
+            if kubectl get svc -n orch-boots >/dev/null 2>&1 && kubectl get svc -n orch-gateway >/dev/null 2>&1; then
+              if kubectl get svc -n orch-boots | grep -q LoadBalancer && kubectl get svc -n orch-gateway | grep -q LoadBalancer; then
+                break
+              fi
+            fi
+            sleep 5
+          done
+
+          kubectl get svc -n orch-boots -o wide
+          kubectl get svc -n orch-gateway -o wide
+          cd /tmp/ven-scripts
+          ./dnsmasq-setup.sh "kind.internal" config
+
+      - name: Assert EMF workspace (post EMF deploy_kind)
+        run: |
+          set -euo pipefail
+
+          echo "Workspace: $(pwd)"
+          ls -la
+
+          # The deploy_kind action replaces the workspace contents with the EMF repo.
+          # Ensure we are in the EMF repo before running mage targets.
+          test -f Magefile.go
+          command -v mage
+          mage -version || mage --version
+
+      - name: Setup Orchestrator CA (post EMF deploy_kind)
+        run: |
+          set -euo pipefail
+          # Generate orch-ca.crt from the live cluster and install it into the
+          # system trust store. Required so Robot Framework (and curl) trust the
+          # orchestrator TLS certificate when hitting HTTPS endpoints.
+          mage gen:orchCa deploy:orchCa
+
+      - name: Create default multi-tenancy setup (post EMF deploy_kind)
+        id: default-mt-setup
+        env:
+          ORCH_DEFAULT_PASSWORD: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # Seeds Keycloak with the default org, project, and users that
+          # Robot Framework needs to authenticate against the orchestrator.
+          mage tenantUtils:createDefaultMtSetup
+          echo "Orch org/project/users created!"
+
+      - name: Pin cluster-orch Applications to git ref
+        if: ${{ steps.default-mt-setup.conclusion == 'success' }}
+        id: pin-cluster-orch
+        env:
+          CLUSTER_ORCH_GIT_REF: ${{ env.WF_CLUSTER_ORCH_GIT_REF }}
+        run: |
+          set -euo pipefail
+          kind export kubeconfig --name kind
+          mkdir -p diag-logs/cluster-orch-revision
+          echo "Cluster-orch git ref override: ${CLUSTER_ORCH_GIT_REF}" | tee diag-logs/cluster-orch-revision/inputs.txt
+
+          # Discover the namespace where root-app lives (varies by deployment type).
+          root_ns="$(kubectl get applications -A -o jsonpath='{range .items[?(@.metadata.name=="root-app")]}{.metadata.namespace}{"\n"}{end}' | head -n 1 || true)"
+          if [ -n "${root_ns}" ]; then
+            echo "Disabling root-app auto-sync in namespace: ${root_ns}" | tee diag-logs/cluster-orch-revision/root-app.txt
+            kubectl get application root-app -n "${root_ns}" -o json > diag-logs/cluster-orch-revision/root-app.before.json
+            kubectl get application root-app -n "${root_ns}" -o json \
+              | jq 'del(.spec.syncPolicy.automated)' \
+              | kubectl apply -f -
+            kubectl get application root-app -n "${root_ns}" -o json > diag-logs/cluster-orch-revision/root-app.after.json
+          else
+            echo "Skipping root-app autosync patch (root_ns not found)" \
+              | tee diag-logs/cluster-orch-revision/root-app.txt
+          fi
+
+          # Disable auto-sync on ALL ArgoCD Applications across all namespaces.
+          # root-app is not the only App-of-Apps in EMF; intermediate apps (e.g. in
+          # the argocd namespace managing the dev namespace apps) would otherwise
+          # reconcile the Application manifests we are about to patch, reverting our
+          # changes within seconds. The cluster is ephemeral so it is safe to freeze
+          # all auto-syncs for the duration of the test.
+          echo "Freezing auto-sync on all ArgoCD Applications to prevent mid-patch reconciliation..." \
+            | tee -a diag-logs/cluster-orch-revision/root-app.txt
+          echo "CLUSTER_ORCH_SYNC_FROZEN=true" >> "$GITHUB_ENV"
+          kubectl get applications -A -o json \
+            | jq -r '.items[] | .metadata.namespace + " " + .metadata.name' \
+            | while read -r _ns _name; do
+                if kubectl get application "${_name}" -n "${_ns}" -o json 2>/dev/null \
+                     | jq -e '.spec.syncPolicy.automated != null' >/dev/null 2>&1; then
+                  echo "  Freezing: ${_ns}/${_name}" | tee -a diag-logs/cluster-orch-revision/root-app.txt
+                  kubectl get application "${_name}" -n "${_ns}" -o json \
+                    | jq 'del(.spec.syncPolicy.automated)' \
+                    | kubectl apply -f - >/dev/null 2>&1 || true
+                fi
+              done
+
+          apps=(
+            cluster-manager
+            cluster-connect-gateway
+            intel-infra-provider
+          )
+
+          # Parse the comma-separated refs (mirrors the Robot tags pattern).
+          refs=()
+          IFS=',' read -r -a refs_raw <<<"${CLUSTER_ORCH_GIT_REF}"
+          for r in "${refs_raw[@]}"; do
+            r="${r//[[:space:]]/}"
+            if [ -n "${r}" ]; then
+              refs+=("${r}")
+            fi
+          done
+
+          if [ "${#refs[@]}" -ne "${#apps[@]}" ]; then
+            echo "::error::cluster-orch-git-ref must provide ${#apps[@]} refs (one per app). Got '${CLUSTER_ORCH_GIT_REF}'" >&2
+            echo "Expected order: cluster-manager,cluster-connect-gateway,intel-infra-provider" >&2
+            exit 1
+          fi
+
+          {
+            echo "Resolved per-app refs (in-order):"
+            for i in "${!apps[@]}"; do
+              echo "- ${apps[$i]}=${refs[$i]}"
+            done
+          } | tee diag-logs/cluster-orch-revision/app-refs.txt
+
+          # Persist per-app refs for subsequent steps.
+          echo "CLUSTER_MANAGER_GIT_REF=${refs[0]}" >> "$GITHUB_ENV"
+          echo "CLUSTER_CONNECT_GATEWAY_GIT_REF=${refs[1]}" >> "$GITHUB_ENV"
+          echo "INTEL_INFRA_PROVIDER_GIT_REF=${refs[2]}" >> "$GITHUB_ENV"
+
+          # Find which namespace the EMF Argo Applications are created in.
+          # Most deployments use the argocd namespace, but the root-app may live
+          # in a different namespace.
+          apps_ns="$(kubectl get applications -A -o jsonpath='{range .items[?(@.metadata.name=="cluster-manager")]}{.metadata.namespace}{"\n"}{end}' | head -n 1 || true)"
+          if [ -z "${apps_ns}" ]; then
+            echo "::warning::cluster-manager Application not found; falling back to argocd namespace"
+            apps_ns="argocd"
+          fi
+
+          echo "Detected Applications namespace: ${apps_ns}" | tee diag-logs/cluster-orch-revision/apps-namespace.txt
+          # Persist for subsequent steps (e.g. stabilization wait/version summary).
+          echo "CLUSTER_ORCH_APPS_NS=${apps_ns}" >> "$GITHUB_ENV"
+          kubectl get applications -n "${apps_ns}" -o wide > diag-logs/cluster-orch-revision/applications.txt || true
+
+          for i in "${!apps[@]}"; do
+            app="${apps[$i]}"
+            app_ref="${refs[$i]}"
+
+            if ! kubectl get application "${app}" -n "${apps_ns}" >/dev/null 2>&1; then
+              echo "Skipping missing Application: ${apps_ns}/${app}" | tee -a diag-logs/cluster-orch-revision/patch.log
+              continue
+            fi
+
+            echo "Patching Application: ${apps_ns}/${app}" | tee -a diag-logs/cluster-orch-revision/patch.log
+            kubectl get application "${app}" -n "${apps_ns}" -o json > "diag-logs/cluster-orch-revision/${app}.before.json"
+
+            # cluster-manager: convert OCI/Helm chart sources to git/path sources so
+            # targetRevision pinning is deterministic.
+            if [ "${app}" = "cluster-manager" ]; then
+              # EMF can deploy this app with chart names like:
+              #   cluster/charts/cluster-manager
+              #   cluster/charts/cluster-template-crd
+              # so match by base chart name.
+              if jq -e '(
+                  (.spec.sources? // []) | any(.chart? != null)
+                )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
+                echo "${apps_ns}/${app} contains chart sources; converting to git/path for pinning" >&2
+
+                # Use a heredoc to avoid brittle multi-line quoting inside GitHub Actions' bash runner.
+                cm_rewrite_filter="$(cat <<'JQ'
+                  def cm_repo: "https://github.com/open-edge-platform/cluster-manager";
+                  def chart_base($c): ($c // "" | split("/") | last);
+
+                  def to_git_path($path):
+                    .repoURL = cm_repo
+                    | .path = $path
+                    | .targetRevision = $rev
+                    | del(.chart);
+
+                  # Prefer carrying over any existing helm config (valuesObject/parameters/etc)
+                  # from OCI chart sources when converting to git/path.
+                  def pick_src($base):
+                    (
+                      ((.spec.sources // []) + (if .spec.source? then [ .spec.source ] else [] end))
+                      | map(select(chart_base(.chart? // "") == $base))
+                      | .[0]
+                    );
+
+                  def mk_src($base; $path):
+                    (pick_src($base) // {})
+                    | to_git_path($path);
+
+                  .spec.sources = [
+                    mk_src("cluster-manager"; "deployment/charts/cluster-manager"),
+                    mk_src("cluster-template-crd"; "deployment/charts/cluster-template-crd")
+                  ]
+                  | del(.spec.source)
+          JQ
+                )"
+
+                cm_rewritten_json="diag-logs/cluster-orch-revision/${app}.rewritten.json"
+                jq --arg rev "${app_ref}" "${cm_rewrite_filter}" "diag-logs/cluster-orch-revision/${app}.before.json" > "${cm_rewritten_json}"
+                cm_rewritten_sources="$(jq -c '.spec.sources // []' "${cm_rewritten_json}")"
+                kubectl patch application "${app}" -n "${apps_ns}" --type merge \
+                  -p "{\"spec\":{\"source\":null,\"sources\":${cm_rewritten_sources}}}"
+
+                kubectl get application "${app}" -n "${apps_ns}" -o json > "diag-logs/cluster-orch-revision/${app}.after.json"
+                cp "diag-logs/cluster-orch-revision/${app}.after.json" "diag-logs/cluster-orch-revision/${app}.before.json"
+              fi
+            fi
+
+            # cluster-connect-gateway: same OCI→git/path conversion as cluster-manager.
+            if [ "${app}" = "cluster-connect-gateway" ]; then
+              # EMF often deploys this as an OCI chart with chart names like:
+              #   cluster/charts/cluster-connect-gateway
+              # so match by the base chart name.
+              if jq -e '(
+                  (.spec.sources? // []) | any(.chart? != null)
+                )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
+                echo "${apps_ns}/${app} contains chart sources; converting to git/path for pinning" >&2
+
+                ccg_rewrite_filter="$(cat <<'JQ'
+                  def ccg_repo: "https://github.com/open-edge-platform/cluster-connect-gateway";
+                  def chart_base($c): ($c // "" | split("/") | last);
+
+                  def to_git_path($path):
+                    .repoURL = ccg_repo
+                    | .path = $path
+                    | .targetRevision = $rev
+                    | del(.chart);
+
+                  # Prefer carrying over any existing helm config (valuesObject/parameters/etc)
+                  # from the OCI chart source when converting to git/path.
+                  def pick_src($base):
+                    (
+                      ((.spec.sources // []) + (if .spec.source? then [ .spec.source ] else [] end))
+                      | map(select(chart_base(.chart? // "") == $base))
+                      | .[0]
+                    );
+
+                  def mk_src($base; $path):
+                    (pick_src($base) // {})
+                    | to_git_path($path);
+
+                  .spec.sources = [
+                    mk_src("cluster-connect-gateway"; "deployment/charts/cluster-connect-gateway"),
+                    mk_src("cluster-connect-gateway-crd"; "deployment/charts/cluster-connect-gateway-crd")
+                  ]
+                  | del(.spec.source)
+          JQ
+                )"
+
+                ccg_rewritten_json="diag-logs/cluster-orch-revision/${app}.rewritten.json"
+                jq --arg rev "${app_ref}" "${ccg_rewrite_filter}" "diag-logs/cluster-orch-revision/${app}.before.json" > "${ccg_rewritten_json}"
+                ccg_rewritten_sources="$(jq -c '.spec.sources // []' "${ccg_rewritten_json}")"
+                kubectl patch application "${app}" -n "${apps_ns}" --type merge \
+                  -p "{\"spec\":{\"source\":null,\"sources\":${ccg_rewritten_sources}}}"
+
+                kubectl get application "${app}" -n "${apps_ns}" -o json > "diag-logs/cluster-orch-revision/${app}.after.json"
+                cp "diag-logs/cluster-orch-revision/${app}.after.json" "diag-logs/cluster-orch-revision/${app}.before.json"
+              fi
+            fi
+
+            # intel-infra-provider: same OCI→git/path conversion as cluster-manager.
+            if [ "${app}" = "intel-infra-provider" ]; then
+              # EMF deploys this as OCI charts with names like:
+              #   cluster/charts/intel-infra-provider
+              # Convert those to git/path sources so targetRevision pinning works.
+              if jq -e '(
+                  (.spec.sources? // []) | any(.chart? != null)
+                )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
+                echo "${apps_ns}/${app} contains chart sources; converting to git/path for pinning" >&2
+
+                capi_rewrite_filter="$(cat <<'JQ'
+                  def capi_repo: "https://github.com/open-edge-platform/cluster-api-provider-intel";
+                  def chart_base($c): ($c // "" | split("/") | last);
+
+                  def to_git_path($path):
+                    .repoURL = capi_repo
+                    | .path = $path
+                    | .targetRevision = $rev
+                    | del(.chart);
+
+                  def pick_src($base):
+                    (
+                      ((.spec.sources // []) + (if .spec.source? then [ .spec.source ] else [] end))
+                      | map(select(chart_base(.chart? // "") == $base))
+                      | .[0]
+                    );
+
+                  def mk_src($base; $path):
+                    (pick_src($base) // {})
+                    | to_git_path($path);
+
+                  .spec.sources = [
+                    mk_src("intel-infra-provider"; "deployment/charts/intel-infra-provider"),
+                    mk_src("intel-infra-provider-crds"; "deployment/charts/intel-infra-provider-crds")
+                  ]
+                  | del(.spec.source)
+          JQ
+                )"
+
+                capi_rewritten_json="diag-logs/cluster-orch-revision/${app}.rewritten.json"
+                jq --arg rev "${app_ref}" "${capi_rewrite_filter}" "diag-logs/cluster-orch-revision/${app}.before.json" > "${capi_rewritten_json}"
+                capi_rewritten_sources="$(jq -c '.spec.sources // []' "${capi_rewritten_json}")"
+                kubectl patch application "${app}" -n "${apps_ns}" --type merge \
+                  -p "{\"spec\":{\"source\":null,\"sources\":${capi_rewritten_sources}}}"
+
+                kubectl get application "${app}" -n "${apps_ns}" -o json > "diag-logs/cluster-orch-revision/${app}.after.json"
+                cp "diag-logs/cluster-orch-revision/${app}.after.json" "diag-logs/cluster-orch-revision/${app}.before.json"
+              fi
+            fi
+
+            # We can only pin targetRevision for sources that are path-based (git).
+            if ! jq -e '(
+                ((.spec.source?.path? // "") != "") or
+                ((.spec.sources? // []) | any(.path? != null and .path != ""))
+              )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
+              echo "::warning::${apps_ns}/${app} has no git/path source to pin via targetRevision. Skipping." >&2
+              jq -r '.spec.source // {sources: .spec.sources}' "diag-logs/cluster-orch-revision/${app}.before.json" \
+                | tee "diag-logs/cluster-orch-revision/${app}.source.txt" >/dev/null
+              echo "SKIPPED: ${apps_ns}/${app} (no git/path source)" | tee -a diag-logs/cluster-orch-revision/patch.log
+              continue
+            fi
+
+            # If the Application also contains Helm-repo/OCI chart sources, we can still pin the
+            # git/path sources. Emit a warning for transparency.
+            if jq -e '(
+                (.spec.source? | has("chart")) or
+                (.spec.source?.repoURL? // "" | startswith("oci://")) or
+                ((.spec.sources? // []) | any(.chart? != null)) or
+                ((.spec.sources? // []) | any((.repoURL? // "") | startswith("oci://")))
+              )' "diag-logs/cluster-orch-revision/${app}.before.json" >/dev/null; then
+              echo "::warning::${apps_ns}/${app} includes OCI/Helm chart sources; only pinning git/path sources." >&2
+              jq -r '.spec.source // {sources: .spec.sources}' "diag-logs/cluster-orch-revision/${app}.before.json" \
+                | tee "diag-logs/cluster-orch-revision/${app}.source.txt" >/dev/null
+            fi
+
+            jq --arg rev "${app_ref}" '
+              if .spec.sources? and (.spec.sources | length) > 0 then
+                .spec.sources = (
+                  .spec.sources
+                  | map(
+                      if (.path? != null and .path != "") then
+                        .targetRevision = $rev
+                      else
+                        .
+                      end
+                    )
+                )
+              else
+                if (.spec.source? and (.spec.source.path? != null and .spec.source.path != "")) then
+                  .spec.source.targetRevision = $rev
+                else
+                  .
+                end
+              end
+            ' "diag-logs/cluster-orch-revision/${app}.before.json" \
+              | kubectl apply -f -
+
+            kubectl get application "${app}" -n "${apps_ns}" -o json > "diag-logs/cluster-orch-revision/${app}.after.json"
+
+            # Emit post-patch info to help verify conversion/pinning/overrides took effect.
+            # (Especially important for apps that start as OCI chart sources.)
+            {
+              echo "===== ${apps_ns}/${app} post-patch spec (sources + helm params) ====="
+              kubectl get application "${app}" -n "${apps_ns}" -o json \
+                | jq -r '
+                    def srcs: (.spec.sources // []);
+                    def src: (.spec.source // {});
+                    "name=\(.metadata.namespace)/\(.metadata.name)",
+                    (if (srcs|length) > 0 then
+                      (srcs
+                       | to_entries
+                       | map(
+                           "source[" + (.key | tostring) + "]: repoURL=" + (.value.repoURL // "") + " path=" + (.value.path // "") + " chart=" + (.value.chart // "") + " targetRevision=" + (.value.targetRevision // "") + " helm.parameters=" + ((.value.helm.parameters // []) | map(.name + "=" + (.value | tostring)) | join(","))
+                         )
+                       | .[])
+                    else
+                      "source: repoURL=" + (src.repoURL // "") + " path=" + (src.path // "") + " chart=" + (src.chart // "") + " targetRevision=" + (src.targetRevision // "") + " helm.parameters=" + ((src.helm.parameters // []) | map(.name + "=" + (.value | tostring)) | join(","))
+                    end)
+                  '
+            } | tee -a "diag-logs/cluster-orch-revision/post-patch-summary.log"
+          done
+
+      - name: Sync patched cluster-orch Applications (auto-sync disabled)
+        if: ${{ steps.pin-cluster-orch.conclusion == 'success' }}
+        run: |
+          set -euo pipefail
+          kind export kubeconfig --name kind
+
+          apps_ns="${CLUSTER_ORCH_APPS_NS}"
+          apps=(
+            cluster-manager
+            cluster-connect-gateway
+            intel-infra-provider
+          )
+
+          for app in "${apps[@]}"; do
+            if ! kubectl get application "${app}" -n "${apps_ns}" >/dev/null 2>&1; then
+              continue
+            fi
+
+            echo "Requesting hard refresh + one-time sync for ${apps_ns}/${app}" >&2
+            kubectl annotate application "${app}" -n "${apps_ns}" \
+              argocd.argoproj.io/refresh=hard --overwrite >/dev/null 2>&1 || true
+
+            kubectl patch application "${app}" -n "${apps_ns}" --type merge \
+              -p '{"operation":{"sync":{"prune":true,"syncOptions":["CreateNamespace=true","ApplyOutOfSyncOnly=true"]}}}' >/dev/null
+
+            # Wait for operation to complete so patched spec is actually applied.
+            for i in {1..60}; do
+              phase="$(kubectl get application "${app}" -n "${apps_ns}" -o jsonpath='{.status.operationState.phase}' 2>/dev/null || true)"
+              sync_status="$(kubectl get application "${app}" -n "${apps_ns}" -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
+              health_status="$(kubectl get application "${app}" -n "${apps_ns}" -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
+
+              if [ "${phase}" = "Succeeded" ] && [ "${sync_status}" = "Synced" ]; then
+                echo "Manual sync complete for ${apps_ns}/${app}: sync=${sync_status} health=${health_status}" >&2
+                break
+              fi
+
+              if [ "${phase}" = "Error" ] || [ "${phase}" = "Failed" ]; then
+                echo "::error::Manual sync failed for ${apps_ns}/${app}: phase=${phase}" >&2
+                kubectl get application "${app}" -n "${apps_ns}" -o yaml >&2 || true
+                exit 1
+              fi
+
+              if [ "${i}" -eq 60 ]; then
+                echo "::error::Timed out waiting manual sync for ${apps_ns}/${app}. phase=${phase:-?} sync=${sync_status:-?} health=${health_status:-?}" >&2
+                kubectl get application "${app}" -n "${apps_ns}" -o yaml >&2 || true
+                exit 1
+              fi
+
+              sleep 5
+            done
+          done
+
+      - name: Restart cluster-manager deployments (use preloaded images)
+        if: ${{ steps.pin-cluster-orch.conclusion == 'success' && steps.preload_cm_images.conclusion == 'success' }}
+        run: |
+          set -euo pipefail
+          kind export kubeconfig --name kind
+
+          # Restart cluster-manager deployments so they pick up the now-available images quickly.
+          kubectl -n orch-cluster get deploy -o name | grep -E 'cluster-manager' | while read -r d; do
+            echo "Restarting: orch-cluster/${d}" >&2
+            kubectl -n orch-cluster rollout restart "${d}"
+          done
+
+      - name: Restart cluster-connect-gateway deployments (use preloaded images)
+        if: ${{ steps.pin-cluster-orch.conclusion == 'success' && steps.preload_ccg_images.conclusion == 'success' }}
+        run: |
+          set -euo pipefail
+          kind export kubeconfig --name kind
+
+          kubectl -n orch-cluster get deploy -o name | grep -E 'connect-' | while read -r d; do
+            echo "Restarting: orch-cluster/${d}" >&2
+            kubectl -n orch-cluster rollout restart "${d}"
+          done
+
+      - name: Restart cluster-api-provider-intel deployments (use preloaded images)
+        if: ${{ steps.pin-cluster-orch.conclusion == 'success' && steps.preload_capi_images.conclusion == 'success' }}
+        run: |
+          set -euo pipefail
+          kind export kubeconfig --name kind
+
+          kubectl -n orch-cluster get deploy -o name | grep -E 'intel-infra-provider' | while read -r d; do
+            echo "Restarting: orch-cluster/${d}" >&2
+            kubectl -n orch-cluster rollout restart "${d}"
+          done
+
+      - name: Wait for cluster-orch Applications to stabilize
+        if: ${{ steps.default-mt-setup.conclusion == 'success' && steps.pin-cluster-orch.conclusion == 'success' }}
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          kind export kubeconfig --name kind
+
+          # Use the namespace detected and persisted in the patch step.
+          apps_ns="${CLUSTER_ORCH_APPS_NS}"
+
+          apps=(
+            cluster-manager
+            cluster-connect-gateway
+            intel-infra-provider
+          )
+
+          deadline="$(( $(date +%s) + 7*60 ))"
+          degraded_hits=0
+          while true; do
+            all_ok=1
+            for app in "${apps[@]}"; do
+              if ! kubectl get application "${app}" -n "${apps_ns}" >/dev/null 2>&1; then
+                continue
+              fi
+
+              sync_status="$(kubectl get application "${app}" -n "${apps_ns}" -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
+              health_status="$(kubectl get application "${app}" -n "${apps_ns}" -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
+
+              if [ "${sync_status}" != "Synced" ] || [ "${health_status}" != "Healthy" ]; then
+                all_ok=0
+                echo "${apps_ns}/${app}: sync=${sync_status:-?} health=${health_status:-?}" >&2
+
+                # Fail-fast diagnostics for intel-infra-provider when it gets stuck Degraded.
+                if [ "${app}" = "intel-infra-provider" ] && [ "${health_status}" = "Degraded" ]; then
+                  degraded_hits=$((degraded_hits + 1))
+                  if [ "${degraded_hits}" -ge 4 ]; then
+                    echo "::error::intel-infra-provider has been Degraded for multiple checks; dumping diagnostics" >&2
+                    mkdir -p diag-logs/intel-infra-provider
+                    kubectl get application "intel-infra-provider" -n "${apps_ns}" -o yaml > diag-logs/intel-infra-provider/application.yaml 2>&1 || true
+                    kubectl get application "intel-infra-provider" -n "${apps_ns}" -o json > diag-logs/intel-infra-provider/application.json 2>&1 || true
+                    kubectl -n orch-cluster get all -l app.kubernetes.io/instance=intel-infra-provider -o wide > diag-logs/intel-infra-provider/resources.txt 2>&1 || true
+                    kubectl -n orch-cluster get pods -l app.kubernetes.io/instance=intel-infra-provider -o wide > diag-logs/intel-infra-provider/pods.txt 2>&1 || true
+                    kubectl -n orch-cluster get pods -l app.kubernetes.io/instance=intel-infra-provider -o json > diag-logs/intel-infra-provider/pods.json 2>&1 || true
+                    kubectl -n orch-cluster get events --sort-by=.lastTimestamp > diag-logs/intel-infra-provider/events.txt 2>&1 || true
+
+                    # Describe and log a limited set of non-ready pods.
+                    if command -v jq >/dev/null 2>&1; then
+                      jq -r '
+                        .items[]
+                        | select(((.status.conditions // []) | map(select(.type=="Ready" and .status=="True")) | length) == 0)
+                        | .metadata.name' diag-logs/intel-infra-provider/pods.json \
+                        | head -n 6 \
+                        | while read -r p; do
+                            echo "===== kubectl describe pod -n orch-cluster ${p} =====" >> diag-logs/intel-infra-provider/pods-describe.txt
+                            kubectl -n orch-cluster describe pod "${p}" >> diag-logs/intel-infra-provider/pods-describe.txt 2>&1 || true
+                            echo >> diag-logs/intel-infra-provider/pods-describe.txt
+
+                            # Best-effort: fetch logs from known containers (ignore failures).
+                            kubectl -n orch-cluster logs "${p}" -c intel-infra-provider-manager --tail=300 >> diag-logs/intel-infra-provider/manager.log 2>&1 || true
+                            kubectl -n orch-cluster logs "${p}" -c intel-infra-provider-southbound --tail=300 >> diag-logs/intel-infra-provider/southbound.log 2>&1 || true
+                          done
+                    fi
+
+                    echo "::error::intel-infra-provider is Degraded; see diag-logs/intel-infra-provider/*" >&2
+                    exit 1
+                  fi
+                fi
+              fi
+            done
+
+            if [ "${all_ok}" = "1" ]; then
+              echo "cluster-orch Applications are Synced/Healthy"
+              break
+            fi
+
+            if [ "$(date +%s)" -ge "${deadline}" ]; then
+              echo "::error::Timed out waiting for cluster-orch Applications to stabilize" >&2
+              kubectl get applications -n "${apps_ns}" -o wide || true
+              exit 1
+            fi
+
+            sleep 15
+          done
+
+          echo
+          echo "===== cluster-orch Application versions (desired vs actual) ====="
+          for app in "${apps[@]}"; do
+            if ! kubectl get application "${app}" -n "${apps_ns}" >/dev/null 2>&1; then
+              continue
+            fi
+
+            kubectl get application "${app}" -n "${apps_ns}" -o json \
+              | jq -r '
+                  def desired_ref:
+                    if (.spec.sources? and (.spec.sources|length)>0) then
+                      ([.spec.sources[]? | select(.path? != null and .path != "") | .targetRevision] | join(","))
+                    else
+                      (.spec.source.targetRevision // "")
+                    end;
+
+                  def desired_repo:
+                    if (.spec.sources? and (.spec.sources|length)>0) then
+                      ([.spec.sources[]? | select(.path? != null and .path != "") | (.repoURL + " path=" + (.path // ""))] | join(" | "))
+                    else
+                      ((.spec.source.repoURL // "") + " path=" + (.spec.source.path // ""))
+                    end;
+
+                  def actual_rev:
+                    if (.status.sync.revisions? and (.status.sync.revisions|length)>0) then
+                      (.status.sync.revisions | join(","))
+                    else
+                      (.status.sync.revision // "")
+                    end;
+
+                  "- \(.metadata.namespace)/\(.metadata.name): desired_ref=\(desired_ref) actual_rev=\(actual_rev) sync=\(.status.sync.status // "?") health=\(.status.health.status // "?") source=\(desired_repo)"'
+          done
+
+          echo
+          echo "===== cluster-orch deployment images (orch-cluster namespace) ====="
+          # Map each ArgoCD Application to the deployments it manages and print
+          # every container image (name + tag) currently running in orch-cluster.
+          declare -A app_label_map=(
+            ["cluster-manager"]="app=cluster-manager-cm"
+            ["cluster-connect-gateway"]="app.kubernetes.io/instance=cluster-connect-gateway"
+            ["intel-infra-provider"]="app.kubernetes.io/instance=intel-infra-provider"
+          )
+
+          for app in "${apps[@]}"; do
+            label="${app_label_map[${app}]:-}"
+            echo "--- ${app} ---"
+            if [ -z "${label}" ]; then
+              echo "  (no label mapping defined)"
+              continue
+            fi
+            # Collect unique image:tag values across all matching pods/containers.
+            kubectl get pods -n orch-cluster -l "${label}" -o json 2>/dev/null \
+              | jq -r '
+                  [
+                    .items[]
+                    | .spec.containers[], (.spec.initContainers // [])[]
+                    | .image
+                  ]
+                  | unique[]
+                  | "  " + .' \
+              || echo "  (no pods found for label: ${label})"
+          done
+
+      - name: Checkout edge-manage-test-automation
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          repository: open-edge-platform/edge-manage-test-automation
+          ref: '0.3.3'
+          path: edge-manage-test-automation
+          submodules: recursive
+          token: ${{ secrets.SYS_EMF_GH_TOKEN }}
+          persist-credentials: false
+
+      - name: Setup edge-manage-test-automation
+        working-directory: edge-manage-test-automation
+        run: |
+          set -euo pipefail
+          git submodule update --init --recursive
+          make asdf-install
+          make venv_edge-manage-test-automation
+          pushd repos/ven/pico
+          asdf install
+          popd
+          sudo apt-get install -y --no-install-recommends xsltproc
+
+      - name: Deploy VEN and Edge Cluster via Golden Suite
+        if: ${{ steps.default-mt-setup.conclusion == 'success' && steps.pin-cluster-orch.conclusion == 'success' }}
+        id: deploy-ven
+        working-directory: edge-manage-test-automation
+        timeout-minutes: 120
+        env:
+          REQUESTS_CA_BUNDLE: /usr/local/share/ca-certificates/orch-ca.crt
+          LIBVIRT_DEFAULT_URI: qemu:///system
+          ORCH_DEFAULT_PASSWORD: ${{ secrets.ORCH_DEFAULT_PASSWORD }}
+          ROBOT_TAGS: ${{ env.WF_ROBOT_TAGS }}
+          GOLDEN_SUITE_RETRIES: ${{ env.WF_GOLDEN_SUITE_RETRIES }}
+        run: |
+          set -euo pipefail
+          KC_ADMIN_PWD=$(kubectl -n orch-platform get secrets platform-keycloak -o jsonpath='{.data.admin-password}' | base64 -d)
+          yq eval ".orchestrator.admin_password = \"${KC_ADMIN_PWD}\"" -i orchestrator-configs/kind.yaml
+          yq eval '.infra.host.edgenode.hw_info.libvirt_pool_name = "default"' -i tests/core_foundation/data/cf_data_2_ven_VEN-libvirt_ubuntu-24.04-lts.yaml
+          yq eval '.infra.host.edgenode.hw_info.libvirt_network_name = "default"' -i tests/core_foundation/data/cf_data_2_ven_VEN-libvirt_ubuntu-24.04-lts.yaml
+          cat orchestrator-configs/kind.yaml
+          cat tests/core_foundation/data/cf_data_2_ven_VEN-libvirt_ubuntu-24.04-lts.yaml
+          source venv_edge-manage-test-automation/bin/activate
+
+          include_args=()
+          IFS=',' read -r -a tags <<<"${ROBOT_TAGS}"
+          for t in "${tags[@]}"; do
+            t="${t//[[:space:]]/}"
+            if [ -n "${t}" ]; then
+              include_args+=("--include" "${t}")
+            fi
+          done
+
+          outroot="robot_output/ven_setup"
+          mkdir -p "${outroot}"
+
+          if ! [[ "${GOLDEN_SUITE_RETRIES}" =~ ^[0-3]$ ]]; then
+            echo "::error::golden-suite-retries must be an integer between 0 and 3. Got '${GOLDEN_SUITE_RETRIES}'." >&2
+            exit 1
+          fi
+
+          max_attempts=$((GOLDEN_SUITE_RETRIES + 1))
+          attempt=1
+          while [ "${attempt}" -le "${max_attempts}" ]; do
+            outdir="${outroot}/attempt${attempt}"
+            mkdir -p "${outdir}"
+
+            echo "===== Golden Suite attempt ${attempt}/${max_attempts} =====" >&2
+
+            set +e
+            robot -L INFO --pythonpath . \
+              --name "VEN Onboarding and Cluster Lifecycle (attempt ${attempt})" \
+              -d "${outdir}" \
+              --output "output.xml" \
+              --log "log.html" \
+              --report "report.html" \
+              -V orchestrator-configs/kind.yaml \
+              -V tests/core_foundation/data/cf_data_2_ven_VEN-libvirt_ubuntu-24.04-lts.yaml \
+              --exitonfailure \
+              "${include_args[@]}" \
+              tests/core_foundation/core_foundation.robot
+            rc=$?
+            set -e
+
+            if [ "${rc}" -eq 0 ]; then
+              echo "Golden Suite passed on attempt ${attempt}." >&2
+              break
+            fi
+
+            echo "::warning::Golden Suite failed on attempt ${attempt} (rc=${rc})." >&2
+
+            if [ "${attempt}" -ge "${max_attempts}" ]; then
+              echo "::error::Golden Suite still failing after ${max_attempts} attempts." >&2
+              exit "${rc}"
+            fi
+
+            # Small cooldown (helps with transient readiness/race failures).
+            sleep 60
+            attempt=$((attempt + 1))
+          done
+
+          echo "VEN onboarding, cluster creation, and cluster deletion done!"
 
       - name: Upload diagnostics
         if: ${{ failure() }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
-          name: diag-logs
-          path: diag-logs/*
+          name: golden-suite-report
+          path: edge-manage-test-automation/robot_output/**/*
