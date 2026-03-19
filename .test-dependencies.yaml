@@ -93,6 +93,8 @@ components:
       # Note: The patch is required to set the fetchConfig URL for the K3S providers.
       - until kubectl get -n capk-system controlplaneprovider/k3s >/dev/null 2>&1; do sleep 1; done && kubectl patch -n capk-system controlplaneprovider k3s --type=merge -p '{"spec":{"fetchConfig":{"url":"'"${CAPI_K3S_CONTROLPLANE_URL}"'"}}}'
       - until kubectl get -n capk-system bootstrapprovider/k3s >/dev/null 2>&1; do sleep 1; done && kubectl patch -n capk-system bootstrapprovider k3s --type=merge -p '{"spec":{"fetchConfig":{"url":"'"${CAPI_K3S_BOOTSTRAP_URL}"'"}}}'
+      - until kubectl get -n capk-system deployment/capi-k3s-bootstrap-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl set image -n capk-system deployment/capi-k3s-bootstrap-controller-manager kube-rbac-proxy=quay.io/brancz/kube-rbac-proxy:v0.21.0
+      - until kubectl get -n capk-system deployment/capi-k3s-control-plane-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl set image -n capk-system deployment/capi-k3s-control-plane-controller-manager kube-rbac-proxy=quay.io/brancz/kube-rbac-proxy:v0.21.0
       - until kubectl get -n capk-system deployment/capi-k3s-bootstrap-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace capk-system deployment/capi-k3s-bootstrap-controller-manager --for=condition=available --timeout=5m
       - until kubectl get -n capk-system deployment/capi-k3s-control-plane-controller-manager >/dev/null 2>&1; do sleep 1; done && kubectl wait --namespace capk-system deployment/capi-k3s-control-plane-controller-manager --for=condition=available --timeout=5m
       ##################################################################################
