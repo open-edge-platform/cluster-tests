@@ -394,17 +394,18 @@ jobs:
           cd "${GITHUB_WORKSPACE}"
           sudo rm -rf cluster-api-provider-intel-src >/dev/null 2>&1 || rm -rf cluster-api-provider-intel-src || true
 
-      - name: Pre-initialize workspace as EMF git repo (avoid deploy_kind checkout conflict)
+      - name: Pre-initialize workspace as EMF git repo (avoid checkout conflict)
         run: |
           set -euo pipefail
-          # actions/checkout inside deploy_kind checks out EMF into $GITHUB_WORKSPACE (the job
-          # workspace root). If the workspace contains files but no matching-remote git repo,
-          # checkout v4 deletes the directory contents first, then tries to remove git
-          # credentials — but the deletion has already removed .git, so the credential-removal
-          # step fails with: "fatal: --local can only be used inside a git repository".
+          # The "Checkout EMF (deploy)" step below checks out EMF into $GITHUB_WORKSPACE
+          # (the job workspace root). If the workspace contains files but no matching-remote
+          # git repo, checkout v6 deletes the directory contents first, then tries to remove
+          # git credentials — but the deletion has already removed .git, so the
+          # credential-removal step fails with:
+          #   "fatal: --local can only be used inside a git repository".
           #
-          # fix: pre-initialise the workspace as an EMF git repo with the exact remote
-          # URL that actions/checkout v4 compares against. When checkout finds a matching remote
+          # Fix: pre-initialise the workspace as an EMF git repo with the exact remote URL
+          # that actions/checkout v6 compares against. When checkout finds a matching remote
           # it does an in-place fetch + checkout (plus git clean to remove untracked files like
           # cluster-manager-src/) instead of the broken delete-and-reclone path.
           cd "$GITHUB_WORKSPACE"
@@ -414,33 +415,83 @@ jobs:
           echo "Workspace pre-initialised with EMF remote:"
           git remote -v
 
+      # Inline the EMF deploy_kind composite action instead of using `uses:`.
+      # The action sets DEPLOY_REPO_BRANCH: ${{ github.sha }} in a step-level env, which
+      # always overrides the caller's env — so ArgoCD received the cluster-tests SHA as
+      # argo.deployRepoRevision instead of the EMF ref, leaving root-app at Sync: Unknown.
+
+      - name: Checkout EMF (deploy)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: open-edge-platform/edge-manageability-framework
+          ref: ${{ env.WF_EMF_BRANCH }}
+          token: ${{ env.SYS_EMF_GH_TOKEN }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up git credentials (deploy)
+        env:
+          TOKEN: ${{ env.SYS_EMF_GH_TOKEN }}
+        run: |
+          echo "GOPRIVATE=github.com/open-edge-platform" >> "$GITHUB_ENV"
+          # Store credentials in ~/.git-credentials (chmod 0600) instead of embedding
+          # the token as a URL key in ~/.gitconfig, avoiding secret-scanner false positives.
+          printf 'https://x-access-token:%s@github.com\n' "${TOKEN}" > ~/.git-credentials
+          chmod 0600 ~/.git-credentials
+          git config --global credential.helper store
+
+      - name: Setup asdf and install dependencies (deploy)
+        uses: open-edge-platform/orch-ci/.github/actions/setup-asdf@main  # zizmor: ignore[unpinned-uses]
+
       - name: Deploy Kind Orchestrator (EMF baseline)
         id: deploy_emf
-        # Hard cap on the composite action step timeout, configured via workflow input.
+        # Hard cap on the deploy+wait timeout, configured via workflow input.
         timeout-minutes: ${{ fromJSON(env.WF_DEPLOYMENT_TIMEOUT) }}
-        uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@46120551e1854c9d8ad7339346fc68ec46d3a966
         env:
-          # EMF's kind deployment flow can optionally run a local docker-compose based
-          # router (Traefik) to expose services via hostnames. GitHub-hosted runners
-          # don't reliably provide a `docker-compose` binary, and the router isn't
-          # required for cluster-tests (we configure DNSmasq later).
-          SKIP_ROUTER: "1"
-          # Ensure EMF's mage targets don't enable kubectl debug output that can
-          # pollute JSON parsing in post-deploy generators.
-          MAGEFILE_DEBUG: "0"
-          # Best-effort: many EMF mage deploy/wait helpers honor DEPLOYMENT_TIMEOUT.
-          # Keep this aligned with the step timeout input (minutes -> Go duration string).
-          DEPLOYMENT_TIMEOUT: ${{ env.WF_DEPLOYMENT_TIMEOUT }}m
-          # Override DEPLOY_REPO_BRANCH so EMF's orchLocal mage target passes the
-          # correct EMF ref to ArgoCD's deployRepoRevision.
+          GIT_USER: "git"
+          GIT_TOKEN: ${{ env.SYS_EMF_GH_TOKEN }}
+          EDGE_MANAGEABILITY_FRAMEWORK_REV: ${{ env.WF_EMF_BRANCH }}
+          ORCH_DEFAULT_PASSWORD: ${{ env.ORCH_DEFAULT_PASSWORD }}
+          DOCKERHUB_TOKEN: ${{ env.SYS_DOCKERHUB_RO }}
+          DOCKERHUB_USERNAME: ${{ env.SYS_DOCKERHUB_USERNAME }}
+          DEPLOYMENT_TYPE: ${{ env.WF_ORCHESTRATOR_DEPLOYMENT_TYPE }}
+          # DEPLOY_REPO_BRANCH tells EMF's orchLocal mage target which git revision
+          # to pass to ArgoCD as argo.deployRepoRevision. Must be the EMF ref, NOT
+          # github.sha (which would be the cluster-tests SHA).
           DEPLOY_REPO_BRANCH: ${{ env.WF_EMF_BRANCH }}
-#          DOCKERHUB_USERNAME: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
-#          DOCKERHUB_TOKEN: ${{ secrets.SYS_DOCKERHUB_RO }}
-        with:
-          orch_version: ${{ env.WF_EMF_BRANCH }}
-          orch_password: ${{ env.ORCH_DEFAULT_PASSWORD }}
-          token: ${{ env.SYS_EMF_GH_TOKEN }}
-          deployment_type: ${{ env.WF_ORCHESTRATOR_DEPLOYMENT_TYPE }}
+          # Skip the docker-compose Traefik router; GitHub-hosted runners don't
+          # reliably have docker-compose and DNSmasq handles kind.internal routing.
+          SKIP_ROUTER: "1"
+          MAGEFILE_DEBUG: "0"
+          DEPLOYMENT_TIMEOUT: ${{ env.WF_DEPLOYMENT_TIMEOUT }}m
+        run: |
+          set -euo pipefail
+          echo "Starting to deploy Orchestrator..."
+          if [ "$DEPLOYMENT_TYPE" == "minimal" ]; then
+            echo "Deploying minimal Orchestrator setup..."
+            mage deploy:kindMinimal
+          else
+            echo "Deploying full Orchestrator setup..."
+            mage deploy:kindAll
+          fi
+          echo "Orchestrator deployment done!"
+          echo "Starting to verify Orchestrator deployment..."
+          mage deploy:waitUntilComplete
+          echo "Orchestrator deployment verified!"
+          mage router:stop router:start
+          echo "Router restarted"
+          # Populate /etc/hosts with Traefik-proxied orchestrator endpoint hostnames.
+          sudo awk -i inplace '/BEGIN ORCH DEVELOPMENT HOSTS/,/END ORCH DEVELOPMENT HOSTS/ { next } 1' /etc/hosts
+          sudo awk -i inplace '/BEGIN ORCH SRE DEVELOPMENT HOST/,/END ORCH SRE DEVELOPMENT HOST/ { next } 1' /etc/hosts
+          mage gen:hostfileTraefik | sudo tee -a /etc/hosts > /dev/null
+          echo "Updated Hostfile entries!"
+
+      - name: Get root-app status (deploy diagnostic)
+        if: ${{ failure() && steps.deploy_emf.conclusion != 'success' }}
+        run: |
+          echo "Root App Status:"
+          kubectl get pods -o wide -A || true
+          kubectl -n dev get applications root-app -o yaml || true
 
       - name: Load cluster-manager images into Kind (early)
         if: ${{ steps.deploy_emf.outcome == 'success' && steps.build_cm_images.conclusion == 'success' }}
