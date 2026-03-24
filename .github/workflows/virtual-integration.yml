@@ -28,10 +28,10 @@ on:
         type: string
         default: "cf1,cf3,cf4,cf9"
       deployment-timeout:
-        description: "EMF deployment timeout (Go duration, e.g. 3600s, 45m)"
+        description: "Deploy Kind Orchestrator timeout in minutes"
         required: true
         type: string
-        default: "30m"
+        default: "60"
 
       cluster-orch-git-ref:
         description: "Cluster-orch git refs (branch/tag/SHA), comma-separated, in order: cluster-manager,cluster-connect-gateway,intel-infra-provider"
@@ -68,7 +68,7 @@ jobs:
       WF_ORCHESTRATOR_DEPLOYMENT_TYPE: ${{ github.event_name == 'schedule' && 'minimal' || github.event.inputs.orchestrator-deployment-type || 'minimal' }}
       WF_EMF_BRANCH: ${{ github.event_name == 'schedule' && 'main' || github.event.inputs.emf-branch || 'main' }}
       WF_ROBOT_TAGS: ${{ github.event_name == 'schedule' && 'cf1,cf3,cf4,cf9' || github.event.inputs.robot-tags || 'cf1,cf3,cf4,cf9' }}
-      WF_DEPLOYMENT_TIMEOUT: ${{ github.event_name == 'schedule' && '30m' || github.event.inputs.deployment-timeout || '30m' }}
+      WF_DEPLOYMENT_TIMEOUT: ${{ github.event_name == 'schedule' && '60' || github.event.inputs.deployment-timeout || '60' }}
       WF_CLUSTER_ORCH_GIT_REF: ${{ github.event_name == 'schedule' && 'main,main,main' || github.event.inputs.cluster-orch-git-ref || 'main,main,main' }}
       # Scheduled runs should do up to 3 total attempts (initial + up to 2 retries).
       WF_GOLDEN_SUITE_RETRIES: ${{ github.event_name == 'schedule' && '2' || github.event.inputs.golden-suite-retries || '0' }}
@@ -416,6 +416,8 @@ jobs:
 
       - name: Deploy Kind Orchestrator (EMF baseline)
         id: deploy_emf
+        # Hard cap on the composite action step timeout, configured via workflow input.
+        timeout-minutes: ${{ fromJSON(env.WF_DEPLOYMENT_TIMEOUT) }}
         uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@46120551e1854c9d8ad7339346fc68ec46d3a966
         env:
           # EMF's kind deployment flow can optionally run a local docker-compose based
@@ -427,9 +429,11 @@ jobs:
           # pollute JSON parsing in post-deploy generators.
           MAGEFILE_DEBUG: "0"
           # Best-effort: many EMF mage deploy/wait helpers honor DEPLOYMENT_TIMEOUT.
-          # Setting this helps ensure the deploy action fails fast enough that we
-          # can run diagnostics steps (instead of hitting the job timeout).
-          DEPLOYMENT_TIMEOUT: ${{ env.WF_DEPLOYMENT_TIMEOUT }}
+          # Keep this aligned with the step timeout input (minutes -> Go duration string).
+          DEPLOYMENT_TIMEOUT: ${{ env.WF_DEPLOYMENT_TIMEOUT }}m
+          # Override DEPLOY_REPO_BRANCH so EMF's orchLocal mage target passes the
+          # correct EMF ref to ArgoCD's deployRepoRevision.
+          DEPLOY_REPO_BRANCH: ${{ env.WF_EMF_BRANCH }}
 #          DOCKERHUB_USERNAME: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
 #          DOCKERHUB_TOKEN: ${{ secrets.SYS_DOCKERHUB_RO }}
         with:
