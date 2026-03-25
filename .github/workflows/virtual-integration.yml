@@ -416,7 +416,7 @@ jobs:
 
       - name: Deploy Kind Orchestrator (EMF baseline)
         id: deploy_emf
-        uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@3a2d9869daa26e1925daf159dabb7307fc24e3ed
+        uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@46120551e1854c9d8ad7339346fc68ec46d3a966
         env:
           # EMF's kind deployment flow can optionally run a local docker-compose based
           # router (Traefik) to expose services via hostnames. GitHub-hosted runners
