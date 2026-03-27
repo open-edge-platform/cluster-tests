@@ -418,7 +418,7 @@ jobs:
         id: deploy_emf
         # Hard cap on the composite action step timeout, configured via workflow input.
         timeout-minutes: ${{ fromJSON(env.WF_DEPLOYMENT_TIMEOUT) }}
-        uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@46120551e1854c9d8ad7339346fc68ec46d3a966
+        uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@d5c1881292e7b2a4b5e0103ae0eb4bd2bfab5d77
         env:
           # EMF's kind deployment flow can optionally run a local docker-compose based
           # router (Traefik) to expose services via hostnames. GitHub-hosted runners
@@ -431,9 +431,6 @@ jobs:
           # Best-effort: many EMF mage deploy/wait helpers honor DEPLOYMENT_TIMEOUT.
           # Keep this aligned with the step timeout input (minutes -> Go duration string).
           DEPLOYMENT_TIMEOUT: ${{ env.WF_DEPLOYMENT_TIMEOUT }}m
-          # Override DEPLOY_REPO_BRANCH so EMF's orchLocal mage target passes the
-          # correct EMF ref to ArgoCD's deployRepoRevision.
-          DEPLOY_REPO_BRANCH: ${{ env.WF_EMF_BRANCH }}
 #          DOCKERHUB_USERNAME: ${{ secrets.SYS_DOCKERHUB_USERNAME }}
 #          DOCKERHUB_TOKEN: ${{ secrets.SYS_DOCKERHUB_RO }}
         with:
