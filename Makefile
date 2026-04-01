@@ -19,7 +19,7 @@ PROXY_ENV_FILE ?= $(HOME)/.config/cluster-tests/proxy.env
 
 CLUSTERCTL_VERSION = v1.11.5
 
-CAPI_K3S_FORK_REPO_URL ?=
+CAPI_K3S_FORK_REPO_URL ?= gist
 CAPI_K3S_VERSION ?= v100.0.0-dt
 CAPI_OPERATOR_HELM_VERSION ?= 0.24.0
 CAPI_K3S_INSTALL_STRATEGY ?= operator
@@ -32,6 +32,7 @@ CAPI_K3S_RENDERED_CONTROLPLANE_FILE ?= $(CAPI_K3S_RENDER_DIR)/control-plane-comp
 export CAPI_CORE_VERSION="v1.11.5"
 export CAPI_OPERATOR_HELM_VERSION
 export CAPI_K3S_VERSION
+export CAPI_K3S_FORK_REPO_URL
 
 # URL k3s official (default) 
 CAPI_K3S_OFFICIAL_BOOTSTRAP_URL = https://github.com/k3s-io/cluster-api-k3s/releases/download/$(CAPI_K3S_VERSION)/bootstrap-components.yaml
