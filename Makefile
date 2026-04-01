@@ -56,6 +56,7 @@ else
 endif
 
 # example of how to set the CAPI_K3S_FORK_REPO_URL
+# make test CAPI_K3S_FORK_REPO_URL=gist
 # make test CAPI_K3S_FORK_REPO_URL=https://github.com/jdanieck/cluster-api-k3s CAPI_K3S_VERSION=v0.2.2-dev-196ba04
 
 export CAPI_K3S_BOOTSTRAP_URL
