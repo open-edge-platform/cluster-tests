@@ -103,7 +103,7 @@ components:
   # Cluster Connect Gateway
   - name: cluster-connect-gateway
     skip-component: false
-    skip-local-build: false
+    skip-local-build: true
     pre-install-commands: []
     helm-repo:
       - url: "oci://registry-rs.edgeorchestration.intel.com"
@@ -122,7 +122,7 @@ components:
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/cluster-connect-gateway.git
-      version: ccg-capi-i89531
+      version: main
     make-directory: ""
     make-variables:
       - VERSION=v0.0.0
@@ -144,7 +144,7 @@ components:
   # Cluster Manager
   - name: cluster-manager
     skip-component: false
-    skip-local-build: false
+    skip-local-build: true
     pre-install-commands: []
     helm-repo:
       - url: "oci://registry-rs.edgeorchestration.intel.com"
