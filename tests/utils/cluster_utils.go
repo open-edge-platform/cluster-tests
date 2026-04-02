@@ -575,20 +575,42 @@ func GetClusterInfo(namespace, clusterName string) (*http.Response, error) {
 }
 
 // CheckAllComponentsReady verifies if all components in the cluster are ready.
+// Compatible with clusterctl describe output from CAPI ≤v1.10 and v1.11+.
+//
+// CAPI ≤v1.10: second field per row is "True"/"False" (the READY condition).
+// CAPI v1.11+: STATUS column contains "ConditionName: True" or "ConditionName: False".
+// The top-level Cluster row must show a True value before the cluster is considered ready.
 func CheckAllComponentsReady(output string) bool {
 	lines := strings.Split(output, "\n")
+	foundCluster := false
 	for _, line := range lines {
 		// Skip the header line
 		if strings.Contains(line, "NAME") && strings.Contains(line, "READY") {
 			continue
 		}
-		// Check if the line contains a "False" status in the "READY" column
-		fields := strings.Fields(line)
-		if (len(fields) > 1 && fields[1] == "False") || len(fields) == 1 {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		// Any component explicitly reporting False means not ready (covers both
+		// CAPI ≤v1.10 " False" in column 2 and v1.11+ "Condition: False" in STATUS).
+		if strings.Contains(line, ": False") || strings.Contains(line, " False") {
 			return false
 		}
+
+		// The top-level Cluster object's name begins with "Cluster/" (no tree prefix).
+		// It must have at least one True condition before we consider the cluster ready.
+		fields := strings.Fields(line)
+		if len(fields) > 0 && strings.HasPrefix(fields[0], "Cluster/") {
+			foundCluster = true
+			if !strings.Contains(line, ": True") && !strings.Contains(line, " True") {
+				return false
+			}
+		}
 	}
-	return true
+
+	// No top-level Cluster row seen yet — objects haven't been created.
+	return foundCluster
 }
 
 // FetchMetrics fetches the metrics from the /metrics endpoint.
