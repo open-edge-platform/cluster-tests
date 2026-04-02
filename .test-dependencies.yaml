@@ -144,7 +144,7 @@ components:
   # Cluster Manager
   - name: cluster-manager
     skip-component: false
-    skip-local-build: false
+    skip-local-build: true
     pre-install-commands: []
     helm-repo:
       - url: "oci://registry-rs.edgeorchestration.intel.com"
