@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -86,7 +87,8 @@ func waitForIntelMachines(namespace string) {
 		if err != nil {
 			return false
 		}
-		return string(output) > "0"
+		n, err := strconv.Atoi(strings.TrimSpace(string(output)))
+		return err == nil && n > 0
 	}, PortForwardTimeout, PortForwardInterval).Should(BeTrue())
 }
 
@@ -277,12 +279,15 @@ func waitForClusterReady(namespace string, clusterCreateStartTime time.Time) tim
 	waitForClusterComponentsReady(namespace)
 
 	By("Checking that connect agent metric shows a successful connection")
-	metrics, err := utils.FetchMetrics()
-	Expect(err).NotTo(HaveOccurred())
-	defer metrics.Close()
-	connectionSucceeded, err := utils.ParseMetrics(metrics)
-	Expect(err).NotTo(HaveOccurred())
-	Eventually(connectionSucceeded).Should(BeTrue())
+	Eventually(func() bool {
+		metrics, err := utils.FetchMetrics()
+		if err != nil {
+			return false
+		}
+		defer metrics.Close()
+		ok, err := utils.ParseMetrics(metrics)
+		return err == nil && ok
+	}, clusterReadinessTimeout(), ClusterReadinessInterval).Should(BeTrue())
 
 	clusterCreateEndTime := time.Now()
 	totalTime := clusterCreateEndTime.Sub(clusterCreateStartTime)
