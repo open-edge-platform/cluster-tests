@@ -241,7 +241,7 @@ jobs:
           # Some refs do not include vendor/ in the repo, but the Dockerfile expects it.
           # Generate vendor/ using the same Go version as the Dockerfile base image.
           if [ ! -d vendor ]; then
-            echo "vendor/ not found; generating via golang:1.25..." >&2
+            echo "vendor/ not found; generating via golang:1.26..." >&2
             # Important: run the container as the runner user so generated files aren't
             # owned by root (root-owned files can make later `actions/checkout clean:true`
             # fail with Permission denied on `git clean -ffdx`).
@@ -254,7 +254,7 @@ jobs:
               -e GH_TOKEN="${SYS_EMF_GH_TOKEN}" \
               -v "${PWD}:/workspace" \
               -w /workspace \
-              golang:1.25 \
+              golang:1.26 \
               bash -euo pipefail -c 'git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; go mod vendor'
           fi
 
@@ -310,7 +310,7 @@ jobs:
           echo "- ${AGENT_IMG}" >&2
 
           if [ ! -d vendor ]; then
-            echo "vendor/ not found; generating via golang:1.25..." >&2
+            echo "vendor/ not found; generating via golang:1.26..." >&2
             docker run --rm \
               --user "$(id -u):$(id -g)" \
               -e HOME=/tmp \
@@ -320,7 +320,7 @@ jobs:
               -e GH_TOKEN="${SYS_EMF_GH_TOKEN}" \
               -v "${PWD}:/workspace" \
               -w /workspace \
-              golang:1.25 \
+              golang:1.26 \
               bash -euo pipefail -c 'git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; go mod vendor'
           fi
 
@@ -372,7 +372,7 @@ jobs:
           echo "- ${SB_IMG}" >&2
 
           if [ ! -d vendor ]; then
-            echo "vendor/ not found; generating via golang:1.25..." >&2
+            echo "vendor/ not found; generating via golang:1.26..." >&2
             docker run --rm \
               --user "$(id -u):$(id -g)" \
               -e HOME=/tmp \
@@ -382,7 +382,7 @@ jobs:
               -e GH_TOKEN="${SYS_EMF_GH_TOKEN}" \
               -v "${PWD}:/workspace" \
               -w /workspace \
-              golang:1.25 \
+              golang:1.26 \
               bash -euo pipefail -c 'git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; go mod vendor'
           fi
 
