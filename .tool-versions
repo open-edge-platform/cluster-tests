@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
-golang 1.25.7
+golang 1.26.1
 golangci-lint 2.8.0
 kubectl 1.34.1
 mage 1.15.0
