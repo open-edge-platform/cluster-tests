@@ -5,7 +5,7 @@ go 1.26.1
 require (
 	github.com/bitfield/script v0.24.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/magefile/mage v1.17.0
+	github.com/magefile/mage v1.17.1
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/open-edge-platform/cluster-manager/v2 v2.2.7
