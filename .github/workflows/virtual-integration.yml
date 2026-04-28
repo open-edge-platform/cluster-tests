@@ -241,7 +241,7 @@ jobs:
           # Some refs do not include vendor/ in the repo, but the Dockerfile expects it.
           # Generate vendor/ using the same Go version as the Dockerfile base image.
           if [ ! -d vendor ]; then
-            echo "vendor/ not found; generating via golang:1.25..." >&2
+            echo "vendor/ not found; generating via golang:1.26..." >&2
             # Important: run the container as the runner user so generated files aren't
             # owned by root (root-owned files can make later `actions/checkout clean:true`
             # fail with Permission denied on `git clean -ffdx`).
@@ -254,7 +254,7 @@ jobs:
               -e GH_TOKEN="${SYS_EMF_GH_TOKEN}" \
               -v "${PWD}:/workspace" \
               -w /workspace \
-              golang:1.25 \
+              golang:1.26 \
               bash -euo pipefail -c 'git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; go mod vendor'
           fi
 
@@ -310,7 +310,7 @@ jobs:
           echo "- ${AGENT_IMG}" >&2
 
           if [ ! -d vendor ]; then
-            echo "vendor/ not found; generating via golang:1.25..." >&2
+            echo "vendor/ not found; generating via golang:1.26..." >&2
             docker run --rm \
               --user "$(id -u):$(id -g)" \
               -e HOME=/tmp \
@@ -320,7 +320,7 @@ jobs:
               -e GH_TOKEN="${SYS_EMF_GH_TOKEN}" \
               -v "${PWD}:/workspace" \
               -w /workspace \
-              golang:1.25 \
+              golang:1.26 \
               bash -euo pipefail -c 'git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; go mod vendor'
           fi
 
@@ -372,7 +372,7 @@ jobs:
           echo "- ${SB_IMG}" >&2
 
           if [ ! -d vendor ]; then
-            echo "vendor/ not found; generating via golang:1.25..." >&2
+            echo "vendor/ not found; generating via golang:1.26..." >&2
             docker run --rm \
               --user "$(id -u):$(id -g)" \
               -e HOME=/tmp \
@@ -382,7 +382,7 @@ jobs:
               -e GH_TOKEN="${SYS_EMF_GH_TOKEN}" \
               -v "${PWD}:/workspace" \
               -w /workspace \
-              golang:1.25 \
+              golang:1.26 \
               bash -euo pipefail -c 'git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; go mod vendor'
           fi
 
@@ -418,7 +418,7 @@ jobs:
         id: deploy_emf
         # Hard cap on the composite action step timeout, configured via workflow input.
         timeout-minutes: ${{ fromJSON(env.WF_DEPLOYMENT_TIMEOUT) }}
-        uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@cfbe1dcbe94b3308f20896f0be2149205e0bf8be
+        uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@16929a939441ce53e545b85862f1acaa29955732
         env:
           # EMF's kind deployment flow can optionally run a local docker-compose based
           # router (Traefik) to expose services via hostnames. GitHub-hosted runners
@@ -1304,7 +1304,7 @@ jobs:
 
       - name: Upload diagnostics
         if: ${{ failure() }}
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: golden-suite-report
           path: edge-manage-test-automation/robot_output/**/*
