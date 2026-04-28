@@ -19,29 +19,53 @@ PROXY_ENV_FILE ?= $(HOME)/.config/cluster-tests/proxy.env
 
 CLUSTERCTL_VERSION = v1.11.5
 
-CAPI_K3S_FORK_REPO_URL ?=
-CAPI_K3S_VERSION ?= v0.3.1
+CAPI_K3S_FORK_REPO_URL ?= gist
+CAPI_K3S_VERSION ?= v100.0.0-dt
 CAPI_OPERATOR_HELM_VERSION ?= 0.24.0
+CAPI_K3S_INSTALL_STRATEGY ?= operator
+CAPI_K3S_RENDER_DIR ?= /tmp/capi-k3s
+CAPI_K3S_RENDERED_OPERATOR_CONFIG ?= $(CAPI_K3S_RENDER_DIR)/capi-operator.yaml
+CAPI_K3S_RENDERED_BOOTSTRAP_FILE ?= $(CAPI_K3S_RENDER_DIR)/bootstrap-components.yaml
+CAPI_K3S_RENDERED_CONTROLPLANE_FILE ?= $(CAPI_K3S_RENDER_DIR)/control-plane-components.yaml
 
 # Providers versions/URLs as needed
 export CAPI_CORE_VERSION="v1.11.5"
-
 export CAPI_OPERATOR_HELM_VERSION
-export CAPI_K3S_BOOTSTRAP_URL
-export CAPI_K3S_CONTROLPLANE_URL
 export CAPI_K3S_VERSION
+export CAPI_K3S_FORK_REPO_URL
 
 # URL k3s official (default) 
 CAPI_K3S_OFFICIAL_BOOTSTRAP_URL = https://github.com/k3s-io/cluster-api-k3s/releases/download/$(CAPI_K3S_VERSION)/bootstrap-components.yaml
 CAPI_K3S_OFFICIAL_CONTROLPLANE_URL = https://github.com/k3s-io/cluster-api-k3s/releases/download/$(CAPI_K3S_VERSION)/control-plane-components.yaml
+
+# Gist URLs for the components.
+CAPI_K3S_GIST_BOOTSTRAP_URL = https://gist.githubusercontent.com/richardcase/d85564c8a8a62615b5e75fd98711dd22/raw/4eb2b29d785d4fdfbd22223517bc14482d0ba2ed/bootstrap-components.yaml
+CAPI_K3S_GIST_CONTROLPLANE_URL = https://gist.githubusercontent.com/richardcase/d85564c8a8a62615b5e75fd98711dd22/raw/81cbe33ddbda98c625ff1b6e7dd286b821487889/control-plane-components.yaml
+
 # URL for the forked repository if provided
 # If CAPI_K3S_FORK_REPO_URL is set, it will override the official URLs
-CAPI_K3S_BOOTSTRAP_URL = $(if $(CAPI_K3S_FORK_REPO_URL),$(CAPI_K3S_FORK_REPO_URL)/releases/$(CAPI_K3S_VERSION)/bootstrap-components.yaml,$(CAPI_K3S_OFFICIAL_BOOTSTRAP_URL))
-CAPI_K3S_CONTROLPLANE_URL = $(if $(CAPI_K3S_FORK_REPO_URL),$(CAPI_K3S_FORK_REPO_URL)/releases/$(CAPI_K3S_VERSION)/control-plane-components.yaml,$(CAPI_K3S_OFFICIAL_CONTROLPLANE_URL))
+ifeq ($(CAPI_K3S_FORK_REPO_URL),gist)
+	CAPI_K3S_BOOTSTRAP_URL := $(CAPI_K3S_GIST_BOOTSTRAP_URL)
+	CAPI_K3S_CONTROLPLANE_URL := $(CAPI_K3S_GIST_CONTROLPLANE_URL)
+	CAPI_K3S_INSTALL_STRATEGY := manifest
+else ifeq ($(CAPI_K3S_FORK_REPO_URL),)
+    CAPI_K3S_BOOTSTRAP_URL := $(CAPI_K3S_OFFICIAL_BOOTSTRAP_URL)
+    CAPI_K3S_CONTROLPLANE_URL := $(CAPI_K3S_OFFICIAL_CONTROLPLANE_URL)
+else
+	CAPI_K3S_BOOTSTRAP_URL := $(CAPI_K3S_FORK_REPO_URL)/releases/download/$(CAPI_K3S_VERSION)/bootstrap-components.yaml
+	CAPI_K3S_CONTROLPLANE_URL := $(CAPI_K3S_FORK_REPO_URL)/releases/download/$(CAPI_K3S_VERSION)/control-plane-components.yaml
+endif
 
 # example of how to set the CAPI_K3S_FORK_REPO_URL
+# make test CAPI_K3S_FORK_REPO_URL=gist
 # make test CAPI_K3S_FORK_REPO_URL=https://github.com/jdanieck/cluster-api-k3s CAPI_K3S_VERSION=v0.2.2-dev-196ba04
 
+export CAPI_K3S_BOOTSTRAP_URL
+export CAPI_K3S_CONTROLPLANE_URL
+export CAPI_K3S_INSTALL_STRATEGY
+export CAPI_K3S_RENDERED_OPERATOR_CONFIG
+export CAPI_K3S_RENDERED_BOOTSTRAP_FILE
+export CAPI_K3S_RENDERED_CONTROLPLANE_FILE
 
 # Set the default target
 .DEFAULT_GOAL := all
@@ -202,12 +226,53 @@ lint: deps ## Run linters
 	PATH=${ENV_PATH} mage lint:yaml
 
 .PHONY: render-capi-operator
-render-capi-operator:
-	envsubst < configs/capi-operator.yaml > /tmp/capi-operator.yaml
+
+.PHONY: render-capi-operator-config
+render-capi-operator-config:
+	@mkdir -p "$(CAPI_K3S_RENDER_DIR)"
+	@CAPI_K3S_BOOTSTRAP_URL="$(CAPI_K3S_BOOTSTRAP_URL)" \
+	CAPI_K3S_CONTROLPLANE_URL="$(CAPI_K3S_CONTROLPLANE_URL)" \
+	envsubst < configs/capi-operator.yaml > "$(CAPI_K3S_RENDERED_OPERATOR_CONFIG)"
+
+.PHONY: render-capi-operator
+render-capi-operator: render-capi-operator-config
+	@cp "$(CAPI_K3S_RENDERED_OPERATOR_CONFIG)" /tmp/capi-operator.yaml
+	@if [ "$(CAPI_K3S_INSTALL_STRATEGY)" = "manifest" ]; then \
+		awk 'BEGIN{skip=0} /^bootstrap:/ {skip=1; next} /^manager:/ {skip=0} { if (!skip) print }' /tmp/capi-operator.yaml > /tmp/capi-operator.yaml.tmp; \
+		mv /tmp/capi-operator.yaml.tmp /tmp/capi-operator.yaml; \
+	fi
+
+.PHONY: render-capi-k3s-components
+render-capi-k3s-components: render-capi-operator-config
+	@bootstrap_namespace="$$(sed -n '/^bootstrap:/,/^controlPlane:/ { /namespace:/ { s/.*namespace: *"\{0,1\}\([^\"]*\)"\{0,1\}.*/\1/p; q; } }' "$(CAPI_K3S_RENDERED_OPERATOR_CONFIG)")"; \
+	controlplane_namespace="$$(sed -n '/^controlPlane:/,/^manager:/ { /namespace:/ { s/.*namespace: *"\{0,1\}\([^\"]*\)"\{0,1\}.*/\1/p; q; } }' "$(CAPI_K3S_RENDERED_OPERATOR_CONFIG)")"; \
+	if [ -z "$$bootstrap_namespace" ] || [ -z "$$controlplane_namespace" ]; then \
+		echo "Failed to derive k3s namespaces from configs/capi-operator.yaml"; \
+		exit 1; \
+	fi; \
+	curl -fsSL "$(CAPI_K3S_BOOTSTRAP_URL)" -o "$(CAPI_K3S_RENDERED_BOOTSTRAP_FILE)"; \
+	curl -fsSL "$(CAPI_K3S_CONTROLPLANE_URL)" -o "$(CAPI_K3S_RENDERED_CONTROLPLANE_FILE)"; \
+	sed -i "s/capi-k3s-bootstrap-system/$$bootstrap_namespace/g" "$(CAPI_K3S_RENDERED_BOOTSTRAP_FILE)"; \
+	sed -i "s/capi-k3s-control-plane-system/$$controlplane_namespace/g" "$(CAPI_K3S_RENDERED_CONTROLPLANE_FILE)"; \
+	echo "Rendered bootstrap manifest: $(CAPI_K3S_RENDERED_BOOTSTRAP_FILE)"; \
+	echo "Rendered control-plane manifest: $(CAPI_K3S_RENDERED_CONTROLPLANE_FILE)"; \
+	echo "Bootstrap namespace: $$bootstrap_namespace"; \
+	echo "Control-plane namespace: $$controlplane_namespace"
+
+.PHONY: apply-capi-k3s-components
+apply-capi-k3s-components: render-capi-k3s-components
+	@bootstrap_namespace="$$(sed -n '/^bootstrap:/,/^controlPlane:/ { /namespace:/ { s/.*namespace: *"\{0,1\}\([^"]*\)"\{0,1\}.*/\1/p; q; } }' "$(CAPI_K3S_RENDERED_OPERATOR_CONFIG)")"; \
+	controlplane_namespace="$$(sed -n '/^controlPlane:/,/^manager:/ { /namespace:/ { s/.*namespace: *"\{0,1\}\([^"]*\)"\{0,1\}.*/\1/p; q; } }' "$(CAPI_K3S_RENDERED_OPERATOR_CONFIG)")"; \
+	kubectl apply --server-side -f "$(CAPI_K3S_RENDERED_CONTROLPLANE_FILE)"; \
+	kubectl apply --server-side -f "$(CAPI_K3S_RENDERED_BOOTSTRAP_FILE)"; \
+	until kubectl get -n "$$controlplane_namespace" deployment/capi-k3s-control-plane-controller-manager >/dev/null 2>&1; do sleep 1; done; \
+	until kubectl get -n "$$bootstrap_namespace" deployment/capi-k3s-bootstrap-controller-manager >/dev/null 2>&1; do sleep 1; done
 
 .PHONY: bootstrap
 bootstrap: deps ## Bootstrap the test environment before running tests
 	PATH=${ENV_PATH} \
+		CAPI_K3S_BOOTSTRAP_URL="$(CAPI_K3S_BOOTSTRAP_URL)" \
+		CAPI_K3S_CONTROLPLANE_URL="$(CAPI_K3S_CONTROLPLANE_URL)" \
 		EDGE_NODE_PROVIDER=$${EDGE_NODE_PROVIDER:-ven} \
 		VEN_BOOTSTRAP_CMD=$${VEN_BOOTSTRAP_CMD:-./scripts/ven/bootstrap_vm_cluster_agent.sh} \
 		DISABLE_AUTH=$${DISABLE_AUTH:-true} \
@@ -244,6 +309,8 @@ sync-cluster-templates: ## Fetch baseline cluster templates from upstream cluste
 .PHONY: test
 test: render-capi-operator bootstrap ## Runs cluster orch cluster api smoke tests. This step bootstraps the env before running the test
 	PATH=${ENV_PATH} \
+		CAPI_K3S_BOOTSTRAP_URL="$(CAPI_K3S_BOOTSTRAP_URL)" \
+		CAPI_K3S_CONTROLPLANE_URL="$(CAPI_K3S_CONTROLPLANE_URL)" \
 		EDGE_NODE_PROVIDER=$${EDGE_NODE_PROVIDER:-ven} \
 		VEN_BOOTSTRAP_CMD=$${VEN_BOOTSTRAP_CMD:-./scripts/ven/bootstrap_vm_cluster_agent.sh} \
 		DISABLE_AUTH=$${DISABLE_AUTH:-true} \
@@ -254,6 +321,8 @@ test: render-capi-operator bootstrap ## Runs cluster orch cluster api smoke test
 .PHONY: cluster-api-all-test
 cluster-api-all-test: bootstrap ## Runs cluster orch functional tests
 	PATH=${ENV_PATH} \
+		CAPI_K3S_BOOTSTRAP_URL="$(CAPI_K3S_BOOTSTRAP_URL)" \
+		CAPI_K3S_CONTROLPLANE_URL="$(CAPI_K3S_CONTROLPLANE_URL)" \
 		EDGE_NODE_PROVIDER=$${EDGE_NODE_PROVIDER:-ven} \
 		VEN_BOOTSTRAP_CMD=$${VEN_BOOTSTRAP_CMD:-./scripts/ven/bootstrap_vm_cluster_agent.sh} \
 		DISABLE_AUTH=$${DISABLE_AUTH:-true} \
@@ -272,6 +341,8 @@ template-api-all-test: ## Runs cluster orch template API all tests
 .PHONY: robustness-test
 robustness-test: bootstrap ## Runs cluster orch robustness tests
 	PATH=${ENV_PATH} \
+		CAPI_K3S_BOOTSTRAP_URL="$(CAPI_K3S_BOOTSTRAP_URL)" \
+		CAPI_K3S_CONTROLPLANE_URL="$(CAPI_K3S_CONTROLPLANE_URL)" \
 		EDGE_NODE_PROVIDER=$${EDGE_NODE_PROVIDER:-ven} \
 		VEN_BOOTSTRAP_CMD=$${VEN_BOOTSTRAP_CMD:-./scripts/ven/bootstrap_vm_cluster_agent.sh} \
 		DISABLE_AUTH=$${DISABLE_AUTH:-true} \
