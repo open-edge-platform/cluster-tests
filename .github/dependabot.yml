@@ -1,16 +1,13 @@
-# SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+# SPDX-FileCopyrightText: (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
 ---
 version: 2
 updates:
   - package-ecosystem: "gomod"
-    directories:
-      - "/"
+    directory: "/"
     schedule:
       interval: daily
-    cooldown:
-      default-days: 7
     open-pull-requests-limit: 10
     commit-message:
       prefix: "[gomod] "
@@ -18,8 +15,6 @@ updates:
     directory: "/"
     schedule:
       interval: daily
-    cooldown:
-      default-days: 7
     open-pull-requests-limit: 10
     commit-message:
       prefix: "[gha] "
