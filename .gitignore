@@ -32,3 +32,4 @@ configs/oidc-mock-dynamic.yaml
 
 # vEN bootstrap output (generated at runtime)
 .ven.env
+_local-repos/

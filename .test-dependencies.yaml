@@ -104,7 +104,8 @@ components:
   - name: cluster-connect-gateway
     skip-component: false
     skip-local-build: true
-    pre-install-commands: []
+    pre-install-commands:
+      - if kubectl get crd clusterconnects.cluster.edge-orchestrator.intel.com >/dev/null 2>&1; then kubectl label crd clusterconnects.cluster.edge-orchestrator.intel.com app.kubernetes.io/managed-by=Helm --overwrite && kubectl annotate crd clusterconnects.cluster.edge-orchestrator.intel.com meta.helm.sh/release-name=cluster-connect-gateway-crd meta.helm.sh/release-namespace=default --overwrite; fi
     helm-repo:
       - url: "oci://registry-rs.edgeorchestration.intel.com"
         release-name: "cluster-connect-gateway"
@@ -144,7 +145,7 @@ components:
   # Cluster Manager
   - name: cluster-manager
     skip-component: false
-    skip-local-build: true
+    skip-local-build: false
     pre-install-commands: []
     helm-repo:
       - url: "oci://registry-rs.edgeorchestration.intel.com"
@@ -163,7 +164,7 @@ components:
         overrides: ""
     git-repo:
       url: https://github.com/open-edge-platform/cluster-manager.git
-      version: main
+      version: bump-capi
     make-variables:
       - VERSION=v0.0.0
       - HELM_VERSION=v0.0.0
