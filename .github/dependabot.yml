@@ -7,19 +7,23 @@ updates:
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
       day: "monday"
       time: "03:00"
     open-pull-requests-limit: 10
     commit-message:
       prefix: "[gomod] "
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
       day: "wednesday"
       time: "03:00"
     open-pull-requests-limit: 10
     commit-message:
       prefix: "[gha] "
+    cooldown:
+      default-days: 7
