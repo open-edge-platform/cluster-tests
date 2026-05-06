@@ -20,7 +20,7 @@ PROXY_ENV_FILE ?= $(HOME)/.config/cluster-tests/proxy.env
 CLUSTERCTL_VERSION = v1.11.5
 
 CAPI_K3S_FORK_REPO_URL ?=
-CAPI_K3S_VERSION ?= v0.3.1
+CAPI_K3S_VERSION ?= v0.4.0
 CAPI_OPERATOR_HELM_VERSION ?= 0.24.0
 
 # Providers versions/URLs as needed
