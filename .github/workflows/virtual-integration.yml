@@ -418,7 +418,7 @@ jobs:
         id: deploy_emf
         # Hard cap on the composite action step timeout, configured via workflow input.
         timeout-minutes: ${{ fromJSON(env.WF_DEPLOYMENT_TIMEOUT) }}
-        uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@cfa58efc41058f453d03efb3332f4c5dec86449d
+        uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@571b5a570cb5583e152ae1db0e3ea432fd1dc1cb
         env:
           # EMF's kind deployment flow can optionally run a local docker-compose based
           # router (Traefik) to expose services via hostnames. GitHub-hosted runners
