@@ -439,6 +439,18 @@ jobs:
           token: ${{ env.SYS_EMF_GH_TOKEN }}
           deployment_type: ${{ env.WF_ORCHESTRATOR_DEPLOYMENT_TYPE }}
 
+      - name: Upload EMF deploy diagnostics (on deploy_emf failure)
+        if: ${{ always() && steps.deploy_emf.conclusion != 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: deploy_emf-diagnostics
+          path: |
+            diag-logs/**
+            mage/diag-logs/**
+            emf/diag-logs/**
+            *.log
+          if-no-files-found: warn
+
       - name: Load cluster-manager images into Kind (early)
         if: ${{ steps.deploy_emf.outcome == 'success' && steps.build_cm_images.conclusion == 'success' }}
         id: preload_cm_images
