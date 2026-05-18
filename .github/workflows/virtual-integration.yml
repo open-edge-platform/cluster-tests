@@ -439,6 +439,32 @@ jobs:
           token: ${{ env.SYS_EMF_GH_TOKEN }}
           deployment_type: ${{ env.WF_ORCHESTRATOR_DEPLOYMENT_TYPE }}
 
+      - name: Collect EMF live cluster state (always)
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          mkdir -p diag-logs/live-cluster
+          # Export kind kubeconfig if available; ignore failures.
+          kind export kubeconfig --name kind >/dev/null 2>&1 || true
+
+          kubectl get nodes -o wide > diag-logs/live-cluster/nodes.txt 2>&1 || true
+          kubectl get pods -A -o wide > diag-logs/live-cluster/pods-all.txt 2>&1 || true
+          kubectl get pods -A -o json > diag-logs/live-cluster/pods-all.json 2>&1 || true
+          kubectl get svc -A -o wide > diag-logs/live-cluster/services-all.txt 2>&1 || true
+          kubectl get events -A --sort-by=.lastTimestamp > diag-logs/live-cluster/events-all.txt 2>&1 || true
+
+          if command -v jq >/dev/null 2>&1; then
+            kubectl get pods -A -o json \
+              | jq -r '.items[] | select(((.status.conditions // []) | map(select(.type=="Ready" and .status=="True")) | length) == 0) | .metadata.namespace + "/" + .metadata.name' \
+              | head -n 20 \
+              | while read -r p; do
+                  ns="${p%%/*}"; name="${p##*/}"
+                  echo "===== describe ${p} =====" >> diag-logs/live-cluster/non-ready-pods.txt
+                  kubectl -n "${ns}" describe pod "${name}" >> diag-logs/live-cluster/non-ready-pods.txt 2>&1 || true
+                  kubectl -n "${ns}" logs "${name}" --all-containers --tail=300 >> diag-logs/live-cluster/${ns}_${name}.logs.txt 2>&1 || true
+                done
+          fi
+
       - name: Upload EMF deploy diagnostics (on deploy_emf failure)
         if: ${{ always() && steps.deploy_emf.conclusion != 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -446,9 +472,19 @@ jobs:
           name: deploy_emf-diagnostics
           path: |
             diag-logs/**
+            pod_logs/**
             mage/diag-logs/**
             emf/diag-logs/**
+            emf/pod_logs/**
+            diagnostics_full_*
+            diagnostics_full_*.md
+            diagnostics_full_*.json
+            diagnostics_full_*.html
+            mage/*_mt_debug/**
+            emf/*_mt_debug/**
             *.log
+            *.tgz
+            *.tar.gz
           if-no-files-found: warn
 
       - name: Load cluster-manager images into Kind (early)
@@ -1320,3 +1356,25 @@ jobs:
         with:
           name: golden-suite-report
           path: edge-manage-test-automation/robot_output/**/*
+
+      - name: Upload EMF diagnostics (on any failure)
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: emf-diagnostics
+          path: |
+            diag-logs/**
+            pod_logs/**
+            mage/diag-logs/**
+            emf/diag-logs/**
+            emf/pod_logs/**
+            diagnostics_full_*
+            diagnostics_full_*.md
+            diagnostics_full_*.json
+            diagnostics_full_*.html
+            mage/*_mt_debug/**
+            emf/*_mt_debug/**
+            *.log
+            *.tgz
+            *.tar.gz
+          if-no-files-found: warn
