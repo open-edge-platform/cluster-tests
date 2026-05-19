@@ -1258,6 +1258,37 @@ jobs:
               || echo "  (no pods found for label: ${label})"
           done
 
+      - name: Wait for project watcher workloads
+        if: ${{ steps.default-mt-setup.conclusion == 'success' && steps.pin-cluster-orch.conclusion == 'success' }}
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          kind export kubeconfig --name "${KIND_CLUSTER_NAME}"
+
+          # CF-1 project creation waits for these watchers to acknowledge the new project.
+          # After pinning/restarting cluster-orch components, the downstream workloads can lag
+          # behind the three core Applications we already wait on.
+          workloads=(
+            "statefulset orch-platform keycloak-tenant-controller-set"
+            "deployment orch-app app-orch-tenant-controller"
+            "deployment orch-app app-deployment-manager"
+            "deployment orch-ui metadata-broker-orch-metadata-broker"
+            "deployment orch-cluster cluster-manager"
+            "deployment orch-infra tenant-controller"
+          )
+
+          for workload in "${workloads[@]}"; do
+            read -r kind namespace name <<<"${workload}"
+            echo "Waiting for ${kind}/${name} in ${namespace}..." >&2
+            if ! kubectl -n "${namespace}" rollout status "${kind}/${name}" --timeout=8m; then
+              echo "::error::Timed out waiting for ${kind}/${name} in ${namespace}" >&2
+              kubectl -n "${namespace}" get "${kind}/${name}" -o wide >&2 || true
+              kubectl -n "${namespace}" describe "${kind}/${name}" >&2 || true
+              kubectl -n "${namespace}" get pods -o wide >&2 || true
+              exit 1
+            fi
+          done
+
       - name: Checkout edge-manage-test-automation
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
