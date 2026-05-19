@@ -1292,19 +1292,61 @@ jobs:
           # The tenancy.NewPoller (orch-library) runs Phase 1 (replay of all existing
           # org/project events via HandleEvent) before entering Phase 2 (5s steady-state
           # polling). Until replay completes, new projects created by CF-1 won't be
-          # processed by cluster-manager. Replay can be slow if HandleEvent retries
-          # (e.g. connect-gateway / intel-infra-provider are also restarting at the same
-          # time and cluster-manager depends on them during project reconciliation).
+          # processed by cluster-manager.
           #
+          # Root cause: cluster-manager PR #463 replaced the Nexus subscription watcher
+          # with tenancy.NewPoller, which polls http://tenancy-manager.orch-iam:8080 for
+          # events. The tenancy-manager pod runs in orch-iam but the EMF deployment does
+          # NOT create a Kubernetes Service for it (only svc-iam-nexus-api-gw exists).
+          # Without a Service object the DNS lookup fails permanently, the poller stays
+          # stuck in Phase 1 forever, and no new projects are ever acknowledged.
+          #
+          # Fix: create the missing tenancy-manager Service in orch-iam so DNS resolves,
+          # then restart cluster-manager so the poller starts fresh with working DNS.
+          echo "Creating tenancy-manager Service in orch-iam (missing from EMF deployment)..." >&2
+          kubectl -n orch-iam apply -f - <<'MANIFEST'
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: tenancy-manager
+            namespace: orch-iam
+          spec:
+            selector:
+              app: tenancy-manager
+            ports:
+              - name: http
+                port: 8080
+                targetPort: 8080
+          MANIFEST
+          echo "tenancy-manager Service applied." >&2
+
+          echo "Restarting cluster-manager now that tenancy-manager Service exists..." >&2
+          kubectl -n orch-cluster get deploy -o name \
+            | grep 'cluster-manager' \
+            | while read -r d; do
+                echo "  Rolling restart: orch-cluster/${d}" >&2
+                kubectl -n orch-cluster rollout restart "${d}"
+              done
+
+          echo "Waiting for cluster-manager rollout (second start)..." >&2
+          kubectl -n orch-cluster get deploy -o name \
+            | grep 'cluster-manager' \
+            | while read -r d; do
+                if ! kubectl -n orch-cluster rollout status "${d}" --timeout=5m; then
+                  echo "::error::cluster-manager rollout (second start) did not complete: ${d}" >&2
+                  exit 1
+                fi
+              done
+
           # Wait for the exact log line emitted by poller.go Run() after Phase 1:
           #   "tenancy poller replay complete: controller=cluster-manager lastEventId=N"
-          #
+          # Use `deployment/cluster-manager` (not a label selector) so we always target
+          # the correct pod regardless of what labels the Helm chart applies.
           echo "Waiting for cluster-manager tenancy poller replay to complete..." >&2
-          cm_replay_deadline=$(( $(date +%s) + 8*60 ))
+          cm_replay_deadline=$(( $(date +%s) + 5*60 ))
           while true; do
-            if kubectl -n orch-cluster logs \
-                -l app=cluster-manager-cm \
-                --tail=500 --since=600s 2>/dev/null \
+            if kubectl -n orch-cluster logs deployment/cluster-manager \
+                --tail=500 --since=300s 2>/dev/null \
                 | grep -q "tenancy poller replay complete"; then
               echo "cluster-manager tenancy poller replay is complete." >&2
               break
@@ -1312,7 +1354,7 @@ jobs:
             if [[ $(date +%s) -ge ${cm_replay_deadline} ]]; then
               echo "::error::Timed out waiting for cluster-manager tenancy poller replay" >&2
               echo "Last 100 log lines from cluster-manager:" >&2
-              kubectl -n orch-cluster logs -l app=cluster-manager-cm --tail=100 2>&1 || true
+              kubectl -n orch-cluster logs deployment/cluster-manager --tail=100 2>&1 || true
               exit 1
             fi
             sleep 5
