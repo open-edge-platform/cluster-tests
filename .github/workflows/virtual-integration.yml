@@ -1289,6 +1289,35 @@ jobs:
             fi
           done
 
+          # The tenancy.NewPoller (orch-library) runs Phase 1 (replay of all existing
+          # org/project events via HandleEvent) before entering Phase 2 (5s steady-state
+          # polling). Until replay completes, new projects created by CF-1 won't be
+          # processed by cluster-manager. Replay can be slow if HandleEvent retries
+          # (e.g. connect-gateway / intel-infra-provider are also restarting at the same
+          # time and cluster-manager depends on them during project reconciliation).
+          #
+          # Wait for the exact log line emitted by poller.go Run() after Phase 1:
+          #   "tenancy poller replay complete: controller=cluster-manager lastEventId=N"
+          #
+          echo "Waiting for cluster-manager tenancy poller replay to complete..." >&2
+          cm_replay_deadline=$(( $(date +%s) + 8*60 ))
+          while true; do
+            if kubectl -n orch-cluster logs \
+                -l app=cluster-manager-cm \
+                --tail=500 --since=600s 2>/dev/null \
+                | grep -q "tenancy poller replay complete"; then
+              echo "cluster-manager tenancy poller replay is complete." >&2
+              break
+            fi
+            if [[ $(date +%s) -ge ${cm_replay_deadline} ]]; then
+              echo "::error::Timed out waiting for cluster-manager tenancy poller replay" >&2
+              echo "Last 100 log lines from cluster-manager:" >&2
+              kubectl -n orch-cluster logs -l app=cluster-manager-cm --tail=100 2>&1 || true
+              exit 1
+            fi
+            sleep 5
+          done
+
       - name: Checkout edge-manage-test-automation
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
