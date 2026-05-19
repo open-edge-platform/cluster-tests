@@ -1320,6 +1320,38 @@ jobs:
           MANIFEST
           echo "tenancy-manager Service applied." >&2
 
+          # Wait for the tenancy-manager deployment itself to be fully rolled out so
+          # the pod passes its readiness probe (/healthz, initialDelaySeconds=10) and
+          # kube-proxy registers at least one ready endpoint behind the new Service.
+          # Without this, cluster-manager's first replay attempt fires immediately after
+          # its own startup and hits "503 connection refused" (no ready endpoints yet).
+          echo "Waiting for tenancy-manager deployment to be ready..." >&2
+          if kubectl -n orch-iam get deployment tenancy-manager >/dev/null 2>&1; then
+            kubectl -n orch-iam rollout status deployment/tenancy-manager --timeout=5m
+          else
+            echo "::warning::deployment/tenancy-manager not found in orch-iam; skipping rollout wait" >&2
+          fi
+
+          # Verify the Service has at least one ready endpoint before proceeding.
+          echo "Waiting for tenancy-manager Service endpoints to be ready..." >&2
+          ep_deadline=$(( $(date +%s) + 60 ))
+          while true; do
+            ready_ips="$(kubectl -n orch-iam get endpoints tenancy-manager \
+              -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null || true)"
+            if [ -n "${ready_ips}" ]; then
+              echo "tenancy-manager Service has ready endpoints: ${ready_ips}" >&2
+              break
+            fi
+            if [[ $(date +%s) -ge ${ep_deadline} ]]; then
+              echo "::error::Timed out waiting for tenancy-manager Service endpoints" >&2
+              kubectl -n orch-iam get endpoints tenancy-manager -o yaml >&2 || true
+              kubectl -n orch-iam get pods -l app=tenancy-manager -o wide >&2 || true
+              exit 1
+            fi
+            echo "  No ready endpoints yet, retrying..." >&2
+            sleep 5
+          done
+
           echo "Restarting cluster-manager now that tenancy-manager Service exists..." >&2
           kubectl -n orch-cluster get deploy -o name \
             | grep 'cluster-manager' \
