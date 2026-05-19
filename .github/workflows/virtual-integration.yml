@@ -418,7 +418,7 @@ jobs:
         id: deploy_emf
         # Hard cap on the composite action step timeout, configured via workflow input.
         timeout-minutes: ${{ fromJSON(env.WF_DEPLOYMENT_TIMEOUT) }}
-        uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@5d84d7d5a5df8d1340715c5b8ad8ae30803c9ffc
+        uses: open-edge-platform/edge-manageability-framework/.github/actions/deploy_kind@571b5a570cb5583e152ae1db0e3ea432fd1dc1cb
         env:
           # EMF's kind deployment flow can optionally run a local docker-compose based
           # router (Traefik) to expose services via hostnames. GitHub-hosted runners
@@ -439,13 +439,40 @@ jobs:
           token: ${{ env.SYS_EMF_GH_TOKEN }}
           deployment_type: ${{ env.WF_ORCHESTRATOR_DEPLOYMENT_TYPE }}
 
+      - name: Detect Kind cluster name (post EMF deploy_kind)
+        if: ${{ steps.deploy_emf.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+
+          mapfile -t kind_clusters < <(kind get clusters 2>/dev/null || true)
+          if [ "${#kind_clusters[@]}" -eq 0 ]; then
+            echo "::error::No Kind clusters found after EMF deploy_kind" >&2
+            exit 1
+          fi
+
+          # Backward-compatible preference: use 'kind' when present.
+          selected_cluster="${kind_clusters[0]}"
+          for c in "${kind_clusters[@]}"; do
+            if [ "${c}" = "kind" ]; then
+              selected_cluster="kind"
+              break
+            fi
+          done
+
+          echo "Detected Kind clusters: ${kind_clusters[*]}"
+          echo "Using Kind cluster: ${selected_cluster}"
+          echo "KIND_CLUSTER_NAME=${selected_cluster}" >> "$GITHUB_ENV"
+
+          # Prime kubeconfig for subsequent kubectl commands.
+          kind export kubeconfig --name "${selected_cluster}"
+
       - name: Collect EMF live cluster state (always)
         if: ${{ always() }}
         run: |
           set -euo pipefail
           mkdir -p diag-logs/live-cluster
           # Export kind kubeconfig if available; ignore failures.
-          kind export kubeconfig --name kind >/dev/null 2>&1 || true
+          kind export kubeconfig --name "${KIND_CLUSTER_NAME:-kind}" >/dev/null 2>&1 || true
 
           kubectl get nodes -o wide > diag-logs/live-cluster/nodes.txt 2>&1 || true
           kubectl get pods -A -o wide > diag-logs/live-cluster/pods-all.txt 2>&1 || true
@@ -499,9 +526,9 @@ jobs:
           test -n "${CM_IMG}"
           test -n "${TC_IMG}"
 
-          kind export kubeconfig --name kind
-          kind load docker-image "${CM_IMG}" --name kind
-          kind load docker-image "${TC_IMG}" --name kind
+          kind export kubeconfig --name "${KIND_CLUSTER_NAME}"
+          kind load docker-image "${CM_IMG}" --name "${KIND_CLUSTER_NAME}"
+          kind load docker-image "${TC_IMG}" --name "${KIND_CLUSTER_NAME}"
 
       - name: Load cluster-connect-gateway images into Kind (early)
         if: ${{ steps.deploy_emf.outcome == 'success' && steps.build_ccg_images.conclusion == 'success' }}
@@ -517,10 +544,10 @@ jobs:
           test -n "${GW_IMG}"
           test -n "${AGENT_IMG}"
 
-          kind export kubeconfig --name kind
-          kind load docker-image "${CTRL_IMG}" --name kind
-          kind load docker-image "${GW_IMG}" --name kind
-          kind load docker-image "${AGENT_IMG}" --name kind
+          kind export kubeconfig --name "${KIND_CLUSTER_NAME}"
+          kind load docker-image "${CTRL_IMG}" --name "${KIND_CLUSTER_NAME}"
+          kind load docker-image "${GW_IMG}" --name "${KIND_CLUSTER_NAME}"
+          kind load docker-image "${AGENT_IMG}" --name "${KIND_CLUSTER_NAME}"
 
       - name: Load cluster-api-provider-intel images into Kind (early)
         if: ${{ steps.deploy_emf.outcome == 'success' && steps.build_capi_images.conclusion == 'success' }}
@@ -534,15 +561,15 @@ jobs:
           test -n "${MGR_IMG}"
           test -n "${SB_IMG}"
 
-          kind export kubeconfig --name kind
-          kind load docker-image "${MGR_IMG}" --name kind
-          kind load docker-image "${SB_IMG}" --name kind
+          kind export kubeconfig --name "${KIND_CLUSTER_NAME}"
+          kind load docker-image "${MGR_IMG}" --name "${KIND_CLUSTER_NAME}"
+          kind load docker-image "${SB_IMG}" --name "${KIND_CLUSTER_NAME}"
 
       - name: Validate Orchestrator endpoints (post EMF deploy_kind)
         run: |
           set -euo pipefail
 
-          kind export kubeconfig --name kind
+          kind export kubeconfig --name "${KIND_CLUSTER_NAME}"
 
           # Wait for API connectivity.
           for i in {1..60}; do
@@ -605,7 +632,7 @@ jobs:
         run: |
           # dnsmasq-setup.sh "config" needs kubectl access and expects the orchestrator
           # LoadBalancer services (argocd/orch-boots/orch-gateway) to exist.
-          kind export kubeconfig --name kind
+          kind export kubeconfig --name "${KIND_CLUSTER_NAME}"
 
           # Wait for kube-apiserver connectivity (avoids kubectl falling back to localhost:8080).
           for i in {1..60}; do
@@ -670,7 +697,7 @@ jobs:
           CLUSTER_ORCH_GIT_REF: ${{ env.WF_CLUSTER_ORCH_GIT_REF }}
         run: |
           set -euo pipefail
-          kind export kubeconfig --name kind
+          kind export kubeconfig --name "${KIND_CLUSTER_NAME}"
           mkdir -p diag-logs/cluster-orch-revision
           echo "Cluster-orch git ref override: ${CLUSTER_ORCH_GIT_REF}" | tee diag-logs/cluster-orch-revision/inputs.txt
 
@@ -1002,7 +1029,7 @@ jobs:
         if: ${{ steps.pin-cluster-orch.conclusion == 'success' }}
         run: |
           set -euo pipefail
-          kind export kubeconfig --name kind
+          kind export kubeconfig --name "${KIND_CLUSTER_NAME}"
 
           apps_ns="${CLUSTER_ORCH_APPS_NS}"
           apps=(
@@ -1054,7 +1081,7 @@ jobs:
         if: ${{ steps.pin-cluster-orch.conclusion == 'success' && steps.preload_cm_images.conclusion == 'success' }}
         run: |
           set -euo pipefail
-          kind export kubeconfig --name kind
+          kind export kubeconfig --name "${KIND_CLUSTER_NAME}"
 
           # Restart cluster-manager deployments so they pick up the now-available images quickly.
           kubectl -n orch-cluster get deploy -o name | grep -E 'cluster-manager' | while read -r d; do
@@ -1066,7 +1093,7 @@ jobs:
         if: ${{ steps.pin-cluster-orch.conclusion == 'success' && steps.preload_ccg_images.conclusion == 'success' }}
         run: |
           set -euo pipefail
-          kind export kubeconfig --name kind
+          kind export kubeconfig --name "${KIND_CLUSTER_NAME}"
 
           kubectl -n orch-cluster get deploy -o name | grep -E 'connect-' | while read -r d; do
             echo "Restarting: orch-cluster/${d}" >&2
@@ -1077,7 +1104,7 @@ jobs:
         if: ${{ steps.pin-cluster-orch.conclusion == 'success' && steps.preload_capi_images.conclusion == 'success' }}
         run: |
           set -euo pipefail
-          kind export kubeconfig --name kind
+          kind export kubeconfig --name "${KIND_CLUSTER_NAME}"
 
           kubectl -n orch-cluster get deploy -o name | grep -E 'intel-infra-provider' | while read -r d; do
             echo "Restarting: orch-cluster/${d}" >&2
@@ -1089,7 +1116,7 @@ jobs:
         timeout-minutes: 10
         run: |
           set -euo pipefail
-          kind export kubeconfig --name kind
+          kind export kubeconfig --name "${KIND_CLUSTER_NAME}"
 
           # Use the namespace detected and persisted in the patch step.
           apps_ns="${CLUSTER_ORCH_APPS_NS}"
