@@ -3,7 +3,7 @@ module github.com/open-edge-platform/cluster-tests
 go 1.26.3
 
 require (
-	github.com/bitfield/script v0.24.1
+	github.com/bitfield/script v0.24.3
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/magefile/mage v1.17.2
 	github.com/onsi/ginkgo/v2 v2.28.3
