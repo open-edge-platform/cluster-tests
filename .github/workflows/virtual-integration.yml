@@ -81,7 +81,7 @@ jobs:
 
     steps:
       - name: Checkout cluster-tests
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -152,7 +152,7 @@ jobs:
             xz-utils \
             zlib1g-dev
       - name: Checkout EMF (ci/ven scripts)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           repository: open-edge-platform/edge-manageability-framework
           ref: ${{ env.WF_EMF_BRANCH }}
@@ -199,7 +199,7 @@ jobs:
           /usr/local/bin/argocd version --client
 
       - name: Checkout cluster-manager (for early image build)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           repository: open-edge-platform/cluster-manager
           ref: ${{ env.CLUSTER_MANAGER_GIT_REF }}
@@ -269,7 +269,7 @@ jobs:
           sudo rm -rf cluster-manager-src >/dev/null 2>&1 || rm -rf cluster-manager-src || true
 
       - name: Checkout cluster-connect-gateway (for early image build)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           repository: open-edge-platform/cluster-connect-gateway
           ref: ${{ env.CLUSTER_CONNECT_GATEWAY_GIT_REF }}
@@ -334,7 +334,7 @@ jobs:
           sudo rm -rf cluster-connect-gateway-src >/dev/null 2>&1 || rm -rf cluster-connect-gateway-src || true
 
       - name: Checkout cluster-api-provider-intel (for early image build)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           repository: open-edge-platform/cluster-api-provider-intel
           ref: ${{ env.INTEL_INFRA_PROVIDER_GIT_REF }}
@@ -1184,7 +1184,7 @@ jobs:
           done
 
       - name: Checkout edge-manage-test-automation
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           repository: open-edge-platform/edge-manage-test-automation
           ref: '0.3.3'
